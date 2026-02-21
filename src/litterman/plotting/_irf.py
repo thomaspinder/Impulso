@@ -1,0 +1,1 @@
+"""Impulse response function plots."""

@@ -1,0 +1,83 @@
+site_name: litterman
+repo_url: https://github.com/thomaspinder/litterman
+site_url: https://thomaspinder.github.io/litterman
+site_description: Bayesian Vector Autoregression (VAR) in Python.
+site_author: Thomas Pinder
+edit_uri: edit/main/docs/
+repo_name: thomaspinder/litterman
+copyright: Maintained by <a href="https://thomaspinder.com">thomaspinder</a>.
+
+nav:
+  - Home: index.md
+  - Tutorials:
+    - tutorials/index.md
+  - How-To Guides:
+    - how-to/index.md
+    - how-to/data-preparation.md
+  - Explanation:
+    - explanation/index.md
+  - Reference:
+    - reference/index.md
+    - reference/data.md
+
+plugins:
+  - search
+  - mkdocs-jupyter:
+      include_source: true
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["src"]
+          options:
+            docstring_style: google
+            show_source: false
+            heading_level: 2
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.footer
+    - navigation.top
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/thomaspinder/litterman
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/litterman
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
