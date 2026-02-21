@@ -60,6 +60,9 @@ python-version = "3.10"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests that run MCMC sampling (deselect with '-m \"not slow\"')",
+]
 
 [tool.ruff]
 target-version = "py310"
