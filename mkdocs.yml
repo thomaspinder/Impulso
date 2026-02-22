@@ -41,6 +41,7 @@ nav:
 plugins:
   - search
   - mkdocs-jupyter:
+      execute: true
       include_source: true
   - mkdocstrings:
       handlers:
