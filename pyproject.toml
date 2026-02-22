@@ -65,6 +65,9 @@ python-version = "3.10"
 # (__getattr__, symbolic ops) that static analysis cannot resolve.
 unresolved-attribute = "ignore"
 not-subscriptable = "ignore"
+# pandas type stubs on 3.10 reject list[str]/list[int] for index/columns
+# params (expects Axes type), but this works fine at runtime.
+invalid-argument-type = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
