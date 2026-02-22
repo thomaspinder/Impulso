@@ -9,7 +9,7 @@ import sys
 
 
 def run(cmd: str) -> str:
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)  # noqa: S602
     if result.returncode != 0:
         print(f"Error running: {cmd}\n{result.stderr}", file=sys.stderr)
         sys.exit(1)
