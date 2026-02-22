@@ -10,6 +10,9 @@ df = pd.read_csv("macro_data.csv", index_col="date", parse_dates=True)
 data = VARData.from_df(df, endog=["gdp", "inflation", "rate"])
 
 fitted = VAR(lags="bic", prior="minnesota").fit(data)
+forecast = fitted.forecast(steps=8)
+forecast.median()  # point forecasts
+forecast.hdi()     # credible intervals
 ```
 
 ## Features
@@ -20,6 +23,7 @@ fitted = VAR(lags="bic", prior="minnesota").fit(data)
 - **Minnesota prior** — smart defaults with tunable hyperparameters for shrinkage
 - **Automatic lag selection** — AIC, BIC, and Hannan-Quinn criteria
 - **PyMC backend** — full Bayesian estimation with NUTS sampling
+- **Probabilistic forecasts** — posterior median, HDI credible intervals, tidy DataFrames
 
 ## Installation
 

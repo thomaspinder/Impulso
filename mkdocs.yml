@@ -12,6 +12,7 @@ nav:
   - Tutorials:
     - tutorials/index.md
     - tutorials/quickstart.ipynb
+    - tutorials/forecasting.ipynb
   - How-To Guides:
     - how-to/index.md
     - how-to/data-preparation.md

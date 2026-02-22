@@ -62,6 +62,46 @@ class VARResultBase(BaseModel):
         return f"{self.__class__.__name__}()"
 
 
+class ForecastResult(VARResultBase):
+    """Result from VAR forecasting.
+
+    Attributes:
+        idata: ArviZ InferenceData with forecast draws.
+        steps: Number of forecast steps.
+        var_names: Names of forecasted variables.
+    """
+
+    steps: int
+    var_names: list[str]
+
+    def median(self) -> pd.DataFrame:
+        """Posterior median forecast."""
+        forecast = self.idata.posterior_predictive["forecast"]
+        med = forecast.median(dim=("chain", "draw")).values
+        return pd.DataFrame(med, columns=self.var_names)
+
+    def hdi(self, prob: float = 0.89) -> HDIResult:
+        """HDI for forecast."""
+        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["forecast"]
+        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values, columns=self.var_names)
+        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values, columns=self.var_names)
+        return HDIResult(lower=lower, upper=upper, prob=prob)
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert to long-format DataFrame."""
+        forecast = self.idata.posterior_predictive["forecast"]
+        med = forecast.median(dim=("chain", "draw")).values
+        df = pd.DataFrame(med, columns=self.var_names)
+        df.index.name = "step"
+        return df
+
+    def plot(self) -> Figure:
+        """Plot forecast fan chart."""
+        from litterman.plotting import plot_forecast
+
+        return plot_forecast(self)
+
+
 class LagOrderResult(BaseModel):
     """Result from lag order selection.
 
