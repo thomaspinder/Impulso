@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from litterman.data import VARData
 
@@ -55,7 +56,7 @@ class TestVARDataConstruction:
             endog_names=endog_names,
             index=sample_index,
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             data.endog = np.zeros((100, 3))
 
     def test_arrays_not_writeable(self, sample_endog, sample_index, endog_names):

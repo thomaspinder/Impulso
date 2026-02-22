@@ -11,7 +11,7 @@ from typing_extensions import Self
 class VARData(BaseModel):
     """Immutable, validated container for VAR estimation data.
 
-    Args:
+    Attributes:
         endog: Endogenous variable array of shape (T, n) where T >= 1 and n >= 2.
         endog_names: Names for each endogenous variable.
         exog: Optional exogenous variable array of shape (T, k).
@@ -29,8 +29,14 @@ class VARData(BaseModel):
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
-        # Shape consistency
         t, n = self.endog.shape
+        self._validate_shapes(t, n)
+        self._validate_exog(t)
+        self._validate_finite()
+        self._make_readonly()
+        return self
+
+    def _validate_shapes(self, t: int, n: int) -> None:
         if n < 2:
             raise ValueError(f"Minimum 2 endogenous variables required, got {n}")
         if len(self.endog_names) != n:
@@ -38,7 +44,7 @@ class VARData(BaseModel):
         if len(self.index) != t:
             raise ValueError(f"index length {len(self.index)} != endog rows {t}")
 
-        # Exogenous consistency
+    def _validate_exog(self, t: int) -> None:
         if self.exog is not None:
             if self.exog.shape[0] != t:
                 raise ValueError(f"exog rows {self.exog.shape[0]} != endog rows {t}")
@@ -49,23 +55,20 @@ class VARData(BaseModel):
         elif self.exog_names is not None:
             raise ValueError("exog_names provided without exog")
 
-        # Finite values
+    def _validate_finite(self) -> None:
         if not np.isfinite(self.endog).all():
             raise ValueError("endog contains NaN or Inf values")
         if self.exog is not None and not np.isfinite(self.exog).all():
             raise ValueError("exog contains NaN or Inf values")
 
-        # Defensive copy + read-only
+    def _make_readonly(self) -> None:
         endog_copy = self.endog.copy()
         endog_copy.flags.writeable = False
         object.__setattr__(self, "endog", endog_copy)
-
         if self.exog is not None:
             exog_copy = self.exog.copy()
             exog_copy.flags.writeable = False
             object.__setattr__(self, "exog", exog_copy)
-
-        return self
 
     @classmethod
     def from_df(

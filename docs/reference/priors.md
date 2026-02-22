@@ -1,0 +1,3 @@
+# Priors
+
+::: litterman.priors
