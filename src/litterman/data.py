@@ -11,7 +11,7 @@ from typing_extensions import Self
 class VARData(BaseModel):
     """Immutable, validated container for VAR estimation data.
 
-    Args:
+    Attributes:
         endog: Endogenous variable array of shape (T, n) where T >= 1 and n >= 2.
         endog_names: Names for each endogenous variable.
         exog: Optional exogenous variable array of shape (T, k).

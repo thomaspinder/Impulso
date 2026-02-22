@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import arviz as az
 import numpy as np
 from pydantic import BaseModel, ConfigDict
@@ -9,11 +11,14 @@ from pydantic import BaseModel, ConfigDict
 from litterman.data import VARData
 from litterman.protocols import IdentificationScheme
 
+if TYPE_CHECKING:
+    from litterman.identified import IdentifiedVAR
+
 
 class FittedVAR(BaseModel):
     """Immutable container for a fitted (reduced-form) Bayesian VAR.
 
-    Args:
+    Attributes:
         idata: ArviZ InferenceData with posterior draws.
         n_lags: Lag order used in estimation.
         data: Original VARData used for fitting.
@@ -47,7 +52,7 @@ class FittedVAR(BaseModel):
         """Posterior draws of residual covariance matrix."""
         return self.idata.posterior["Sigma"].values
 
-    def set_identification_strategy(self, scheme: IdentificationScheme):
+    def set_identification_strategy(self, scheme: IdentificationScheme) -> IdentifiedVAR:
         """Apply a structural identification scheme.
 
         Args:

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class NUTSSampler(BaseModel):
     """NUTS sampler configuration for PyMC.
 
-    Args:
+    Attributes:
         draws: Number of posterior draws per chain.
         tune: Number of tuning steps per chain.
         chains: Number of independent chains.

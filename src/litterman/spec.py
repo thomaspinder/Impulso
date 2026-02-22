@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Union
+from typing import TYPE_CHECKING, Literal, Union
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -12,6 +12,9 @@ from litterman.data import VARData
 from litterman.priors import MinnesotaPrior
 from litterman.protocols import Prior, Sampler
 
+if TYPE_CHECKING:
+    from litterman.fitted import FittedVAR
+
 _PRIOR_REGISTRY: dict[str, type] = {
     "minnesota": MinnesotaPrior,
 }
@@ -20,7 +23,7 @@ _PRIOR_REGISTRY: dict[str, type] = {
 class VAR(BaseModel):
     """Immutable VAR model specification.
 
-    Args:
+    Attributes:
         lags: Fixed lag order (int >= 1) or selection criterion string.
         max_lags: Upper bound for automatic selection. Only valid with string lags.
         prior: Prior shorthand string or Prior protocol instance.
@@ -51,7 +54,7 @@ class VAR(BaseModel):
         self,
         data: VARData,
         sampler: Sampler | None = None,
-    ):
+    ) -> FittedVAR:
         """Estimate the Bayesian VAR model.
 
         Args:

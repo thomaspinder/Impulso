@@ -37,7 +37,6 @@ dev = [
     "pytest>=9.0.2",
     "pre-commit>=4.5.1",
     "tox-uv>=1.29.0",
-    
     "ty>=0.0.14",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.14",
@@ -54,9 +53,18 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/litterman"]
 
+[tool.ty.src]
+exclude = ["docs/**"]
+
 [tool.ty.environment]
 python = "./.venv"
 python-version = "3.10"
+
+[tool.ty.rules]
+# ArviZ InferenceData and PyMC distributions use dynamic attributes
+# (__getattr__, symbolic ops) that static analysis cannot resolve.
+unresolved-attribute = "ignore"
+not-subscriptable = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -123,4 +131,3 @@ skip_empty = true
 [tool.coverage.run]
 branch = true
 source = ["src"]
-

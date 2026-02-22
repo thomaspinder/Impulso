@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class HDIResult(BaseModel):
     """Structured HDI output with separate lower/upper bounds.
 
-    Args:
+    Attributes:
         lower: DataFrame of lower HDI bounds.
         upper: DataFrame of upper HDI bounds.
         prob: HDI probability level.
@@ -29,7 +29,7 @@ class HDIResult(BaseModel):
 class VARResultBase(BaseModel):
     """Base class for VAR post-estimation results.
 
-    Args:
+    Attributes:
         idata: ArviZ InferenceData holding the result draws.
     """
 
@@ -65,7 +65,7 @@ class VARResultBase(BaseModel):
 class LagOrderResult(BaseModel):
     """Result from lag order selection.
 
-    Args:
+    Attributes:
         aic: Optimal lag order by AIC.
         bic: Optimal lag order by BIC.
         hq: Optimal lag order by Hannan-Quinn.

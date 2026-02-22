@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class MinnesotaPrior(BaseModel):
     """Minnesota prior for VAR coefficient shrinkage.
 
-    Args:
+    Attributes:
         tightness: Overall shrinkage toward prior mean. Must be > 0.
         decay: How coefficients shrink on longer lags.
         cross_shrinkage: Shrinkage on other variables' lags vs own. 0 = only own lags, 1 = equal.
