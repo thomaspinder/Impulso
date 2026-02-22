@@ -4,7 +4,15 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from litterman.results import ForecastResult, HDIResult, LagOrderResult, VARResultBase
+from litterman.results import (
+    FEVDResult,
+    ForecastResult,
+    HDIResult,
+    HistoricalDecompositionResult,
+    IRFResult,
+    LagOrderResult,
+    VARResultBase,
+)
 
 
 class TestHDIResult:
@@ -44,3 +52,14 @@ class TestLagOrderResult:
 class TestForecastResult:
     def test_is_subclass_of_base(self):
         assert issubclass(ForecastResult, VARResultBase)
+
+
+class TestStructuralResults:
+    def test_irf_result_is_subclass(self):
+        assert issubclass(IRFResult, VARResultBase)
+
+    def test_fevd_result_is_subclass(self):
+        assert issubclass(FEVDResult, VARResultBase)
+
+    def test_hd_result_is_subclass(self):
+        assert issubclass(HistoricalDecompositionResult, VARResultBase)

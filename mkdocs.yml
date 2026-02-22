@@ -13,15 +13,18 @@ nav:
     - tutorials/index.md
     - tutorials/quickstart.ipynb
     - tutorials/forecasting.ipynb
+    - tutorials/structural-analysis.ipynb
   - How-To Guides:
     - how-to/index.md
     - how-to/data-preparation.md
     - how-to/custom-priors.md
     - how-to/lag-selection.md
+    - how-to/sign-restrictions.md
   - Explanation:
     - explanation/index.md
     - explanation/bayesian-var.md
     - explanation/minnesota-prior.md
+    - explanation/identification.md
   - Reference:
     - reference/index.md
     - reference/data.md
@@ -31,6 +34,8 @@ nav:
     - reference/fitted.md
     - reference/results.md
     - reference/protocols.md
+    - reference/identified.md
+    - reference/identification.md
 
 plugins:
   - search
