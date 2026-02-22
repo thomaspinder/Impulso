@@ -1,9 +1,10 @@
-"""Historical decomposition plots."""
+"""Historical decomposition plotting."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
@@ -23,4 +24,20 @@ def plot_historical_decomposition(
     Returns:
         Matplotlib Figure.
     """
-    raise NotImplementedError("Plotting is implemented in phase-5-plotting-api")
+    med = result.median()
+    fig, ax = plt.subplots(figsize=figsize)
+    fig.suptitle("Historical Decomposition")
+    T = med.shape[0]
+    bottom = None
+    for i, name in enumerate(result.var_names):
+        vals = med.iloc[:, i].values
+        if bottom is None:
+            ax.bar(range(T), vals, label=name, alpha=0.8)
+            bottom = vals.copy()
+        else:
+            ax.bar(range(T), vals, bottom=bottom, label=name, alpha=0.8)
+            bottom += vals
+    ax.legend()
+    ax.set_xlabel("Time")
+    fig.tight_layout()
+    return fig

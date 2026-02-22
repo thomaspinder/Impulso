@@ -1,9 +1,10 @@
-"""Forecast error variance decomposition plots."""
+"""FEVD plotting."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
@@ -23,4 +24,12 @@ def plot_fevd(
     Returns:
         Matplotlib Figure.
     """
-    raise NotImplementedError("Plotting is implemented in phase-5-plotting-api")
+    med = result.median()
+    fig, ax = plt.subplots(figsize=figsize)
+    fig.suptitle("Forecast Error Variance Decomposition")
+    ax.stackplot(range(result.horizon + 1), med.values.T, labels=result.var_names, alpha=0.8)
+    ax.legend()
+    ax.set_xlabel("Horizon")
+    ax.set_ylabel("Share")
+    fig.tight_layout()
+    return fig

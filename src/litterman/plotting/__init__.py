@@ -1,4 +1,4 @@
-"""Plotting utilities for VAR analysis."""
+"""Plotting functions for VAR results."""
 
 from litterman.plotting._fevd import plot_fevd
 from litterman.plotting._forecast import plot_forecast

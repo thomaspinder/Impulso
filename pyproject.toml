@@ -14,6 +14,7 @@ dependencies = [
     "arviz>=0.17",
     "matplotlib>=3.7",
     "beartype>=0.18",
+    "scipy>=1.10",
 ]
 classifiers = [
     "Intended Audience :: Developers",
