@@ -13,6 +13,7 @@ from litterman.protocols import IdentificationScheme
 
 if TYPE_CHECKING:
     from litterman.identified import IdentifiedVAR
+    from litterman.results import ForecastResult
 
 
 class FittedVAR(BaseModel):
@@ -51,6 +52,64 @@ class FittedVAR(BaseModel):
     def sigma(self) -> np.ndarray:
         """Posterior draws of residual covariance matrix."""
         return self.idata.posterior["Sigma"].values
+
+    def forecast(
+        self,
+        steps: int,
+        exog_future: np.ndarray | None = None,
+    ) -> ForecastResult:
+        """Produce h-step-ahead forecasts from the reduced-form posterior.
+
+        Args:
+            steps: Number of forecast steps.
+            exog_future: Future exogenous values, shape (steps, k). Required if model has exog.
+
+        Returns:
+            ForecastResult with posterior forecast draws.
+        """
+        import xarray as xr
+
+        from litterman.results import ForecastResult
+
+        if self.has_exog and exog_future is None:
+            raise ValueError("exog_future is required when model includes exogenous variables")
+        if not self.has_exog and exog_future is not None:
+            raise ValueError("exog_future provided but model has no exogenous variables")
+
+        B_draws = self.coefficients  # (chains, draws, n_vars, n_vars*n_lags)
+        intercept_draws = self.intercepts  # (chains, draws, n_vars)
+        n_chains, n_draws, n_vars, _ = B_draws.shape
+
+        # Last n_lags observations for initial conditions
+        y_hist = self.data.endog[-self.n_lags :]  # (n_lags, n_vars)
+
+        forecasts = np.zeros((n_chains, n_draws, steps, n_vars))
+
+        for c in range(n_chains):
+            for d in range(n_draws):
+                B = B_draws[c, d]
+                intercept = intercept_draws[c, d]
+                y_buffer = list(y_hist)
+
+                for h in range(steps):
+                    x_lag = np.concatenate([y_buffer[-(lag)] for lag in range(1, self.n_lags + 1)])
+                    y_new = intercept + B @ x_lag
+                    if self.has_exog and exog_future is not None:
+                        B_exog = self.idata.posterior["B_exog"].values[c, d]
+                        y_new = y_new + B_exog @ exog_future[h]
+                    forecasts[c, d, h] = y_new
+                    y_buffer.append(y_new)
+
+        # Package into InferenceData
+        forecast_da = xr.DataArray(
+            forecasts,
+            dims=["chain", "draw", "step", "variable"],
+            coords={"variable": self.var_names},
+            name="forecast",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
+
+        return ForecastResult(idata=idata, steps=steps, var_names=self.var_names)
 
     def set_identification_strategy(self, scheme: IdentificationScheme) -> IdentifiedVAR:
         """Apply a structural identification scheme.

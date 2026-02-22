@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from litterman.results import HDIResult, LagOrderResult
+from litterman.results import ForecastResult, HDIResult, LagOrderResult, VARResultBase
 
 
 class TestHDIResult:
@@ -39,3 +39,8 @@ class TestLagOrderResult:
         table = pd.DataFrame({"aic": [100]}, index=[1])
         result = LagOrderResult(aic=1, bic=1, hq=1, criteria_table=table)
         assert "criteria_table" not in repr(result)
+
+
+class TestForecastResult:
+    def test_is_subclass_of_base(self):
+        assert issubclass(ForecastResult, VARResultBase)
