@@ -36,6 +36,7 @@ nav:
     - reference/protocols.md
     - reference/identified.md
     - reference/identification.md
+    - reference/plotting.md
 
 plugins:
   - search

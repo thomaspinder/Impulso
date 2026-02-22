@@ -1,9 +1,10 @@
-"""Forecast plots."""
+"""Forecast plotting."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
@@ -23,4 +24,19 @@ def plot_forecast(
     Returns:
         Matplotlib Figure.
     """
-    raise NotImplementedError("Plotting is implemented in phase-5-plotting-api")
+    med = result.median()
+    hdi = result.hdi()
+    n_vars = len(result.var_names)
+
+    fig, axes = plt.subplots(1, n_vars, figsize=figsize, squeeze=False)
+    fig.suptitle("Forecast")
+
+    for i, name in enumerate(result.var_names):
+        ax = axes[0][i]
+        ax.set_title(name)
+        steps = range(result.steps)
+        ax.plot(steps, med[name].values)
+        ax.fill_between(steps, hdi.lower[name].values, hdi.upper[name].values, alpha=0.3)
+
+    fig.tight_layout()
+    return fig
