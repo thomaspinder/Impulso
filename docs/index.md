@@ -4,11 +4,12 @@
 
 ```python
 import pandas as pd
-from litterman import VARData
+from litterman import VAR, VARData
 
 df = pd.read_csv("macro_data.csv", index_col="date", parse_dates=True)
 data = VARData.from_df(df, endog=["gdp", "inflation", "rate"])
-# Validated, immutable, ready for modeling
+
+fitted = VAR(lags="bic", prior="minnesota").fit(data)
 ```
 
 ## Features
@@ -16,6 +17,9 @@ data = VARData.from_df(df, endog=["gdp", "inflation", "rate"])
 - **Validated data containers** — `VARData` catches shape mismatches, missing values, and type errors at construction time
 - **Immutable types** — all objects are frozen after creation, preventing accidental mutation
 - **Economist-friendly API** — think in variables and lags, not tensors and MCMC chains
+- **Minnesota prior** — smart defaults with tunable hyperparameters for shrinkage
+- **Automatic lag selection** — AIC, BIC, and Hannan-Quinn criteria
+- **PyMC backend** — full Bayesian estimation with NUTS sampling
 
 ## Installation
 

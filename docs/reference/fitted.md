@@ -1,0 +1,3 @@
+# FittedVAR
+
+::: litterman.fitted

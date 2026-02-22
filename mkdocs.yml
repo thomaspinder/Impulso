@@ -11,14 +11,25 @@ nav:
   - Home: index.md
   - Tutorials:
     - tutorials/index.md
+    - tutorials/quickstart.ipynb
   - How-To Guides:
     - how-to/index.md
     - how-to/data-preparation.md
+    - how-to/custom-priors.md
+    - how-to/lag-selection.md
   - Explanation:
     - explanation/index.md
+    - explanation/bayesian-var.md
+    - explanation/minnesota-prior.md
   - Reference:
     - reference/index.md
     - reference/data.md
+    - reference/spec.md
+    - reference/priors.md
+    - reference/samplers.md
+    - reference/fitted.md
+    - reference/results.md
+    - reference/protocols.md
 
 plugins:
   - search

@@ -1,0 +1,3 @@
+# VAR Specification
+
+::: litterman.spec
