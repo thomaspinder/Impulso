@@ -45,6 +45,7 @@ dev = [
     "mkdocs-material>=9.7.1",
     "mkdocstrings[python]>=1.0.2",
     "mkdocs-jupyter>=0.25.0",
+    "ipywidgets>=8.1.8",
 ]
 
 [build-system]

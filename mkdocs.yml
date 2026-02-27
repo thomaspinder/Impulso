@@ -43,6 +43,9 @@ plugins:
   - mkdocs-jupyter:
       execute: true
       include_source: true
+      remove_tag_config:
+          remove_input_tags:
+              - hide_code
   - mkdocstrings:
       handlers:
         python:
