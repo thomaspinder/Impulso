@@ -43,6 +43,7 @@ plugins:
   - mkdocs-jupyter:
       execute: true
       include_source: true
+      remove_tag: "remove-cell"
   - mkdocstrings:
       handlers:
         python:
