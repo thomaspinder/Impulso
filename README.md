@@ -8,67 +8,107 @@
 
 Bayesian Vector Autoregression (VAR) in Python.
 
-- **Github repository**: <https://github.com/thomaspinder/litterman/>
-- **Documentation** <https://thomaspinder.github.io/litterman/>
+> 🚧 **Experimental — under heavy development.** This project is an experiment in AI-driven software development. The vast majority of the code, tests, and documentation were written by AI (Claude Code). Humans direct architecture, priorities, and design decisions, but have not reviewed most of the code line-by-line. Treat this accordingly — there will be bugs, rough edges, and things that don't work.
 
-## Getting started with your project
+## Overview
 
-### 1. Create a New Repository
+**litterman** provides a modern, Pythonic interface for Bayesian Vector Autoregression modeling. Built on PyMC, it enables full posterior inference for VAR models with informative priors (Minnesota/Litterman), structural identification, impulse response analysis, and forecast error variance decomposition.
 
-First, create a repository on GitHub with the same name as this project, and then run the following commands:
+### Core Pipeline
 
-```bash
-git init -b main
-git add .
-git commit -m "init commit"
-git remote add origin git@github.com:thomaspinder/litterman.git
-git push -u origin main
+The library follows an immutable, type-safe pipeline:
+
+```
+VARData → VAR.fit() → FittedVAR → .set_identification_strategy() → IdentifiedVAR
 ```
 
-### 2. Set Up Your Development Environment
+- **`VARData`**: Validated time series data (endogenous/exogenous variables + DatetimeIndex)
+- **`VAR`**: Model specification (lags, priors, exogenous variables)
+- **`FittedVAR`**: Reduced-form posterior estimates with forecasting capabilities
+- **`IdentifiedVAR`**: Structural VAR with impulse responses, FEVD, and historical decomposition
 
-Then, install the environment and the pre-commit hooks with
+### Key Features
 
-```bash
-make install
-```
+- **Full Bayesian inference** via PyMC (NUTS sampling, automatic diagnostics)
+- **Minnesota/Litterman priors** for regularization in high-dimensional VARs
+- **Flexible identification schemes**: Recursive (Cholesky), sign restrictions
+- **Forecasting**: Point forecasts, credible intervals, and scenario analysis
+- **Impulse response functions** (IRFs) with uncertainty quantification
+- **Forecast error variance decomposition** (FEVD)
+- **Historical decomposition** of variables into structural shocks
+- **Extensible protocols**: Plug in custom priors, samplers, and identification schemes
+- **Type-safe**: Frozen Pydantic models with full type hints
 
-This will also generate your `uv.lock` file
-
-### 3. Run the pre-commit hooks
-
-Initially, the CI/CD pipeline might be failing due to formatting issues. To resolve those run:
-
-```bash
-uv run pre-commit run -a
-```
-
-### 4. Commit the changes
-
-Lastly, commit the changes made by the two steps above to your repository.
+## Installation
 
 ```bash
-git add .
-git commit -m 'Fix formatting issues'
-git push origin main
+pip install litterman
 ```
 
-You are now ready to start development on your project!
-The CI/CD pipeline will be triggered when you open a pull request, merge to main, or when you create a new release.
+Or with [uv](https://github.com/astral-sh/uv):
 
-To finalize the set-up for publishing to PyPI, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/publishing/#set-up-for-pypi).
-For activating the automatic documentation with MkDocs, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/mkdocs/#enabling-the-documentation-on-github).
-To enable the code coverage reports, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/codecov/).
+```bash
+uv pip install litterman
+```
 
-## Releasing a new version
+## Quick Start
 
-- Create an API Token on [PyPI](https://pypi.org/).
-- Add the API Token to your projects secrets with the name `PYPI_TOKEN` by visiting [this page](https://github.com/thomaspinder/litterman/settings/secrets/actions/new).
-- Create a [new release](https://github.com/thomaspinder/litterman/releases/new) on Github.
-- Create a new tag in the form `*.*.*`.
+```python
+import pandas as pd
+from litterman import VARData, VAR
 
-For more details, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/cicd/#how-to-trigger-a-release).
+# Load your time series data
+df = pd.read_csv("data.csv", index_col="date", parse_dates=True)
 
----
+# Create validated VAR data
+data = VARData.from_df(df, endog_vars=["gdp", "inflation", "interest_rate"])
 
-Repository initiated with [fpgmaas/cookiecutter-uv](https://github.com/fpgmaas/cookiecutter-uv).
+# Specify and fit a VAR(4) model with Minnesota prior
+var = VAR(lags=4, prior="minnesota")
+fitted = var.fit(data)
+
+# Generate forecasts
+forecast = fitted.forecast(steps=12)
+forecast.plot()
+
+# Structural identification and impulse responses
+identified = fitted.set_identification_strategy("cholesky")
+irf = identified.impulse_response(steps=20)
+irf.plot()
+
+# Forecast error variance decomposition
+fevd = identified.fevd(steps=20)
+fevd.plot()
+```
+
+## Documentation
+
+Full documentation, tutorials, and API reference: [https://thomaspinder.github.io/litterman](https://thomaspinder.github.io/litterman)
+
+## Requirements
+
+- Python 3.10+
+- PyMC 5.0+
+- ArviZ 0.19+
+- NumPy, Pandas, Pydantic
+
+## Development
+
+See [CLAUDE.md](CLAUDE.md) for development setup, testing, and contribution guidelines.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
+
+## Citation
+
+If you use litterman in your research, please cite:
+
+```bibtex
+@software{litterman,
+  author = {Pinder, Thomas},
+  title = {litterman: Bayesian Vector Autoregression in Python},
+  year = {2026},
+  url = {https://github.com/thomaspinder/litterman}
+}
+```
