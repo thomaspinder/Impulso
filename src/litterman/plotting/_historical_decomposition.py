@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
-    from litterman.results import HistoricalDecompositionResult
+    from impulso.results import HistoricalDecompositionResult
 
 
 def plot_historical_decomposition(
@@ -56,7 +56,14 @@ def plot_historical_decomposition(
                 bottom_neg = neg.copy()
             else:
                 axes[i].bar(time_idx, pos, width=1.0, bottom=bottom_pos, label=shock, alpha=0.8)
-                axes[i].bar(time_idx, neg, width=1.0, bottom=bottom_neg, alpha=0.8, color=f"C{j}")
+                axes[i].bar(
+                    time_idx,
+                    neg,
+                    width=1.0,
+                    bottom=bottom_neg,
+                    alpha=0.8,
+                    color=f"C{j}",
+                )
                 bottom_pos += pos
                 bottom_neg += neg
         axes[i].set_ylabel(resp)

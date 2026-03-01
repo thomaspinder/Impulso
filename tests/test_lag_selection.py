@@ -3,10 +3,9 @@
 import numpy as np
 import pandas as pd
 import pytest
-
-from litterman._lag_selection import select_lag_order
-from litterman.data import VARData
-from litterman.results import LagOrderResult
+from impulso._lag_selection import select_lag_order
+from impulso.data import VARData
+from impulso.results import LagOrderResult
 
 
 @pytest.fixture

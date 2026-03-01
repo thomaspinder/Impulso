@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
-    from litterman.results import FEVDResult
+    from impulso.results import FEVDResult
 
 
 def plot_fevd(

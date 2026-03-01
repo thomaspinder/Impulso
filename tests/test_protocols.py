@@ -2,7 +2,7 @@
 
 from typing import runtime_checkable
 
-from litterman.protocols import IdentificationScheme, Prior, Sampler
+from impulso.protocols import IdentificationScheme, Prior, Sampler
 
 
 class TestProtocols:

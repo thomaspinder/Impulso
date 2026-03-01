@@ -17,8 +17,8 @@ The prior mean for the coefficient on a variable's own first lag is 1.0 (random 
 ## Usage in Litterman
 
 ```python
-from litterman import VAR
-from litterman.priors import MinnesotaPrior
+from impulso import VAR
+from impulso.priors import MinnesotaPrior
 
 # Use defaults
 spec = VAR(lags=4, prior="minnesota")

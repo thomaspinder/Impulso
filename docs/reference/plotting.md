@@ -1,3 +1,3 @@
 # Plotting
 
-::: litterman.plotting
+::: impulso.plotting

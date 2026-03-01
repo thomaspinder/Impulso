@@ -1,10 +1,9 @@
 """Tests for VAR specification."""
 
 import pytest
+from impulso.priors import MinnesotaPrior
+from impulso.spec import VAR
 from pydantic import ValidationError
-
-from litterman.priors import MinnesotaPrior
-from litterman.spec import VAR
 
 
 class TestVARSpec:

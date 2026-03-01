@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
-    from litterman.results import ForecastResult
+    from impulso.results import ForecastResult
 
 
 def plot_forecast(

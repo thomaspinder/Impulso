@@ -5,15 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Union
 
 import numpy as np
+from impulso.data import VARData
+from impulso.priors import MinnesotaPrior
+from impulso.protocols import Prior, Sampler
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import Self
 
-from litterman.data import VARData
-from litterman.priors import MinnesotaPrior
-from litterman.protocols import Prior, Sampler
-
 if TYPE_CHECKING:
-    from litterman.fitted import FittedVAR
+    from impulso.fitted import FittedVAR
 
 _PRIOR_REGISTRY: dict[str, type] = {
     "minnesota": MinnesotaPrior,
@@ -65,10 +64,9 @@ class VAR(BaseModel):
             FittedVAR with posterior draws.
         """
         import pymc as pm
-
-        from litterman._lag_selection import select_lag_order
-        from litterman.fitted import FittedVAR
-        from litterman.samplers import NUTSSampler
+        from impulso._lag_selection import select_lag_order
+        from impulso.fitted import FittedVAR
+        from impulso.samplers import NUTSSampler
 
         if sampler is None:
             sampler = NUTSSampler()

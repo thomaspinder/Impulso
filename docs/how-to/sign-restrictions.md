@@ -7,7 +7,7 @@ Sign restrictions identify structural shocks by imposing qualitative constraints
 Specify which direction each variable should respond to each named shock:
 
 ```python
-from litterman.identification import SignRestriction
+from impulso.identification import SignRestriction
 
 scheme = SignRestriction(
     restrictions={

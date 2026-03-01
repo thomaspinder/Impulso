@@ -1,3 +1,3 @@
 # Samplers
 
-::: litterman.samplers
+::: impulso.samplers

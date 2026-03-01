@@ -3,9 +3,8 @@
 import numpy as np
 import pandas as pd
 import pytest
+from impulso.data import VARData
 from pydantic import ValidationError
-
-from litterman.data import VARData
 
 
 @pytest.fixture

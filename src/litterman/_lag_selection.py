@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-
-from litterman.data import VARData
-from litterman.results import LagOrderResult
+from impulso.data import VARData
+from impulso.results import LagOrderResult
 
 
 def select_lag_order(data: VARData, max_lags: int = 12) -> LagOrderResult:

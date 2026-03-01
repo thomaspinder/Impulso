@@ -1,3 +1,3 @@
 # Results
 
-::: litterman.results
+::: impulso.results

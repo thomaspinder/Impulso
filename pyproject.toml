@@ -1,5 +1,5 @@
 [project]
-name = "litterman"
+name = "impulso"
 version = "0.0.2"
 description = "Bayesian Vector Autoregression (VAR) in Python."
 authors = [{ name = "Thomas Pinder", email = "tompinder@live.co.uk" }]
@@ -29,9 +29,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://thomaspinder.github.io/litterman/"
-Repository = "https://github.com/thomaspinder/litterman"
-Documentation = "https://thomaspinder.github.io/litterman/"
+Homepage = "https://thomaspinder.github.io/impulso/"
+Repository = "https://github.com/thomaspinder/impulso"
+Documentation = "https://thomaspinder.github.io/impulso/"
 
 [dependency-groups]
 dev = [
@@ -56,7 +56,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/litterman"]
+packages = ["src/impulso"]
 
 [tool.ty.src]
 exclude = ["docs/**"]

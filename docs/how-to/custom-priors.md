@@ -5,7 +5,7 @@ Litterman uses `typing.Protocol` for extensibility. You can write your own prior
 ## The Prior protocol
 
 ```python
-from litterman.protocols import Prior
+from impulso.protocols import Prior
 
 class MyPrior:
     def build_priors(self, n_vars: int, n_lags: int) -> dict:
@@ -34,7 +34,7 @@ class FlatPrior:
 ## Using your custom prior
 
 ```python
-from litterman import VAR
+from impulso import VAR
 
 spec = VAR(lags=2, prior=FlatPrior())
 fitted = spec.fit(data)

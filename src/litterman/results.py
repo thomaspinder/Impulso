@@ -97,7 +97,7 @@ class ForecastResult(VARResultBase):
 
     def plot(self) -> Figure:
         """Plot forecast fan chart."""
-        from litterman.plotting import plot_forecast
+        from impulso.plotting import plot_forecast
 
         return plot_forecast(self)
 
@@ -132,7 +132,7 @@ class IRFResult(VARResultBase):
 
     def plot(self) -> Figure:
         """Plot impulse response functions."""
-        from litterman.plotting import plot_irf
+        from impulso.plotting import plot_irf
 
         return plot_irf(self)
 
@@ -167,7 +167,7 @@ class FEVDResult(VARResultBase):
 
     def plot(self) -> Figure:
         """Plot FEVD."""
-        from litterman.plotting import plot_fevd
+        from impulso.plotting import plot_fevd
 
         return plot_fevd(self)
 
@@ -200,7 +200,7 @@ class HistoricalDecompositionResult(VARResultBase):
 
     def plot(self) -> Figure:
         """Plot historical decomposition."""
-        from litterman.plotting import plot_historical_decomposition
+        from impulso.plotting import plot_historical_decomposition
 
         return plot_historical_decomposition(self)
 

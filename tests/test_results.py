@@ -2,9 +2,7 @@
 
 import pandas as pd
 import pytest
-from pydantic import ValidationError
-
-from litterman.results import (
+from impulso.results import (
     FEVDResult,
     ForecastResult,
     HDIResult,
@@ -13,6 +11,7 @@ from litterman.results import (
     LagOrderResult,
     VARResultBase,
 )
+from pydantic import ValidationError
 
 
 class TestHDIResult:
