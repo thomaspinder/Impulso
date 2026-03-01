@@ -47,6 +47,9 @@ dev = [
     "mkdocs-jupyter>=0.25.0",
     "ipywidgets>=8.1.8",
 ]
+docs = [
+    "statsmodels>=0.14.6",
+]
 
 [build-system]
 requires = ["hatchling"]

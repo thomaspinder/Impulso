@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 def plot_irf(
     result: IRFResult,
     variables: list[str] | None = None,
-    figsize: tuple[float, float] = (12, 8),
+    figsize: tuple[float, float] = (9, 6),
 ) -> Figure:
     """Plot impulse response functions with credible bands.
 

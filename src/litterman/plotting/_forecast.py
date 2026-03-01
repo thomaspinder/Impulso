@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 def plot_forecast(
     result: ForecastResult,
-    figsize: tuple[float, float] = (12, 6),
+    figsize: tuple[float, float] = (10, 6),
 ) -> Figure:
     """Plot forecast fan chart with credible bands.
 
@@ -36,7 +36,9 @@ def plot_forecast(
         ax.set_title(name)
         steps = range(result.steps)
         ax.plot(steps, med[name].values)
-        ax.fill_between(steps, hdi.lower[name].values, hdi.upper[name].values, alpha=0.3)
+        ax.fill_between(
+            steps, hdi.lower[name].values, hdi.upper[name].values, alpha=0.3
+        )
 
     fig.tight_layout()
     return fig
