@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING
 
 import arviz as az
 import numpy as np
+from pydantic import BaseModel, ConfigDict
+
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme
-from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from impulso.identified import IdentifiedVAR
@@ -67,6 +68,7 @@ class FittedVAR(BaseModel):
             ForecastResult with posterior forecast draws.
         """
         import xarray as xr
+
         from impulso.results import ForecastResult
 
         if self.has_exog and exog_future is None:

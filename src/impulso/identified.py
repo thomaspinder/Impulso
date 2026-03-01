@@ -6,9 +6,10 @@ import arviz as az
 import numpy as np
 import pandas as pd
 import xarray as xr
+from pydantic import BaseModel, ConfigDict
+
 from impulso.data import VARData
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
-from pydantic import BaseModel, ConfigDict
 
 
 class IdentifiedVAR(BaseModel):

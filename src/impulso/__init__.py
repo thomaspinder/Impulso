@@ -20,12 +20,13 @@ def enable_runtime_checks() -> None:
     """
     import contextlib
 
+    from beartype import beartype
+    from beartype.roar import BeartypeDecorHintPep484585Exception
+
     import impulso.data
     import impulso.fitted
     import impulso.identified
     import impulso.spec
-    from beartype import beartype
-    from beartype.roar import BeartypeDecorHintPep484585Exception
 
     for mod in [impulso.data, impulso.spec, impulso.fitted, impulso.identified]:
         for name in dir(mod):

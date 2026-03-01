@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Union
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing_extensions import Self
+
 from impulso.data import VARData
 from impulso.priors import MinnesotaPrior
 from impulso.protocols import Prior, Sampler
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typing_extensions import Self
 
 if TYPE_CHECKING:
     from impulso.fitted import FittedVAR
@@ -64,6 +65,7 @@ class VAR(BaseModel):
             FittedVAR with posterior draws.
         """
         import pymc as pm
+
         from impulso._lag_selection import select_lag_order
         from impulso.fitted import FittedVAR
         from impulso.samplers import NUTSSampler

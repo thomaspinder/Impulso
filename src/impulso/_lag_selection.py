@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
 from impulso.data import VARData
 from impulso.results import LagOrderResult
 
