@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+
 from impulso.data import VARData
 from impulso.identification import Cholesky
 from impulso.identified import IdentifiedVAR

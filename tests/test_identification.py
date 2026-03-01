@@ -4,9 +4,10 @@ import arviz as az
 import numpy as np
 import pytest
 import xarray as xr
+from pydantic import ValidationError
+
 from impulso.identification import Cholesky, SignRestriction
 from impulso.protocols import IdentificationScheme
-from pydantic import ValidationError
 
 
 class TestCholesky:

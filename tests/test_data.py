@@ -3,8 +3,9 @@
 import numpy as np
 import pandas as pd
 import pytest
-from impulso.data import VARData
 from pydantic import ValidationError
+
+from impulso.data import VARData
 
 
 @pytest.fixture

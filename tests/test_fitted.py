@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+
 from impulso.data import VARData
 from impulso.fitted import FittedVAR
 from impulso.samplers import NUTSSampler

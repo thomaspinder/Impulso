@@ -1,9 +1,10 @@
 """Tests for prior specifications."""
 
 import pytest
+from pydantic import ValidationError
+
 from impulso.priors import MinnesotaPrior
 from impulso.protocols import Prior
-from pydantic import ValidationError
 
 
 class TestMinnesotaPrior:

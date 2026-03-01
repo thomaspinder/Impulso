@@ -2,6 +2,8 @@
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
+
 from impulso.results import (
     FEVDResult,
     ForecastResult,
@@ -11,7 +13,6 @@ from impulso.results import (
     LagOrderResult,
     VARResultBase,
 )
-from pydantic import ValidationError
 
 
 class TestHDIResult:

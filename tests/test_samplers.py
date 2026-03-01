@@ -1,9 +1,10 @@
 """Tests for sampler specifications."""
 
 import pytest
+from pydantic import ValidationError
+
 from impulso.protocols import Sampler
 from impulso.samplers import NUTSSampler
-from pydantic import ValidationError
 
 
 class TestNUTSSampler:
