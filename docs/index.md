@@ -1,4 +1,4 @@
-# Litterman
+# Impulso
 
 **Bayesian Vector Autoregression in Python.**
 

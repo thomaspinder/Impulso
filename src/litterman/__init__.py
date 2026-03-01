@@ -1,4 +1,4 @@
-"""Litterman: Bayesian Vector Autoregression in Python."""
+"""Impulso: Bayesian Vector Autoregression in Python."""
 
 from impulso._lag_selection import select_lag_order
 from impulso.data import VARData

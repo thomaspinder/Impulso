@@ -1,6 +1,6 @@
 # Writing a Custom Prior
 
-Litterman uses `typing.Protocol` for extensibility. You can write your own prior by implementing the `Prior` protocol.
+Impulso uses `typing.Protocol` for extensibility. You can write your own prior by implementing the `Prior` protocol.
 
 ## The Prior protocol
 

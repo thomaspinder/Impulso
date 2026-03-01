@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Litterman is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.1), scaffolded from cookiecutter-uv.
+Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.1), scaffolded from cookiecutter-uv.
 
 ## Commands
 

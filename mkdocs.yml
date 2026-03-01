@@ -11,8 +11,8 @@ nav:
   - Home: index.md
   - Tutorials:
     - tutorials/index.md
-    - tutorials/quickstart.ipynb
-    - tutorials/forecasting.ipynb
+    # - tutorials/quickstart.ipynb
+    # - tutorials/forecasting.ipynb
     - tutorials/structural-analysis.ipynb
   - How-To Guides:
     - how-to/index.md
@@ -41,7 +41,7 @@ nav:
 plugins:
   - search
   - mkdocs-jupyter:
-      execute: true
+      execute: false
       include_source: true
       remove_tag_config:
           remove_input_tags:
