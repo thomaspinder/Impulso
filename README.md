@@ -1,4 +1,4 @@
-# impulso
+# Impulso
 
 [![Release](https://img.shields.io/github/v/release/thomaspinder/impulso)](https://img.shields.io/github/v/release/thomaspinder/impulso)
 [![Build status](https://img.shields.io/github/actions/workflow/status/thomaspinder/impulso/main.yml?branch=main)](https://github.com/thomaspinder/impulso/actions/workflows/main.yml?query=branch%3Amain)
