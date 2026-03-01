@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from litterman.data import VARData
+from impulso.data import VARData
 
 
 @pytest.fixture

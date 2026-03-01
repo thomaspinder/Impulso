@@ -1,3 +1,3 @@
 # FittedVAR
 
-::: litterman.fitted
+::: impulso.fitted

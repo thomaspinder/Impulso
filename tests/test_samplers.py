@@ -3,8 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from litterman.protocols import Sampler
-from litterman.samplers import NUTSSampler
+from impulso.protocols import Sampler
+from impulso.samplers import NUTSSampler
 
 
 class TestNUTSSampler:

@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from litterman.results import (
+from impulso.results import (
     FEVDResult,
     ForecastResult,
     HDIResult,

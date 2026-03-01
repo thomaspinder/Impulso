@@ -8,8 +8,8 @@ import pandas as pd
 import xarray as xr
 from pydantic import BaseModel, ConfigDict
 
-from litterman.data import VARData
-from litterman.results import FEVDResult, HistoricalDecompositionResult, IRFResult
+from impulso.data import VARData
+from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
 
 
 class IdentifiedVAR(BaseModel):

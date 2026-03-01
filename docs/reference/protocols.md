@@ -1,3 +1,3 @@
 # Protocols
 
-::: litterman.protocols
+::: impulso.protocols

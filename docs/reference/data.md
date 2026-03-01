@@ -1,3 +1,3 @@
 # Data
 
-::: litterman.data
+::: impulso.data

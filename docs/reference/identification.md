@@ -1,3 +1,3 @@
 # Identification Schemes
 
-::: litterman.identification
+::: impulso.identification

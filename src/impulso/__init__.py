@@ -1,8 +1,8 @@
-"""Litterman: Bayesian Vector Autoregression in Python."""
+"""Impulso: Bayesian Vector Autoregression in Python."""
 
-from litterman._lag_selection import select_lag_order
-from litterman.data import VARData
-from litterman.spec import VAR
+from impulso._lag_selection import select_lag_order
+from impulso.data import VARData
+from impulso.spec import VAR
 
 __all__ = [
     "VAR",
@@ -23,12 +23,12 @@ def enable_runtime_checks() -> None:
     from beartype import beartype
     from beartype.roar import BeartypeDecorHintPep484585Exception
 
-    import litterman.data
-    import litterman.fitted
-    import litterman.identified
-    import litterman.spec
+    import impulso.data
+    import impulso.fitted
+    import impulso.identified
+    import impulso.spec
 
-    for mod in [litterman.data, litterman.spec, litterman.fitted, litterman.identified]:
+    for mod in [impulso.data, impulso.spec, impulso.fitted, impulso.identified]:
         for name in dir(mod):
             obj = getattr(mod, name)
             if isinstance(obj, type):

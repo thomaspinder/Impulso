@@ -1,10 +1,10 @@
-# litterman
+# Impulso
 
-[![Release](https://img.shields.io/github/v/release/thomaspinder/litterman)](https://img.shields.io/github/v/release/thomaspinder/litterman)
-[![Build status](https://img.shields.io/github/actions/workflow/status/thomaspinder/litterman/main.yml?branch=main)](https://github.com/thomaspinder/litterman/actions/workflows/main.yml?query=branch%3Amain)
-[![codecov](https://codecov.io/gh/thomaspinder/litterman/branch/main/graph/badge.svg)](https://codecov.io/gh/thomaspinder/litterman)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/thomaspinder/litterman)](https://img.shields.io/github/commit-activity/m/thomaspinder/litterman)
-[![License](https://img.shields.io/github/license/thomaspinder/litterman)](https://img.shields.io/github/license/thomaspinder/litterman)
+[![Release](https://img.shields.io/github/v/release/thomaspinder/impulso)](https://img.shields.io/github/v/release/thomaspinder/impulso)
+[![Build status](https://img.shields.io/github/actions/workflow/status/thomaspinder/impulso/main.yml?branch=main)](https://github.com/thomaspinder/impulso/actions/workflows/main.yml?query=branch%3Amain)
+[![codecov](https://codecov.io/gh/thomaspinder/impulso/branch/main/graph/badge.svg)](https://codecov.io/gh/thomaspinder/impulso)
+[![Commit activity](https://img.shields.io/github/commit-activity/m/thomaspinder/impulso)](https://img.shields.io/github/commit-activity/m/thomaspinder/impulso)
+[![License](https://img.shields.io/github/license/thomaspinder/impulso)](https://img.shields.io/github/license/thomaspinder/impulso)
 
 Bayesian Vector Autoregression (VAR) in Python.
 
@@ -12,7 +12,7 @@ Bayesian Vector Autoregression (VAR) in Python.
 
 ## Overview
 
-**litterman** provides a modern, Pythonic interface for Bayesian Vector Autoregression modeling. Built on PyMC, it enables full posterior inference for VAR models with informative priors (Minnesota/Litterman), structural identification, impulse response analysis, and forecast error variance decomposition.
+**impulso** provides a modern, Pythonic interface for Bayesian Vector Autoregression modeling. Built on PyMC, it enables full posterior inference for VAR models with informative priors (Minnesota/Impulso), structural identification, impulse response analysis, and forecast error variance decomposition.
 
 ### Core Pipeline
 
@@ -30,7 +30,7 @@ VARData → VAR.fit() → FittedVAR → .set_identification_strategy() → Ident
 ### Key Features
 
 - **Full Bayesian inference** via PyMC (NUTS sampling, automatic diagnostics)
-- **Minnesota/Litterman priors** for regularization in high-dimensional VARs
+- **Minnesota/Impulso priors** for regularization in high-dimensional VARs
 - **Flexible identification schemes**: Recursive (Cholesky), sign restrictions
 - **Forecasting**: Point forecasts, credible intervals, and scenario analysis
 - **Impulse response functions** (IRFs) with uncertainty quantification
@@ -42,20 +42,20 @@ VARData → VAR.fit() → FittedVAR → .set_identification_strategy() → Ident
 ## Installation
 
 ```bash
-pip install litterman
+pip install impulso
 ```
 
 Or with [uv](https://github.com/astral-sh/uv):
 
 ```bash
-uv pip install litterman
+uv pip install impulso
 ```
 
 ## Quick Start
 
 ```python
 import pandas as pd
-from litterman import VARData, VAR
+from impulso import VARData, VAR
 
 # Load your time series data
 df = pd.read_csv("data.csv", index_col="date", parse_dates=True)
@@ -83,7 +83,7 @@ fevd.plot()
 
 ## Documentation
 
-Full documentation, tutorials, and API reference: [https://thomaspinder.github.io/litterman](https://thomaspinder.github.io/litterman)
+Full documentation, tutorials, and API reference: [https://thomaspinder.github.io/impulso](https://thomaspinder.github.io/impulso)
 
 ## Requirements
 
@@ -102,13 +102,13 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## Citation
 
-If you use litterman in your research, please cite:
+If you use impulso in your research, please cite:
 
 ```bibtex
-@software{litterman,
+@software{impulso,
   author = {Pinder, Thomas},
-  title = {litterman: Bayesian Vector Autoregression in Python},
+  title = {impulso: Bayesian Vector Autoregression in Python},
   year = {2026},
-  url = {https://github.com/thomaspinder/litterman}
+  url = {https://github.com/thomaspinder/impulso}
 }
 ```

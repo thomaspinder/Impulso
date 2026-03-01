@@ -3,8 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from litterman.priors import MinnesotaPrior
-from litterman.spec import VAR
+from impulso.priors import MinnesotaPrior
+from impulso.spec import VAR
 
 
 class TestVARSpec:

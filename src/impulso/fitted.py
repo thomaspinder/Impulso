@@ -8,12 +8,12 @@ import arviz as az
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
-from litterman.data import VARData
-from litterman.protocols import IdentificationScheme
+from impulso.data import VARData
+from impulso.protocols import IdentificationScheme
 
 if TYPE_CHECKING:
-    from litterman.identified import IdentifiedVAR
-    from litterman.results import ForecastResult
+    from impulso.identified import IdentifiedVAR
+    from impulso.results import ForecastResult
 
 
 class FittedVAR(BaseModel):
@@ -69,7 +69,7 @@ class FittedVAR(BaseModel):
         """
         import xarray as xr
 
-        from litterman.results import ForecastResult
+        from impulso.results import ForecastResult
 
         if self.has_exog and exog_future is None:
             raise ValueError("exog_future is required when model includes exogenous variables")
@@ -120,7 +120,7 @@ class FittedVAR(BaseModel):
         Returns:
             IdentifiedVAR with structural shock matrix in the posterior.
         """
-        from litterman.identified import IdentifiedVAR
+        from impulso.identified import IdentifiedVAR
 
         identified_idata = scheme.identify(self.idata, self.var_names)
         return IdentifiedVAR(

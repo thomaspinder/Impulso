@@ -14,9 +14,9 @@ A **Bayesian VAR** adds prior distributions over the model parameters. This serv
 - You want to study how shocks propagate through a system (impulse responses)
 - You want to decompose forecast error variance or historical variation by shock source
 
-## The Litterman pipeline
+## The Impulso pipeline
 
-Litterman models this as a sequence of immutable types:
+Impulso models this as a sequence of immutable types:
 
 ```
 VARData -> VAR -> FittedVAR -> IdentifiedVAR

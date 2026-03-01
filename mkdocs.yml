@@ -1,18 +1,18 @@
-site_name: litterman
-repo_url: https://github.com/thomaspinder/litterman
-site_url: https://thomaspinder.github.io/litterman
+site_name: impulso
+repo_url: https://github.com/thomaspinder/impulso
+site_url: https://thomaspinder.github.io/impulso
 site_description: Bayesian Vector Autoregression (VAR) in Python.
 site_author: Thomas Pinder
 edit_uri: edit/main/docs/
-repo_name: thomaspinder/litterman
+repo_name: thomaspinder/impulso
 copyright: Maintained by <a href="https://thomaspinder.com">thomaspinder</a>.
 
 nav:
   - Home: index.md
   - Tutorials:
     - tutorials/index.md
-    - tutorials/quickstart.ipynb
-    - tutorials/forecasting.ipynb
+    # - tutorials/quickstart.ipynb
+    # - tutorials/forecasting.ipynb
     - tutorials/structural-analysis.ipynb
   - How-To Guides:
     - how-to/index.md
@@ -41,7 +41,7 @@ nav:
 plugins:
   - search
   - mkdocs-jupyter:
-      execute: true
+      execute: false
       include_source: true
       remove_tag_config:
           remove_input_tags:
@@ -86,9 +86,9 @@ theme:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/thomaspinder/litterman
+      link: https://github.com/thomaspinder/impulso
     - icon: fontawesome/brands/python
-      link: https://pypi.org/project/litterman
+      link: https://pypi.org/project/impulso
 
 markdown_extensions:
   - toc:

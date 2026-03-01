@@ -4,12 +4,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from litterman.data import VARData
-from litterman.identification import Cholesky
-from litterman.identified import IdentifiedVAR
-from litterman.results import FEVDResult, HistoricalDecompositionResult, IRFResult
-from litterman.samplers import NUTSSampler
-from litterman.spec import VAR
+from impulso.data import VARData
+from impulso.identification import Cholesky
+from impulso.identified import IdentifiedVAR
+from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
+from impulso.samplers import NUTSSampler
+from impulso.spec import VAR
 
 
 @pytest.fixture

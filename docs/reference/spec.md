@@ -1,3 +1,3 @@
 # VAR Specification
 
-::: litterman.spec
+::: impulso.spec

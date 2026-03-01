@@ -14,7 +14,7 @@ Without identification, you can describe correlations but not causation. Identif
 The simplest approach. Uses the lower-triangular Cholesky factor of the residual covariance matrix. This implies a **recursive causal ordering**: the first variable is not contemporaneously affected by any other, the second is affected only by the first, and so on.
 
 ```python
-from litterman.identification import Cholesky
+from impulso.identification import Cholesky
 
 scheme = Cholesky(ordering=["gdp", "inflation", "rate"])
 ```
@@ -26,7 +26,7 @@ The ordering encodes your assumptions. Changing it changes the results.
 A more agnostic approach. Instead of imposing a full recursive structure, you specify qualitative constraints: "a supply shock raises GDP and lowers inflation." The algorithm searches over random rotation matrices to find decompositions consistent with your restrictions.
 
 ```python
-from litterman.identification import SignRestriction
+from impulso.identification import SignRestriction
 
 scheme = SignRestriction(
     restrictions={

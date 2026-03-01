@@ -6,8 +6,8 @@ import pytest
 import xarray as xr
 from pydantic import ValidationError
 
-from litterman.identification import Cholesky, SignRestriction
-from litterman.protocols import IdentificationScheme
+from impulso.identification import Cholesky, SignRestriction
+from impulso.protocols import IdentificationScheme
 
 
 class TestCholesky:

@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from litterman.data import VARData
-from litterman.fitted import FittedVAR
-from litterman.samplers import NUTSSampler
-from litterman.spec import VAR
+from impulso.data import VARData
+from impulso.fitted import FittedVAR
+from impulso.samplers import NUTSSampler
+from impulso.spec import VAR
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ class TestFittedVAR:
 class TestForecasting:
     @pytest.mark.slow
     def test_forecast_returns_forecast_result(self, var_data):
-        from litterman.results import ForecastResult
+        from impulso.results import ForecastResult
 
         spec = VAR(lags=1, prior="minnesota")
         sampler = NUTSSampler(draws=100, tune=100, chains=2, cores=1, random_seed=42)
@@ -80,7 +80,7 @@ class TestForecasting:
 
     @pytest.mark.slow
     def test_forecast_hdi_returns_hdi_result(self, var_data):
-        from litterman.results import HDIResult
+        from impulso.results import HDIResult
 
         spec = VAR(lags=1, prior="minnesota")
         sampler = NUTSSampler(draws=100, tune=100, chains=2, cores=1, random_seed=42)

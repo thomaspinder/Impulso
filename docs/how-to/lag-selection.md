@@ -1,20 +1,20 @@
 # Choosing Lag Order
 
-Litterman provides two ways to set the lag order for your VAR model.
+Impulso provides two ways to set the lag order for your VAR model.
 
 ## Fixed lag order
 
 If you know the lag order you want, pass an integer:
 
 ```python
-from litterman import VAR
+from impulso import VAR
 
 spec = VAR(lags=4, prior="minnesota")
 ```
 
 ## Automatic selection via information criteria
 
-Pass a criterion name (`"aic"`, `"bic"`, or `"hq"`) and Litterman selects the optimal lag via OLS:
+Pass a criterion name (`"aic"`, `"bic"`, or `"hq"`) and Impulso selects the optimal lag via OLS:
 
 ```python
 spec = VAR(lags="bic", prior="minnesota")
@@ -31,7 +31,7 @@ spec = VAR(lags="aic", max_lags=12, prior="minnesota")
 Use `select_lag_order` directly to see all criteria values:
 
 ```python
-from litterman import select_lag_order
+from impulso import select_lag_order
 
 ic = select_lag_order(data, max_lags=8)
 print(f"AIC selects {ic.aic} lags, BIC selects {ic.bic} lags")

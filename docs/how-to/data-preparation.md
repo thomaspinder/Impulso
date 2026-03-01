@@ -8,7 +8,7 @@ The simplest path is `VARData.from_df`. Your DataFrame must have a `DatetimeInde
 
 ```python
 import pandas as pd
-from litterman import VARData
+from impulso import VARData
 
 df = pd.read_csv("macro_data.csv", index_col="date", parse_dates=True)
 data = VARData.from_df(df, endog=["gdp", "inflation", "rate"])

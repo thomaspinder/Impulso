@@ -3,8 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from litterman.priors import MinnesotaPrior
-from litterman.protocols import Prior
+from impulso.priors import MinnesotaPrior
+from impulso.protocols import Prior
 
 
 class TestMinnesotaPrior:

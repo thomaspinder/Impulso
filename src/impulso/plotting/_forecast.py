@@ -8,12 +8,12 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
-    from litterman.results import ForecastResult
+    from impulso.results import ForecastResult
 
 
 def plot_forecast(
     result: ForecastResult,
-    figsize: tuple[float, float] = (12, 6),
+    figsize: tuple[float, float] = (10, 6),
 ) -> Figure:
     """Plot forecast fan chart with credible bands.
 

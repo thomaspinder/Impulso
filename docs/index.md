@@ -1,11 +1,11 @@
-# Litterman
+# Impulso
 
 **Bayesian Vector Autoregression in Python.**
 
 ```python
 import pandas as pd
-from litterman import VAR, VARData
-from litterman.identification import Cholesky
+from impulso import VAR, VARData
+from impulso.identification import Cholesky
 
 # Load data
 df = pd.read_csv("macro_data.csv", index_col="date", parse_dates=True)
@@ -42,7 +42,7 @@ irf.plot()
 ## Installation
 
 ```bash
-pip install litterman
+pip install impulso
 ```
 
 ## Learn more

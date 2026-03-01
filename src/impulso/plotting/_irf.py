@@ -8,13 +8,13 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
-    from litterman.results import IRFResult
+    from impulso.results import IRFResult
 
 
 def plot_irf(
     result: IRFResult,
     variables: list[str] | None = None,
-    figsize: tuple[float, float] = (12, 8),
+    figsize: tuple[float, float] = (9, 6),
 ) -> Figure:
     """Plot impulse response functions with credible bands.
 

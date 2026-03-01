@@ -1,3 +1,3 @@
 # Priors
 
-::: litterman.priors
+::: impulso.priors

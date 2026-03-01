@@ -1,3 +1,3 @@
 # IdentifiedVAR
 
-::: litterman.identified
+::: impulso.identified
