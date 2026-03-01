@@ -36,9 +36,7 @@ def plot_forecast(
         ax.set_title(name)
         steps = range(result.steps)
         ax.plot(steps, med[name].values)
-        ax.fill_between(
-            steps, hdi.lower[name].values, hdi.upper[name].values, alpha=0.3
-        )
+        ax.fill_between(steps, hdi.lower[name].values, hdi.upper[name].values, alpha=0.3)
 
     fig.tight_layout()
     return fig
