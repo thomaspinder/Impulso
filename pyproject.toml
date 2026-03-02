@@ -1,11 +1,11 @@
 [project]
 name = "impulso"
-version = "0.0.1"
+version = "0.0.2"
 description = "Bayesian Vector Autoregression (VAR) in Python."
 authors = [{ name = "Thomas Pinder", email = "tompinder@live.co.uk" }]
 readme = "README.md"
 keywords = ['python']
-requires-python = ">=3.10,<4.0"
+requires-python = ">=3.11,<4.0"
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
@@ -20,7 +20,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -63,7 +62,7 @@ exclude = ["docs/**"]
 
 [tool.ty.environment]
 python = "./.venv"
-python-version = "3.10"
+python-version = "3.11"
 
 [tool.ty.rules]
 # ArviZ InferenceData and PyMC distributions use dynamic attributes
@@ -81,7 +80,7 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 120
 fix = true
 

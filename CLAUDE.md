@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.1), scaffolded from cookiecutter-uv.
+Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.2), scaffolded from cookiecutter-uv.
 
 ## Commands
 
@@ -36,7 +36,7 @@ make docs
 # Test docs build
 make docs-test
 
-# Multi-version test (Python 3.10-3.14)
+# Multi-version test (Python 3.11-3.14)
 uv run tox
 ```
 
@@ -80,10 +80,10 @@ All result types (`results.py`) inherit from `VARResultBase` and provide `.media
 ## Tooling
 
 - **Package manager**: uv (lock file must stay in sync — `uv lock --locked`)
-- **Linter/Formatter**: Ruff — line length 120, target py310, auto-fix enabled
-- **Type checker**: ty (configured for `.venv`, Python 3.10)
+- **Linter/Formatter**: Ruff — line length 120, target py311, auto-fix enabled
+- **Type checker**: ty (configured for `.venv`, Python 3.11)
 - **Pre-commit**: Ruff checks + standard hooks (trailing whitespace, TOML/YAML/JSON validation)
-- **CI**: GitHub Actions runs quality, tests (3.10–3.14), and docs checks on push/PR
+- **CI**: GitHub Actions runs quality, tests (3.11–3.14), and docs checks on push/PR
 
 ## Code Conventions
 
