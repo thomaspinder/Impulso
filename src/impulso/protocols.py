@@ -1,11 +1,10 @@
 """Protocol definitions for extensible components."""
 
-from __future__ import annotations
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from typing import Protocol, runtime_checkable
-
-import arviz as az
-import pymc as pm
+if TYPE_CHECKING:
+    import arviz as az
+    import pymc as pm
 
 
 @runtime_checkable
@@ -19,11 +18,11 @@ class Prior(Protocol):
 class Sampler(Protocol):
     """Contract for posterior sampling strategies."""
 
-    def sample(self, model: pm.Model) -> az.InferenceData: ...
+    def sample(self, model: "pm.Model") -> "az.InferenceData": ...
 
 
 @runtime_checkable
 class IdentificationScheme(Protocol):
     """Contract for structural identification schemes."""
 
-    def identify(self, idata: az.InferenceData, var_names: list[str]) -> az.InferenceData: ...
+    def identify(self, idata: "az.InferenceData", var_names: list[str]) -> "az.InferenceData": ...

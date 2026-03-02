@@ -1,7 +1,5 @@
 """FEVD plotting."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
@@ -12,7 +10,7 @@ if TYPE_CHECKING:
 
 
 def plot_fevd(
-    result: FEVDResult,
+    result: "FEVDResult",
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
     """Plot forecast error variance decomposition as stacked areas.

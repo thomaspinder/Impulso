@@ -1,7 +1,5 @@
 """Result objects for VAR post-estimation output."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
 
 import arviz as az

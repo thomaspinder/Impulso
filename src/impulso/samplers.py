@@ -1,7 +1,5 @@
 """Sampler specifications for posterior inference."""
 
-from __future__ import annotations
-
 import arviz as az
 import pymc as pm
 from pydantic import BaseModel, ConfigDict, Field

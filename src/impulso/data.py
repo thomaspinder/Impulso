@@ -1,6 +1,6 @@
 """VARData — validated, immutable data container for VAR models."""
 
-from __future__ import annotations
+from typing import Self
 
 from typing import Self
 
@@ -77,7 +77,7 @@ class VARData(BaseModel):
         df: pd.DataFrame,
         endog: list[str],
         exog: list[str] | None = None,
-    ) -> VARData:
+    ) -> Self:
         """Construct VARData from a pandas DataFrame.
 
         Args:

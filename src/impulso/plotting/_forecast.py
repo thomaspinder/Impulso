@@ -1,7 +1,5 @@
 """Forecast plotting."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
@@ -12,7 +10,7 @@ if TYPE_CHECKING:
 
 
 def plot_forecast(
-    result: ForecastResult,
+    result: "ForecastResult",
     figsize: tuple[float, float] = (10, 6),
 ) -> Figure:
     """Plot forecast fan chart with credible bands.

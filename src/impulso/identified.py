@@ -1,7 +1,5 @@
 """IdentifiedVAR — structural VAR with identified shocks."""
 
-from __future__ import annotations
-
 import arviz as az
 import numpy as np
 import pandas as pd

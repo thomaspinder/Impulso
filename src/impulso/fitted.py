@@ -1,7 +1,5 @@
 """FittedVAR — reduced-form posterior from Bayesian VAR estimation."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import arviz as az
@@ -57,7 +55,7 @@ class FittedVAR(BaseModel):
         self,
         steps: int,
         exog_future: np.ndarray | None = None,
-    ) -> ForecastResult:
+    ) -> "ForecastResult":
         """Produce h-step-ahead forecasts from the reduced-form posterior.
 
         Args:
@@ -111,7 +109,7 @@ class FittedVAR(BaseModel):
 
         return ForecastResult(idata=idata, steps=steps, var_names=self.var_names)
 
-    def set_identification_strategy(self, scheme: IdentificationScheme) -> IdentifiedVAR:
+    def set_identification_strategy(self, scheme: IdentificationScheme) -> "IdentifiedVAR":
         """Apply a structural identification scheme.
 
         Args:

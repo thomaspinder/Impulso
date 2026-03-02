@@ -1,7 +1,5 @@
 """Historical decomposition plotting."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
@@ -12,7 +10,7 @@ if TYPE_CHECKING:
 
 
 def plot_historical_decomposition(
-    result: HistoricalDecompositionResult,
+    result: "HistoricalDecompositionResult",
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
     """Plot historical decomposition as stacked bar charts.
