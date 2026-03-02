@@ -1,0 +1,20 @@
+changelog:
+  exclude:
+    labels:
+      - internal
+  categories:
+    - title: "🚀 Features"
+      labels:
+        - enhancement
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+    - title: "⚡ Performance"
+      labels:
+        - performance
+    - title: "💥 Breaking Changes"
+      labels:
+        - breaking-change
+    - title: "📖 Documentation"
+      labels:
+        - documentation
