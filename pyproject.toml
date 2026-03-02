@@ -7,11 +7,11 @@ readme = "README.md"
 keywords = ['python']
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "numpy>=1.24",
-    "pandas>=2.0",
+    "numpy>=2.0",
+    "pandas>=3.0",
     "pydantic>=2.0",
-    "pymc>=5.10",
-    "arviz>=0.17",
+    "pymc>=5.26.1",
+    "arviz>=0.20",
     "matplotlib>=3.7",
     "beartype>=0.18",
     "scipy>=1.10",
