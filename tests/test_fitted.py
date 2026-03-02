@@ -100,3 +100,57 @@ class TestForecasting:
         fitted = spec.fit(data, sampler=sampler)
         with pytest.raises(ValueError, match="exog_future"):
             fitted.forecast(steps=4)
+
+
+class TestFittedVARFast:
+    """Fast tests using synthetic InferenceData (no MCMC)."""
+
+    def test_properties_from_synthetic(self, synthetic_idata_2v, var_data_2v):
+        fitted = FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        assert fitted.n_lags == 1
+        assert fitted.has_exog is False
+        assert fitted.coefficients.shape == (2, 50, 2, 2)
+        assert fitted.intercepts.shape == (2, 50, 2)
+        assert fitted.sigma.shape == (2, 50, 2, 2)
+
+    def test_repr_from_synthetic(self, synthetic_idata_2v, var_data_2v):
+        fitted = FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        r = repr(fitted)
+        assert "FittedVAR" in r
+        assert "n_lags=1" in r
+
+    def test_forecast_shape(self, synthetic_idata_2v, var_data_2v):
+        fitted = FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        result = fitted.forecast(steps=4)
+        med = result.median()
+        assert med.shape == (4, 2)
+
+    def test_forecast_hdi(self, synthetic_idata_2v, var_data_2v):
+        from impulso.results import HDIResult
+
+        fitted = FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        result = fitted.forecast(steps=4)
+        hdi = result.hdi(prob=0.89)
+        assert isinstance(hdi, HDIResult)
+        assert hdi.lower.shape == (4, 2)
+        assert hdi.upper.shape == (4, 2)

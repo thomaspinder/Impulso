@@ -41,3 +41,71 @@ class TestIdentifiedVAR:
         identified = fitted_var.set_identification_strategy(Cholesky(ordering=["y1", "y2"]))
         hd = identified.historical_decomposition()
         assert isinstance(hd, HistoricalDecompositionResult)
+
+
+class TestIdentifiedVARFast:
+    """Fast tests using synthetic InferenceData (no MCMC)."""
+
+    def test_impulse_response_shape(self, synthetic_identified_idata_2v, var_data_2v):
+
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        irf = identified.impulse_response(horizon=10)
+        assert isinstance(irf, IRFResult)
+        assert irf.horizon == 10
+        med = irf.median()
+        assert med.shape == (11, 4)  # (horizon+1, n_vars*n_vars)
+
+    def test_fevd_shape(self, synthetic_identified_idata_2v, var_data_2v):
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        fevd = identified.fevd(horizon=10)
+        assert isinstance(fevd, FEVDResult)
+        med = fevd.median()
+        assert med.shape == (11, 4)
+
+    def test_fevd_sums_to_one(self, synthetic_identified_idata_2v, var_data_2v):
+        """FEVD shares should sum to ~1 for each response at each horizon."""
+        import numpy as np
+
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        fevd = identified.fevd(horizon=10)
+        fevd_da = fevd.idata.posterior_predictive["fevd"]
+        med = fevd_da.median(dim=("chain", "draw"))
+        # For each response, shares across shocks should sum to 1
+        for resp in ["y1", "y2"]:
+            sums = med.sel(response=resp).values.sum(axis=1)
+            np.testing.assert_allclose(sums, 1.0, atol=1e-10)
+
+    def test_historical_decomposition_shape(self, synthetic_identified_idata_2v, var_data_2v):
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        hd = identified.historical_decomposition()
+        assert isinstance(hd, HistoricalDecompositionResult)
+
+    def test_repr(self, synthetic_identified_idata_2v, var_data_2v):
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        r = repr(identified)
+        assert "IdentifiedVAR" in r
