@@ -1,7 +1,5 @@
 """Protocol definitions for extensible components."""
 
-from __future__ import annotations
-
 from typing import Protocol, runtime_checkable
 
 import arviz as az

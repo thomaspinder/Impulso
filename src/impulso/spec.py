@@ -1,8 +1,6 @@
 """VAR model specification."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Literal, Self, Union
+from typing import TYPE_CHECKING, Literal, Self
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -32,7 +30,7 @@ class VAR(BaseModel):
 
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
     max_lags: int | None = None
-    prior: Union[Literal["minnesota"], Prior] = "minnesota"  # noqa: UP007
+    prior: Literal["minnesota"] | Prior = "minnesota"
 
     @model_validator(mode="after")
     def _validate_spec(self) -> Self:
@@ -53,7 +51,7 @@ class VAR(BaseModel):
         self,
         data: VARData,
         sampler: Sampler | None = None,
-    ) -> FittedVAR:
+    ) -> "FittedVAR":
         """Estimate the Bayesian VAR model.
 
         Args:

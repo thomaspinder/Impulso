@@ -1,7 +1,5 @@
 """Identification schemes for structural VAR analysis."""
 
-from __future__ import annotations
-
 import arviz as az
 import numpy as np
 import xarray as xr

@@ -1,7 +1,5 @@
 """IRF plotting."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
@@ -12,7 +10,7 @@ if TYPE_CHECKING:
 
 
 def plot_irf(
-    result: IRFResult,
+    result: "IRFResult",
     variables: list[str] | None = None,
     figsize: tuple[float, float] = (9, 6),
 ) -> Figure:

@@ -1,7 +1,5 @@
 """OLS-based lag order selection using information criteria."""
 
-from __future__ import annotations
-
 import numpy as np
 import pandas as pd
 
