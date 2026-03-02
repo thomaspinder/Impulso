@@ -32,6 +32,7 @@ class TestNUTSSampler:
         sampler = NUTSSampler()
         assert isinstance(sampler, Sampler)
 
-    def test_rejects_zero_draws(self):
+    @pytest.mark.parametrize("bad_draws", [0, -1])
+    def test_rejects_invalid_draws(self, bad_draws):
         with pytest.raises(ValidationError):
-            NUTSSampler(draws=0)
+            NUTSSampler(draws=bad_draws)

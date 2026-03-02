@@ -28,13 +28,10 @@ class TestMinnesotaPrior:
         prior = MinnesotaPrior()
         assert isinstance(prior, Prior)
 
-    def test_rejects_zero_tightness(self):
+    @pytest.mark.parametrize("bad_tightness", [0.0, -0.1, -1.0])
+    def test_rejects_invalid_tightness(self, bad_tightness):
         with pytest.raises(ValidationError):
-            MinnesotaPrior(tightness=0.0)
-
-    def test_rejects_negative_tightness(self):
-        with pytest.raises(ValidationError):
-            MinnesotaPrior(tightness=-0.1)
+            MinnesotaPrior(tightness=bad_tightness)
 
     def test_build_priors_returns_dict(self):
         prior = MinnesotaPrior()
