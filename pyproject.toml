@@ -1,6 +1,6 @@
 [project]
 name = "impulso"
-version = "0.0.2"
+version = "0.0.1"
 description = "Bayesian Vector Autoregression (VAR) in Python."
 authors = [{ name = "Thomas Pinder", email = "tompinder@live.co.uk" }]
 readme = "README.md"
