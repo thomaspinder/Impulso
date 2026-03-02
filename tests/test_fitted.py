@@ -9,18 +9,12 @@ from impulso.fitted import FittedVAR
 from impulso.samplers import NUTSSampler
 from impulso.spec import VAR
 
+# var_data_2v comes from conftest.py
+
 
 @pytest.fixture
-def var_data():
-    """Simple VAR(1) DGP."""
-    rng = np.random.default_rng(42)
-    T = 200
-    n = 2
-    y = np.zeros((T, n))
-    for t in range(1, T):
-        y[t] = 0.5 * y[t - 1] + rng.standard_normal(n) * 0.1
-    index = pd.date_range("2000-01-01", periods=T, freq="QS")
-    return VARData(endog=y, endog_names=["y1", "y2"], index=index)
+def var_data(var_data_2v):
+    return var_data_2v
 
 
 class TestFittedVAR:

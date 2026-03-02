@@ -8,23 +8,6 @@ from pydantic import ValidationError
 from impulso.data import VARData
 
 
-@pytest.fixture
-def sample_endog():
-    """3 variables, 100 observations."""
-    rng = np.random.default_rng(42)
-    return rng.standard_normal((100, 3))
-
-
-@pytest.fixture
-def sample_index():
-    return pd.date_range("2000-01-01", periods=100, freq="QS")
-
-
-@pytest.fixture
-def endog_names():
-    return ["gdp", "inflation", "rate"]
-
-
 class TestVARDataConstruction:
     def test_basic_construction(self, sample_endog, sample_index, endog_names):
         data = VARData(
