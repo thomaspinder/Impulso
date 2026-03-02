@@ -12,7 +12,7 @@ Bayesian Vector Autoregression (VAR) in Python.
 
 ## Overview
 
-**impulso** provides a modern, Pythonic interface for Bayesian Vector Autoregression modeling. Built on PyMC, it enables full posterior inference for VAR models with informative priors (Minnesota/Impulso), structural identification, impulse response analysis, and forecast error variance decomposition.
+**impulso** provides a modern, Pythonic interface for Bayesian Vector Autoregression modeling. Built on PyMC, it enables full posterior inference for VAR models with informative priors, structural identification, impulse response analysis, and forecast error variance decomposition.
 
 ### Core Pipeline
 
@@ -30,7 +30,7 @@ VARData → VAR.fit() → FittedVAR → .set_identification_strategy() → Ident
 ### Key Features
 
 - **Full Bayesian inference** via PyMC (NUTS sampling, automatic diagnostics)
-- **Minnesota/Impulso priors** for regularization in high-dimensional VARs
+- **Minnesota priors** for regularization in high-dimensional VARs
 - **Flexible identification schemes**: Recursive (Cholesky), sign restrictions
 - **Forecasting**: Point forecasts, credible intervals, and scenario analysis
 - **Impulse response functions** (IRFs) with uncertainty quantification
