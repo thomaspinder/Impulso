@@ -2,6 +2,8 @@
 
 from typing import Self
 
+from typing import Self
+
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, model_validator
