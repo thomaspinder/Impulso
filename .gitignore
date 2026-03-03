@@ -209,8 +209,3 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-reports/
-
-# Generated docs artifacts (rebuilt by docs/hooks.py on every mkdocs build)
-docs/tutorials/forecasting.md
-docs/tutorials/structural-analysis.md

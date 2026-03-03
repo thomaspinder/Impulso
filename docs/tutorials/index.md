@@ -5,6 +5,6 @@ These tutorials walk you through Impulso's core workflow: fitting a Bayesian VAR
 
 | Tutorial | What you'll learn |
 |----------|-------------------|
-| [Structural Shocks and Their Effects](structural-analysis.md) | Cholesky identification, impulse responses, FEVD, historical decomposition |
+| [Structural Shocks and Their Effects](structural-analysis.ipynb) | Cholesky identification, impulse responses, FEVD, historical decomposition |
 
 Start with the **Quickstart** if you're new to Impulso. The Forecasting and Structural Analysis tutorials build on concepts introduced there.

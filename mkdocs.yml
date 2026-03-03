@@ -11,8 +11,9 @@ nav:
   - Home: index.md
   - Tutorials:
     - tutorials/index.md
-    - Probabilistic Forecasts: tutorials/forecasting.md
-    - Structural Analysis: tutorials/structural-analysis.md
+    # - tutorials/quickstart.ipynb
+    # - tutorials/forecasting.ipynb
+    - tutorials/structural-analysis.ipynb
   - How-To Guides:
     - how-to/index.md
     - how-to/data-preparation.md
@@ -37,11 +38,14 @@ nav:
     - reference/identification.md
     - reference/plotting.md
 
-hooks:
-  - docs/hooks.py
-
 plugins:
   - search
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+      remove_tag_config:
+          remove_input_tags:
+              - hide_code
   - mkdocstrings:
       handlers:
         python:

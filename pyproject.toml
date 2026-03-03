@@ -45,9 +45,9 @@ dev = [
     "mkdocstrings[python]>=1.0.2",
     "mkdocs-jupyter>=0.25.0",
     "ipywidgets>=8.1.8",
+]
+docs = [
     "statsmodels>=0.14.6",
-    "marimo>=0.20.2",
-    "mkdocs-marimo>=0.2.1",
 ]
 
 [build-system]
@@ -128,8 +128,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
-"docs/tutorials/*" = ["B018"]
-"docs/hooks.py" = ["S603"]
 
 [tool.ruff.format]
 preview = true
