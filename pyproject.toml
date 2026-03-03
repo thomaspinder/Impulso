@@ -129,6 +129,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
 "docs/tutorials/*" = ["B018"]
+"docs/hooks.py" = ["S603"]
 
 [tool.ruff.format]
 preview = true

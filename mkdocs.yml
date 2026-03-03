@@ -11,8 +11,8 @@ nav:
   - Home: index.md
   - Tutorials:
     - tutorials/index.md
-    - Probabilistic Forecasts: tutorials/forecasting.py
-    - Structural Analysis: tutorials/structural-analysis.py
+    - Probabilistic Forecasts: tutorials/forecasting.md
+    - Structural Analysis: tutorials/structural-analysis.md
   - How-To Guides:
     - how-to/index.md
     - how-to/data-preparation.md
@@ -37,9 +37,11 @@ nav:
     - reference/identification.md
     - reference/plotting.md
 
+hooks:
+  - docs/hooks.py
+
 plugins:
   - search
-  - marimo
   - mkdocstrings:
       handlers:
         python:
