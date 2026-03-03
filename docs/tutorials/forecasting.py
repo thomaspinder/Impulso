@@ -1,0 +1,206 @@
+import marimo
+
+__generated_with = "0.20.2"
+app = marimo.App()
+
+
+@app.cell
+def _():
+    import marimo as mo
+
+    return (mo,)
+
+
+@app.cell
+def _():
+    # Cell tags: remove-cell
+    import logging
+    import warnings
+
+    warnings.filterwarnings("ignore")
+    logging.getLogger("pytensor").setLevel(logging.ERROR)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    # Probabilistic Forecasts
+
+    Conventional VARs produce point forecasts. A Bayesian VAR produces a full posterior predictive distribution over future paths. This means every forecast comes with calibrated uncertainty — wide bands when the model is unsure, narrow when the data are informative.
+    """
+    )
+    return
+
+
+@app.cell
+def _():
+    import numpy as np
+    import pandas as pd
+
+    from impulso import VAR, VARData
+    from impulso.samplers import NUTSSampler
+
+    return NUTSSampler, VAR, VARData, np, pd
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    ## Setup
+
+    We repeat the data-generating process from the [quickstart tutorial](quickstart.ipynb). The DGP is a VAR(1) with three macro variables — GDP growth, inflation, and an interest rate. If you've already worked through that notebook, the setup code below will be familiar.
+    """
+    )
+    return
+
+
+@app.cell
+def _(NUTSSampler, VAR, VARData, np, pd):
+    rng = np.random.default_rng(42)
+    T = 200
+    n_vars = 3
+
+    A_true = np.array([
+        [0.6, 0.0, -0.1],
+        [0.2, 0.5, 0.0],
+        [0.0, 0.15, 0.4],
+    ])
+
+    y = np.zeros((T, n_vars))
+    for t in range(1, T):
+        y[t] = A_true @ y[t - 1] + rng.standard_normal(n_vars) * 0.1
+
+    index = pd.date_range("2000-01-01", periods=T, freq="QS")
+    data = VARData(endog=y, endog_names=["gdp_growth", "inflation", "rate"], index=index)
+
+    sampler = NUTSSampler(draws=500, tune=500, chains=2, cores=1, random_seed=42)
+    fitted = VAR(lags=1, prior="minnesota").fit(data, sampler=sampler)
+    fitted
+    return (fitted,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    ## Point forecasts
+
+    Call `.forecast(steps=8)` to produce an 8-step-ahead forecast. The result is a `ForecastResult` object that holds the full posterior predictive draws. The `.median()` method extracts the central tendency — the posterior median at each horizon.
+    """
+    )
+    return
+
+
+@app.cell
+def _(fitted):
+    fcast = fitted.forecast(steps=8)
+    fcast.median()
+    return (fcast,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    Each row is a forecast horizon (1 through 8 quarters ahead). The values converge toward the unconditional mean of the process as the horizon increases — a hallmark of stationary VARs.
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    ## Credible intervals
+
+    The `.hdi()` method computes the highest density interval at a given probability level. An 89% HDI means 89% of the posterior forecast mass falls within these bounds. We use 89% rather than 95% following the ArviZ convention — it avoids the false precision of round numbers.
+    """
+    )
+    return
+
+
+@app.cell
+def _(fcast):
+    hdi = fcast.hdi(prob=0.89)
+
+    print("Lower bounds:")
+    print(hdi.lower)
+    print("\nUpper bounds:")
+    print(hdi.upper)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    The intervals widen at longer horizons. This is expected: uncertainty compounds over time because each forecast step propagates parameter uncertainty forward.
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    ## Visualise the forecast
+
+    The `.plot()` method produces a fan chart showing the median forecast with shaded credible bands for each variable.
+    """
+    )
+    return
+
+
+@app.cell
+def _(fcast):
+    fcast.plot()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    The fan chart shows the posterior median (line) and 89% HDI (shaded region) for each variable. The bands widen at longer horizons, reflecting compounding uncertainty. GDP growth and the interest rate show the widest bands, consistent with their stronger cross-variable dependencies in the DGP.
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    ## Tidy export
+
+    For downstream analysis or dashboarding, `.to_dataframe()` returns the median forecast in a tidy DataFrame format.
+    """
+    )
+    return
+
+
+@app.cell
+def _(fcast):
+    fcast.to_dataframe()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    ## Summary
+
+    Bayesian VAR forecasts provide more than point predictions. The full posterior predictive distribution lets you quantify and communicate forecast uncertainty honestly. For structural questions — what happens to inflation when the central bank raises rates? — see the [Structural Analysis tutorial](structural-analysis.ipynb).
+    """
+    )
+    return
+
+
+if __name__ == "__main__":
+    app.run()

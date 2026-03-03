@@ -11,9 +11,8 @@ def _():
     return (mo,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
-    # Cell tags: remove-cell
     import logging
     import warnings
 
@@ -372,8 +371,7 @@ def _(mo):
 @app.cell
 def _(identified, plt):
     hd = identified.historical_decomposition()
-    _fig = hd.plot()
-    plt.savefig("historical_decomposition.png", dpi=300, bbox_inches="tight")
+    hd.plot()
     return
 
 

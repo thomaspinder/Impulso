@@ -41,12 +41,7 @@ nav:
 plugins:
   - search
   - marimo
-  - mkdocs-jupyter:
-      execute: false
-      include_source: true
-      remove_tag_config:
-          remove_input_tags:
-              - hide_code
+  - mkdocs-jupyter
   - mkdocstrings:
       handlers:
         python:
