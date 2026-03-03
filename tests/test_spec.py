@@ -13,9 +13,10 @@ class TestVARSpec:
         assert spec.lags == 4
         assert spec.max_lags is None
 
-    def test_string_lags(self):
-        spec = VAR(lags="bic", prior="minnesota")
-        assert spec.lags == "bic"
+    @pytest.mark.parametrize("criterion", ["aic", "bic", "hq"])
+    def test_string_lags(self, criterion):
+        spec = VAR(lags=criterion, prior="minnesota")
+        assert spec.lags == criterion
 
     def test_string_lags_with_max(self):
         spec = VAR(lags="aic", max_lags=12, prior="minnesota")

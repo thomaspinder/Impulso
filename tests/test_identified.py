@@ -1,10 +1,7 @@
 """Tests for IdentifiedVAR."""
 
-import numpy as np
-import pandas as pd
 import pytest
 
-from impulso.data import VARData
 from impulso.identification import Cholesky
 from impulso.identified import IdentifiedVAR
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
@@ -13,18 +10,11 @@ from impulso.spec import VAR
 
 
 @pytest.fixture
-def fitted_var():
+def fitted_var(var_data_2v):
     """Fit a small VAR for testing."""
-    rng = np.random.default_rng(42)
-    T, n = 200, 2
-    y = np.zeros((T, n))
-    for t in range(1, T):
-        y[t] = 0.5 * y[t - 1] + rng.standard_normal(n) * 0.1
-    index = pd.date_range("2000-01-01", periods=T, freq="QS")
-    data = VARData(endog=y, endog_names=["y1", "y2"], index=index)
     spec = VAR(lags=1, prior="minnesota")
     sampler = NUTSSampler(draws=100, tune=100, chains=2, cores=1, random_seed=42)
-    return spec.fit(data, sampler=sampler)
+    return spec.fit(var_data_2v, sampler=sampler)
 
 
 class TestIdentifiedVAR:
@@ -51,3 +41,71 @@ class TestIdentifiedVAR:
         identified = fitted_var.set_identification_strategy(Cholesky(ordering=["y1", "y2"]))
         hd = identified.historical_decomposition()
         assert isinstance(hd, HistoricalDecompositionResult)
+
+
+class TestIdentifiedVARFast:
+    """Fast tests using synthetic InferenceData (no MCMC)."""
+
+    def test_impulse_response_shape(self, synthetic_identified_idata_2v, var_data_2v):
+
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        irf = identified.impulse_response(horizon=10)
+        assert isinstance(irf, IRFResult)
+        assert irf.horizon == 10
+        med = irf.median()
+        assert med.shape == (11, 4)  # (horizon+1, n_vars*n_vars)
+
+    def test_fevd_shape(self, synthetic_identified_idata_2v, var_data_2v):
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        fevd = identified.fevd(horizon=10)
+        assert isinstance(fevd, FEVDResult)
+        med = fevd.median()
+        assert med.shape == (11, 4)
+
+    def test_fevd_sums_to_one(self, synthetic_identified_idata_2v, var_data_2v):
+        """FEVD shares should sum to ~1 for each response at each horizon."""
+        import numpy as np
+
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        fevd = identified.fevd(horizon=10)
+        fevd_da = fevd.idata.posterior_predictive["fevd"]
+        med = fevd_da.median(dim=("chain", "draw"))
+        # For each response, shares across shocks should sum to 1
+        for resp in ["y1", "y2"]:
+            sums = med.sel(response=resp).values.sum(axis=1)
+            np.testing.assert_allclose(sums, 1.0, atol=1e-10)
+
+    def test_historical_decomposition_shape(self, synthetic_identified_idata_2v, var_data_2v):
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        hd = identified.historical_decomposition()
+        assert isinstance(hd, HistoricalDecompositionResult)
+
+    def test_repr(self, synthetic_identified_idata_2v, var_data_2v):
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        r = repr(identified)
+        assert "IdentifiedVAR" in r

@@ -8,23 +8,6 @@ from pydantic import ValidationError
 from impulso.data import VARData
 
 
-@pytest.fixture
-def sample_endog():
-    """3 variables, 100 observations."""
-    rng = np.random.default_rng(42)
-    return rng.standard_normal((100, 3))
-
-
-@pytest.fixture
-def sample_index():
-    return pd.date_range("2000-01-01", periods=100, freq="QS")
-
-
-@pytest.fixture
-def endog_names():
-    return ["gdp", "inflation", "rate"]
-
-
 class TestVARDataConstruction:
     def test_basic_construction(self, sample_endog, sample_index, endog_names):
         data = VARData(
@@ -70,13 +53,10 @@ class TestVARDataConstruction:
 
 
 class TestVARDataValidation:
-    def test_rejects_nan(self, sample_index, endog_names):
-        bad = np.array([[1.0, 2.0, np.nan]] * 100)
-        with pytest.raises(ValueError, match="NaN or Inf"):
-            VARData(endog=bad, endog_names=endog_names, index=sample_index)
-
-    def test_rejects_inf(self, sample_index, endog_names):
-        bad = np.array([[1.0, 2.0, np.inf]] * 100)
+    @pytest.mark.parametrize("bad_val", [np.nan, np.inf, -np.inf])
+    def test_rejects_nonfinite(self, sample_index, endog_names, bad_val):
+        bad = np.full((100, 3), 1.0)
+        bad[0, 2] = bad_val
         with pytest.raises(ValueError, match="NaN or Inf"):
             VARData(endog=bad, endog_names=endog_names, index=sample_index)
 
