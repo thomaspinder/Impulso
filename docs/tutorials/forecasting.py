@@ -51,7 +51,7 @@ def _(mo):
         r"""
     ## Setup
 
-    We repeat the data-generating process from the [quickstart tutorial](quickstart.ipynb). The DGP is a VAR(1) with three macro variables — GDP growth, inflation, and an interest rate. If you've already worked through that notebook, the setup code below will be familiar.
+    We repeat the data-generating process from the [quickstart tutorial](quickstart.py). The DGP is a VAR(1) with three macro variables — GDP growth, inflation, and an interest rate. If you've already worked through that notebook, the setup code below will be familiar.
     """
     )
     return
@@ -196,7 +196,7 @@ def _(mo):
         r"""
     ## Summary
 
-    Bayesian VAR forecasts provide more than point predictions. The full posterior predictive distribution lets you quantify and communicate forecast uncertainty honestly. For structural questions — what happens to inflation when the central bank raises rates? — see the [Structural Analysis tutorial](structural-analysis.ipynb).
+    Bayesian VAR forecasts provide more than point predictions. The full posterior predictive distribution lets you quantify and communicate forecast uncertainty honestly. For structural questions — what happens to inflation when the central bank raises rates? — see the [Structural Analysis tutorial](structural-analysis.py).
     """
     )
     return

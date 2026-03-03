@@ -24,7 +24,8 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     # Fitting Your First Bayesian VAR
 
     A vector autoregression (VAR) models multiple time series jointly, capturing how each
@@ -35,7 +36,8 @@ def _(mo):
     and variables -- and provides full posterior uncertainty over every coefficient and
     forecast. For more background, see the
     [Bayesian VAR explanation](../explanation/bayesian-var.md).
-    """)
+    """
+    )
     return
 
 
@@ -53,7 +55,8 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## Simulate a small macro economy
 
     We simulate a VAR(1) with three variables -- quarterly GDP growth, inflation, and a
@@ -67,7 +70,8 @@ def _(mo):
     | **GDP growth** | Persistent at 0.6 | Reacts negatively to last quarter's interest rate (-0.1) |
     | **Inflation**  | Persistent at 0.5 | Follows GDP with a one-quarter lag (0.2) |
     | **Interest rate** | Persistent at 0.4 | Reacts to inflation (0.15) -- a simplified Taylor-rule channel |
-    """)
+    """
+    )
     return
 
 
@@ -94,14 +98,16 @@ def _(np):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## Load data into VARData
 
     `VARData` is the entry point for all data in Impulso. It validates the shape of
     your arrays, checks for NaN and Inf values, and makes the underlying arrays read-only
     so that data cannot be accidentally mutated after construction. If you already have a
     pandas DataFrame, you can use `VARData.from_df()` instead.
-    """)
+    """
+    )
     return
 
 
@@ -114,7 +120,8 @@ def _(T, VARData, pd, y):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## Select lag order
 
     Before estimating the Bayesian VAR, we need to choose the number of lags.
@@ -126,7 +133,8 @@ def _(mo):
     - **HQ** (Hannan-Quinn): sits between AIC and BIC in penalisation strength.
 
     Since the true DGP is VAR(1), BIC should recover lag 1.
-    """)
+    """
+    )
     return
 
 
@@ -140,17 +148,20 @@ def _(data, select_lag_order):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     BIC selects 1 lag -- correctly recovering the true DGP order. The criteria table above
     shows the penalty-adjusted fit at each lag. BIC's stronger complexity penalty makes it
     a sensible default when the goal is parsimony.
-    """)
+    """
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## Specify the model
 
     `VAR(lags=1, prior="minnesota")` creates a model specification. The Minnesota prior,
@@ -159,7 +170,8 @@ def _(mo):
     valuable when the number of parameters grows quadratically with the number of variables
     and linearly with lags. For more detail, see the
     [Minnesota prior explanation](../explanation/minnesota-prior.md).
-    """)
+    """
+    )
     return
 
 
@@ -172,14 +184,16 @@ def _(VAR):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## Estimate the model
 
     Calling `.fit()` builds a PyMC model under the hood, places the Minnesota prior on the
     coefficient matrix, and samples the posterior using NUTS (the No-U-Turn Sampler). We
     use `cores=1` to avoid multiprocessing issues and a fixed `random_seed` for
     reproducibility. More draws improve the posterior approximation but take longer.
-    """)
+    """
+    )
     return
 
 
@@ -193,14 +207,16 @@ def _(NUTSSampler, data, spec):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## Inspect the posterior
 
     The fitted model stores the full posterior in ArviZ `InferenceData` format.
     `az.summary()` shows posterior means, standard deviations, and highest density
     intervals for each parameter. We can check whether the posterior recovers the true
     DGP coefficients.
-    """)
+    """
+    )
     return
 
 
@@ -212,29 +228,33 @@ def _(az, fitted):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     The posterior means for the `B` coefficients should be close to the true values in
     `A_true`. For example, the GDP-on-GDP-lag coefficient should be near 0.6 and the
     GDP-on-rate-lag coefficient near -0.1. The 94% HDIs give you a credible range -- if
     they contain the true value, the model is well calibrated. The intercepts should be
     near zero since the DGP has no intercept.
-    """)
+    """
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## What's next
 
     With a fitted model in hand, you can:
 
     - **Forecast**: produce probabilistic multi-step-ahead forecasts -- see the
-      [Forecasting tutorial](forecasting.ipynb)
+      [Forecasting tutorial](forecasting.py)
     - **Identify structural shocks**: apply Cholesky or sign-restriction identification
       to study causal impulse responses -- see the
-      [Structural Analysis tutorial](structural-analysis.ipynb)
-    """)
+      [Structural Analysis tutorial](structural-analysis.py)
+    """
+    )
     return
 
 
