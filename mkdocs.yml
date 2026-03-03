@@ -13,7 +13,7 @@ nav:
     - tutorials/index.md
     # - tutorials/quickstart.ipynb
     # - tutorials/forecasting.ipynb
-    - tutorials/structural-analysis.ipynb
+    - tutorials/structural-analysis.py
   - How-To Guides:
     - how-to/index.md
     - how-to/data-preparation.md
@@ -40,6 +40,7 @@ nav:
 
 plugins:
   - search
+  - marimo
   - mkdocs-jupyter:
       execute: false
       include_source: true
