@@ -96,3 +96,30 @@ All result types (`results.py`) inherit from `VARResultBase` and provide `.media
 
 - **LKJCholeskyCov/LKJCorr are broken** with PyMC 5.28 + PyTensor 2.38 + NumPy 2.4 (einsum unpacking bug). Use manual Cholesky parameterization instead (HalfCauchy diagonal + Normal off-diagonal), as done in `spec.py`.
 - **Parallel sampling segfaults**: Use `cores=1` in `NUTSSampler` for tests to avoid multiprocessing crashes. Tests marked `@pytest.mark.slow` exercise MCMC.
+
+## PR Review Policy
+
+When reviewing pull requests, structure all feedback into two categories:
+
+### In-Scope (block merge until resolved)
+- Bugs, logic errors, or correctness issues in the diff
+- Violations of the coding standards defined in this file
+- Security concerns in changed code
+- Missing or broken tests for changed behaviour
+- Type errors, API-contract mismatches, or CI-breaking changes
+
+### Out-of-Scope (track as separate issues)
+- Pre-existing tech debt not introduced by this PR
+- Refactoring in unchanged code
+- Performance improvements unrelated to the PR
+- Feature ideas or enhancements
+- Documentation gaps outside changed files
+- Architectural concerns requiring design discussion
+
+**Default to out-of-scope when uncertain.** Do not block PRs for tangential work.
+
+Format in-scope items as a checklist with severity (P0/P1/P2) and line references.
+Format out-of-scope items as complete issue drafts with title, labels, context,
+problem description, suggested approach, and affected files.
+
+Use the `/pr-review` command for the full review workflow.

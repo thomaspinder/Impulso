@@ -36,8 +36,19 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: |
+            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+
+            After completing the review, restructure your findings into the format
+            defined in CLAUDE.md under "PR Review Policy":
+            - In-Scope items as a checklist with severity (P0/P1/P2) and line refs
+            - Out-of-Scope items as complete issue drafts with title, labels, context,
+              problem, suggested approach, and affected files
+
+            Use exactly the heading structure "### In-Scope — Checklist" and
+            "### Out-of-Scope — Issue Drafts" so downstream automation can parse them.
+          # prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
