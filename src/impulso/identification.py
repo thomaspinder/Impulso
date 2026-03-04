@@ -86,6 +86,7 @@ class SignRestriction(ImpulsoModel):
 
         P = np.full((n_chains, n_draws, n_vars, n_vars), np.nan)
 
+        fallback_count = 0
         for c in range(n_chains):
             for d in range(n_draws):
                 chol = np.linalg.cholesky(sigma[c, d])
@@ -98,7 +99,18 @@ class SignRestriction(ImpulsoModel):
                         found = True
                         break
                 if not found:
-                    P[c, d] = chol  # fallback to Cholesky if no valid rotation found
+                    P[c, d] = chol
+                    fallback_count += 1
+
+        if fallback_count > 0:
+            import warnings
+
+            total = n_chains * n_draws
+            warnings.warn(
+                f"Sign restrictions not satisfied for {fallback_count}/{total} draws "
+                f"({fallback_count / total:.1%}). Those draws fell back to Cholesky.",
+                stacklevel=2,
+            )
 
         coord_shocks = shock_names if len(shock_names) == n_vars else var_names
         P_da = xr.DataArray(

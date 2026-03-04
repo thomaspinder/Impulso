@@ -136,7 +136,7 @@ class VAR(ImpulsoBaseModel):
         # Sample
         idata = sampler.sample(model)
 
-        return FittedVAR(
+        return FittedVAR.model_construct(
             idata=idata,
             n_lags=n_lags,
             data=data,

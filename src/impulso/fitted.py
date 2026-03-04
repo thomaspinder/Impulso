@@ -123,7 +123,7 @@ class FittedVAR(ImpulsoBaseModel):
         from impulso.identified import IdentifiedVAR
 
         identified_idata = scheme.identify(self.idata, self.var_names)
-        return IdentifiedVAR(
+        return IdentifiedVAR.model_construct(
             idata=identified_idata,
             n_lags=self.n_lags,
             data=self.data,
