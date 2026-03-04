@@ -46,8 +46,8 @@ class Cholesky(BaseModel):
 
         P_da = xr.DataArray(
             P,
-            dims=["chain", "draw", "shock", "response"],
-            coords={"shock": self.ordering, "response": self.ordering},
+            dims=["chain", "draw", "response", "shock"],
+            coords={"response": self.ordering, "shock": self.ordering},
         )
 
         new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)
