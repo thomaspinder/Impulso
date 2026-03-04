@@ -12,6 +12,11 @@ __all__ = [
 ]
 
 
+def __dir__() -> list[str]:
+    """Expose all public API names in interactive discovery tools."""
+    return sorted(__all__)
+
+
 def enable_runtime_checks() -> None:
     """Enable beartype runtime type checking on public API.
 

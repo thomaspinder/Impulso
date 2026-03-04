@@ -21,3 +21,10 @@ class TestPublicAPI:
         from impulso import enable_runtime_checks
 
         assert callable(enable_runtime_checks)
+
+    def test_dir_includes_public_api(self):
+        import impulso
+
+        names = dir(impulso)
+        for expected in impulso.__all__:
+            assert expected in names
