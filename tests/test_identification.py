@@ -49,6 +49,11 @@ class TestCholesky:
 
         assert "structural_shock_matrix" in result.posterior
 
+        p_da = result.posterior["structural_shock_matrix"]
+        assert p_da.dims == ("chain", "draw", "response", "shock")
+        assert list(p_da.coords["response"].values) == ["y1", "y2"]
+        assert list(p_da.coords["shock"].values) == ["y1", "y2"]
+
 
 class TestSignRestriction:
     def test_construction(self):
