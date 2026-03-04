@@ -32,6 +32,9 @@ Homepage = "https://thomaspinder.github.io/impulso/"
 Repository = "https://github.com/thomaspinder/impulso"
 Documentation = "https://thomaspinder.github.io/impulso/"
 
+[project.optional-dependencies]
+nutpie = ["nutpie>=0.13"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
@@ -45,6 +48,7 @@ dev = [
     "mkdocstrings[python]>=1.0.2",
     "mkdocs-jupyter>=0.25.0",
     "ipywidgets>=8.1.8",
+    "nutpie>=0.13",
 ]
 docs = [
     "statsmodels>=0.14.6",
