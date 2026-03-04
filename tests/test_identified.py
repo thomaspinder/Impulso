@@ -1,5 +1,6 @@
 """Tests for IdentifiedVAR."""
 
+import numpy as np
 import pytest
 
 from impulso.identification import Cholesky
@@ -74,7 +75,6 @@ class TestIdentifiedVARFast:
 
     def test_fevd_sums_to_one(self, synthetic_identified_idata_2v, var_data_2v):
         """FEVD shares should sum to ~1 for each response at each horizon."""
-        import numpy as np
 
         identified = IdentifiedVAR.model_construct(
             idata=synthetic_identified_idata_2v,
@@ -99,6 +99,21 @@ class TestIdentifiedVARFast:
         )
         hd = identified.historical_decomposition()
         assert isinstance(hd, HistoricalDecompositionResult)
+
+    def test_irf_deterministic_values(self, synthetic_identified_idata_2v, var_data_2v):
+        """IRF at horizon 0 should equal the structural shock matrix."""
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        irf = identified.impulse_response(horizon=5)
+        irf_draws = irf.idata.posterior_predictive["irf"].values  # (C, D, H+1, n, n)
+
+        P = synthetic_identified_idata_2v.posterior["structural_shock_matrix"].values
+        # At h=0, IRF = Phi_0 @ P = I @ P = P
+        np.testing.assert_allclose(irf_draws[:, :, 0, :, :], P, atol=1e-12)
 
     def test_repr(self, synthetic_identified_idata_2v, var_data_2v):
         identified = IdentifiedVAR.model_construct(

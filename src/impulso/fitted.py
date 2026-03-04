@@ -74,29 +74,31 @@ class FittedVAR(ImpulsoBaseModel):
         if not self.has_exog and exog_future is not None:
             raise ValueError("exog_future provided but model has no exogenous variables")
 
-        B_draws = self.coefficients  # (chains, draws, n_vars, n_vars*n_lags)
-        intercept_draws = self.intercepts  # (chains, draws, n_vars)
+        B_draws = self.coefficients  # (C, D, n_vars, n_vars*n_lags)
+        intercept_draws = self.intercepts  # (C, D, n_vars)
         n_chains, n_draws, n_vars, _ = B_draws.shape
 
-        # Last n_lags observations for initial conditions
-        y_hist = self.data.endog[-self.n_lags :]  # (n_lags, n_vars)
+        # Last n_lags observations — broadcast to (C, D, n_lags, n)
+        y_hist = self.data.endog[-self.n_lags :]  # (p, n)
+        y_buffer = np.broadcast_to(y_hist, (n_chains, n_draws, self.n_lags, n_vars)).copy()
 
         forecasts = np.zeros((n_chains, n_draws, steps, n_vars))
 
-        for c in range(n_chains):
-            for d in range(n_draws):
-                B = B_draws[c, d]
-                intercept = intercept_draws[c, d]
-                y_buffer = list(y_hist)
+        for h in range(steps):
+            # Build lag vector: concatenate y[t-1], y[t-2], ..., y[t-p]
+            x_lag = np.concatenate(
+                [y_buffer[:, :, -(lag + 1), :] for lag in range(self.n_lags)], axis=-1
+            )  # (C, D, n*p)
 
-                for h in range(steps):
-                    x_lag = np.concatenate([y_buffer[-(lag)] for lag in range(1, self.n_lags + 1)])
-                    y_new = intercept + B @ x_lag
-                    if self.has_exog and exog_future is not None:
-                        B_exog = self.idata.posterior["B_exog"].values[c, d]
-                        y_new = y_new + B_exog @ exog_future[h]
-                    forecasts[c, d, h] = y_new
-                    y_buffer.append(y_new)
+            y_new = intercept_draws + np.einsum("cdij,cdj->cdi", B_draws, x_lag)
+
+            if self.has_exog and exog_future is not None:
+                B_exog = self.idata.posterior["B_exog"].values  # (C, D, n, k)
+                y_new = y_new + np.einsum("cdij,j->cdi", B_exog, exog_future[h])
+
+            forecasts[:, :, h, :] = y_new
+            # Roll buffer forward
+            y_buffer = np.concatenate([y_buffer[:, :, 1:, :], y_new[:, :, np.newaxis, :]], axis=2)
 
         # Package into InferenceData
         forecast_da = xr.DataArray(
