@@ -16,6 +16,7 @@ class TestNUTSSampler:
         assert sampler.cores is None
         assert sampler.target_accept == 0.8
         assert sampler.random_seed is None
+        assert sampler.nuts_sampler in ("pymc", "nutpie")
 
     def test_custom_construction(self):
         sampler = NUTSSampler(draws=2000, chains=2, random_seed=42)
