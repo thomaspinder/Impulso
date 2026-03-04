@@ -36,7 +36,7 @@ class VARResultBase(ImpulsoBaseModel):
     @abstractmethod
     def median(self) -> pd.DataFrame:
         """Compute posterior median of the result."""
-        ...
+        raise NotImplementedError
 
     @abstractmethod
     def hdi(self, prob: float = 0.89) -> HDIResult:
@@ -45,17 +45,17 @@ class VARResultBase(ImpulsoBaseModel):
         Args:
             prob: Probability mass for the HDI. Default 0.89.
         """
-        ...
+        raise NotImplementedError
 
     @abstractmethod
     def to_dataframe(self) -> pd.DataFrame:
         """Convert result to a tidy DataFrame."""
-        ...
+        raise NotImplementedError
 
     @abstractmethod
     def plot(self) -> Figure:
         """Plot the result. Subclasses must implement."""
-        ...
+        raise NotImplementedError
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}()"
