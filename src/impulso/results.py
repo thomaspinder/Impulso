@@ -5,10 +5,12 @@ from abc import abstractmethod
 import arviz as az
 import pandas as pd
 from matplotlib.figure import Figure
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from impulso._base import ImpulsoBaseModel
 
 
-class HDIResult(BaseModel):
+class HDIResult(ImpulsoBaseModel):
     """Structured HDI output with separate lower/upper bounds.
 
     Attributes:
@@ -17,28 +19,26 @@ class HDIResult(BaseModel):
         prob: HDI probability level.
     """
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
     lower: pd.DataFrame
     upper: pd.DataFrame
     prob: float
 
 
-class VARResultBase(BaseModel):
+class VARResultBase(ImpulsoBaseModel):
     """Base class for VAR post-estimation results.
 
     Attributes:
         idata: ArviZ InferenceData holding the result draws.
     """
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+    idata: az.InferenceData = Field(repr=False)
 
-    idata: az.InferenceData
-
+    @abstractmethod
     def median(self) -> pd.DataFrame:
         """Compute posterior median of the result."""
         raise NotImplementedError
 
+    @abstractmethod
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """Compute highest density interval.
 
@@ -47,6 +47,7 @@ class VARResultBase(BaseModel):
         """
         raise NotImplementedError
 
+    @abstractmethod
     def to_dataframe(self) -> pd.DataFrame:
         """Convert result to a tidy DataFrame."""
         raise NotImplementedError
@@ -54,7 +55,7 @@ class VARResultBase(BaseModel):
     @abstractmethod
     def plot(self) -> Figure:
         """Plot the result. Subclasses must implement."""
-        ...
+        raise NotImplementedError
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -203,7 +204,7 @@ class HistoricalDecompositionResult(VARResultBase):
         return plot_historical_decomposition(self)
 
 
-class LagOrderResult(BaseModel):
+class LagOrderResult(ImpulsoBaseModel):
     """Result from lag order selection.
 
     Attributes:
@@ -212,8 +213,6 @@ class LagOrderResult(BaseModel):
         hq: Optimal lag order by Hannan-Quinn.
         criteria_table: DataFrame of all criteria values by lag order.
     """
-
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     aic: int
     bic: int

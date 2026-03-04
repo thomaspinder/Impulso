@@ -4,13 +4,14 @@ import arviz as az
 import numpy as np
 import pandas as pd
 import xarray as xr
-from pydantic import BaseModel, ConfigDict
+from pydantic import Field
 
+from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
 
 
-class IdentifiedVAR(BaseModel):
+class IdentifiedVAR(ImpulsoBaseModel):
     """Immutable structural VAR with identified shocks.
 
     Attributes:
@@ -20,12 +21,29 @@ class IdentifiedVAR(BaseModel):
         var_names: Endogenous variable names.
     """
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    idata: az.InferenceData
+    idata: az.InferenceData = Field(repr=False)
     n_lags: int
     data: VARData
     var_names: list[str]
+
+    def _ma_coefficients(self, B_draws: np.ndarray, n_vars: int, n_lags: int, horizon: int) -> np.ndarray:
+        """Compute MA coefficient recursion, vectorised over (chains, draws).
+
+        Returns:
+            Array of shape (C, D, horizon+1, n_vars, n_vars).
+        """
+        # Extract A_j matrices: each (C, D, n, n)
+        A = [B_draws[:, :, :, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
+
+        n_chains, n_draws = B_draws.shape[:2]
+        Phi = [np.broadcast_to(np.eye(n_vars), (n_chains, n_draws, n_vars, n_vars)).copy()]
+        for h in range(1, horizon + 1):
+            phi_h = np.zeros((n_chains, n_draws, n_vars, n_vars))
+            for j in range(min(h, n_lags)):
+                phi_h += np.einsum("cdij,cdjk->cdik", A[j], Phi[h - j - 1])
+            Phi.append(phi_h)
+
+        return np.stack(Phi, axis=2)
 
     def impulse_response(self, horizon: int = 20) -> IRFResult:
         """Compute structural impulse response functions.
@@ -36,28 +54,13 @@ class IdentifiedVAR(BaseModel):
         Returns:
             IRFResult with IRF posterior draws.
         """
-        B_draws = self.idata.posterior["B"].values  # (chains, draws, n, n*p)
-        P_draws = self.idata.posterior["structural_shock_matrix"].values  # (chains, draws, n, n)
-        n_chains, n_draws, n_vars, _ = B_draws.shape
-        n_lags = self.n_lags
+        B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
+        P_draws = self.idata.posterior["structural_shock_matrix"].values  # (C, D, n, n)
+        n_vars = B_draws.shape[2]
 
-        irfs = np.zeros((n_chains, n_draws, horizon + 1, n_vars, n_vars))
-        for c in range(n_chains):
-            for d in range(n_draws):
-                B = B_draws[c, d]  # (n, n*p)
-                P = P_draws[c, d]  # (n, n)
-
-                # MA coefficients via recursion
-                Phi = [np.eye(n_vars)]  # Phi_0 = I
-                for h in range(1, horizon + 1):
-                    phi_h = np.zeros((n_vars, n_vars))
-                    for j in range(1, min(h, n_lags) + 1):
-                        A_j = B[:, (j - 1) * n_vars : j * n_vars]
-                        phi_h += A_j @ Phi[h - j]
-                    Phi.append(phi_h)
-
-                for h in range(horizon + 1):
-                    irfs[c, d, h] = Phi[h] @ P
+        Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
+        # IRF = Phi @ P, vectorised over (C, D, H) via broadcasting
+        irfs = Phi_arr @ P_draws[:, :, np.newaxis, :, :]
 
         irf_da = xr.DataArray(
             irfs,
@@ -83,32 +86,16 @@ class IdentifiedVAR(BaseModel):
         """
         B_draws = self.idata.posterior["B"].values
         P_draws = self.idata.posterior["structural_shock_matrix"].values
-        n_chains, n_draws, n_vars, _ = B_draws.shape
-        n_lags = self.n_lags
+        n_vars = B_draws.shape[2]
 
-        fevd = np.zeros((n_chains, n_draws, horizon + 1, n_vars, n_vars))
-        for c in range(n_chains):
-            for d in range(n_draws):
-                B = B_draws[c, d]
-                P = P_draws[c, d]
+        Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
+        # Theta_h = Phi_h @ P, vectorised via broadcasting
+        Theta = Phi_arr @ P_draws[:, :, np.newaxis, :, :]
 
-                Phi = [np.eye(n_vars)]
-                for h in range(1, horizon + 1):
-                    phi_h = np.zeros((n_vars, n_vars))
-                    for j in range(1, min(h, n_lags) + 1):
-                        A_j = B[:, (j - 1) * n_vars : j * n_vars]
-                        phi_h += A_j @ Phi[h - j]
-                    Phi.append(phi_h)
-
-                # Accumulate MSE contributions
-                mse_total = np.zeros((n_vars, n_vars))
-                for h in range(horizon + 1):
-                    theta_h = Phi[h] @ P
-                    mse_total += theta_h**2
-                    for resp in range(n_vars):
-                        total = mse_total[resp].sum()
-                        if total > 0:
-                            fevd[c, d, h, resp] = mse_total[resp] / total
+        # FEVD: cumulative MSE contribution
+        mse_cum = np.cumsum(Theta**2, axis=2)  # (C, D, H+1, resp, shock)
+        total = mse_cum.sum(axis=-1, keepdims=True)  # (C, D, H+1, resp, 1)
+        fevd = np.where(total > 0, mse_cum / total, 0.0)
 
         fevd_da = xr.DataArray(
             fevd,
@@ -146,35 +133,33 @@ class IdentifiedVAR(BaseModel):
         Returns:
             HistoricalDecompositionResult.
         """
-        B_draws = self.idata.posterior["B"].values
-        P_draws = self.idata.posterior["structural_shock_matrix"].values
-        intercept_draws = self.idata.posterior["intercept"].values
-        n_chains, n_draws, n_vars, _ = B_draws.shape
+        B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
+        P_draws = self.idata.posterior["structural_shock_matrix"].values  # (C, D, n, n)
+        intercept_draws = self.idata.posterior["intercept"].values  # (C, D, n)
 
-        y = self.data.endog
+        y = self.data.endog  # (T, n)
         T = y.shape[0]
         n_lags = self.n_lags
 
-        hd = np.zeros((n_chains, n_draws, T - n_lags, n_vars, n_vars))
+        # Build lag matrix: x_lag[t] = [y[t-1], y[t-2], ...] for t in [n_lags, T)
+        x_lag = np.concatenate([y[n_lags - lag : T - lag] for lag in range(1, n_lags + 1)], axis=1)  # (T-p, n*p)
 
-        for c in range(n_chains):
-            for d in range(n_draws):
-                B = B_draws[c, d]
-                P = P_draws[c, d]
-                intercept = intercept_draws[c, d]
-                P_inv = np.linalg.inv(P)
+        # Predicted values: intercept + B @ x_lag for all (C, D, t)
+        y_hat = intercept_draws[:, :, np.newaxis, :] + np.einsum("cdij,tj->cdti", B_draws, x_lag)
 
-                # Compute structural residuals
-                for t in range(n_lags, T):
-                    x_lag = np.concatenate([y[t - lag] for lag in range(1, n_lags + 1)])
-                    resid = y[t] - intercept - B @ x_lag
-                    structural_resid = P_inv @ resid
-                    # Each shock's contribution
-                    for k in range(n_vars):
-                        hd[c, d, t - n_lags, :, k] = P[:, k] * structural_resid[k]
+        # Reduced-form residuals: (C, D, T-p, n)
+        y_obs = y[n_lags:]  # (T-p, n)
+        resid = y_obs[np.newaxis, np.newaxis, :, :] - y_hat
 
-                if cumulative:
-                    hd[c, d] = np.cumsum(hd[c, d], axis=0)
+        # Structural residuals: P_inv @ resid
+        P_inv = np.linalg.inv(P_draws)  # (C, D, n, n)
+        structural_resid = np.einsum("cdij,cdtj->cdti", P_inv, resid)  # (C, D, T-p, n)
+
+        # hd[..., resp, shock] = P[resp, shock] * structural_resid[shock]
+        hd = P_draws[:, :, np.newaxis, :, :] * structural_resid[:, :, :, np.newaxis, :]
+
+        if cumulative:
+            hd = np.cumsum(hd, axis=2)
 
         # Trim to date range if requested
         idx = self.data.index[n_lags:]
@@ -194,10 +179,3 @@ class IdentifiedVAR(BaseModel):
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da}))
         return HistoricalDecompositionResult(idata=idata, var_names=self.var_names)
-
-    def __repr__(self) -> str:
-        n_vars = len(self.var_names)
-        posterior = self.idata.posterior
-        n_chains = posterior.sizes["chain"]
-        n_draws = posterior.sizes["draw"]
-        return f"IdentifiedVAR(n_lags={self.n_lags}, n_vars={n_vars}, n_draws={n_draws}, n_chains={n_chains})"

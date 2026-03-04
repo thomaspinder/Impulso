@@ -49,6 +49,35 @@ class TestCholesky:
 
         assert "structural_shock_matrix" in result.posterior
 
+    def test_cholesky_identify_values_correct(self):
+        """Verify Cholesky decomposition produces valid lower-triangular matrices."""
+        rng = np.random.default_rng(42)
+        n_vars = 3
+        n_chains, n_draws = 2, 30
+
+        sigma_draws = np.zeros((n_chains, n_draws, n_vars, n_vars))
+        for c in range(n_chains):
+            for d in range(n_draws):
+                A = rng.standard_normal((n_vars, n_vars))
+                sigma_draws[c, d] = A @ A.T + np.eye(n_vars)
+
+        sigma_da = xr.DataArray(
+            sigma_draws,
+            dims=["chain", "draw", "var1", "var2"],
+            coords={"var1": ["a", "b", "c"], "var2": ["a", "b", "c"]},
+        )
+        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+
+        chol = Cholesky(ordering=["a", "b", "c"])
+        result = chol.identify(idata, var_names=["a", "b", "c"])
+        P = result.posterior["structural_shock_matrix"].values
+
+        # Verify P @ P.T reconstructs Sigma
+        for c in range(n_chains):
+            for d in range(n_draws):
+                reconstructed = P[c, d] @ P[c, d].T
+                np.testing.assert_allclose(reconstructed, sigma_draws[c, d], atol=1e-10)
+
 
 class TestSignRestriction:
     def test_construction(self):

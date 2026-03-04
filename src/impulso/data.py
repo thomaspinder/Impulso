@@ -4,10 +4,12 @@ from typing import Self
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import Field, model_validator
+
+from impulso._base import ImpulsoBaseModel
 
 
-class VARData(BaseModel):
+class VARData(ImpulsoBaseModel):
     """Immutable, validated container for VAR estimation data.
 
     Attributes:
@@ -18,13 +20,11 @@ class VARData(BaseModel):
         index: DatetimeIndex of length T.
     """
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    endog: np.ndarray
+    endog: np.ndarray = Field(repr=False)
     endog_names: list[str]
-    exog: np.ndarray | None = None
+    exog: np.ndarray | None = Field(default=None, repr=False)
     exog_names: list[str] | None = None
-    index: pd.DatetimeIndex
+    index: pd.DatetimeIndex = Field(repr=False)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:

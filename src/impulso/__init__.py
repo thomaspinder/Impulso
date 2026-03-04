@@ -6,10 +6,46 @@ from impulso.spec import VAR
 
 __all__ = [
     "VAR",
+    "Cholesky",
+    "FEVDResult",
+    "FittedVAR",
+    "ForecastResult",
+    "HDIResult",
+    "HistoricalDecompositionResult",
+    "IRFResult",
+    "IdentifiedVAR",
+    "LagOrderResult",
+    "MinnesotaPrior",
+    "NUTSSampler",
+    "SignRestriction",
     "VARData",
     "enable_runtime_checks",
     "select_lag_order",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy imports for types not needed at import time."""
+    _lazy_imports = {
+        "FittedVAR": "impulso.fitted",
+        "IdentifiedVAR": "impulso.identified",
+        "Cholesky": "impulso.identification",
+        "SignRestriction": "impulso.identification",
+        "MinnesotaPrior": "impulso.priors",
+        "NUTSSampler": "impulso.samplers",
+        "ForecastResult": "impulso.results",
+        "IRFResult": "impulso.results",
+        "FEVDResult": "impulso.results",
+        "HistoricalDecompositionResult": "impulso.results",
+        "HDIResult": "impulso.results",
+        "LagOrderResult": "impulso.results",
+    }
+    if name in _lazy_imports:
+        import importlib
+
+        module = importlib.import_module(_lazy_imports[name])
+        return getattr(module, name)
+    raise AttributeError(f"module 'impulso' has no attribute {name!r}")
 
 
 def enable_runtime_checks() -> None:

@@ -51,6 +51,29 @@ Or with [uv](https://github.com/astral-sh/uv):
 uv pip install impulso
 ```
 
+### Faster sampling with nutpie
+
+For significantly faster NUTS sampling, install with the optional [nutpie](https://github.com/pymc-devs/nutpie) backend:
+
+```bash
+pip install "impulso[nutpie]"
+```
+
+Or with uv:
+
+```bash
+uv add impulso --extra nutpie
+```
+
+When nutpie is installed, it is used automatically as the default sampler. You can also select the backend explicitly:
+
+```python
+from impulso.samplers import NUTSSampler
+
+sampler = NUTSSampler(nuts_sampler="nutpie")   # or "pymc"
+fitted = var.fit(data, sampler=sampler)
+```
+
 ## Quick Start
 
 ```python
@@ -84,13 +107,6 @@ fevd.plot()
 ## Documentation
 
 Full documentation, tutorials, and API reference: [https://thomaspinder.github.io/impulso](https://thomaspinder.github.io/impulso)
-
-## Requirements
-
-- Python 3.10+
-- PyMC 5.0+
-- ArviZ 0.19+
-- NumPy, Pandas, Pydantic
 
 ## Development
 

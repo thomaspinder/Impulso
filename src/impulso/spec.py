@@ -3,8 +3,9 @@
 from typing import TYPE_CHECKING, Literal, Self
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
+from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.priors import MinnesotaPrior
 from impulso.protocols import Prior, Sampler
@@ -17,7 +18,7 @@ _PRIOR_REGISTRY: dict[str, type] = {
 }
 
 
-class VAR(BaseModel):
+class VAR(ImpulsoBaseModel):
     """Immutable VAR model specification.
 
     Attributes:
@@ -25,8 +26,6 @@ class VAR(BaseModel):
         max_lags: Upper bound for automatic selection. Only valid with string lags.
         prior: Prior shorthand string or Prior protocol instance.
     """
-
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
     max_lags: int | None = None
@@ -137,7 +136,7 @@ class VAR(BaseModel):
         # Sample
         idata = sampler.sample(model)
 
-        return FittedVAR(
+        return FittedVAR.model_construct(
             idata=idata,
             n_lags=n_lags,
             data=data,

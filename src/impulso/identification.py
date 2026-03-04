@@ -3,10 +3,12 @@
 import arviz as az
 import numpy as np
 import xarray as xr
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from impulso._base import ImpulsoModel
 
 
-class Cholesky(BaseModel):
+class Cholesky(ImpulsoModel):
     """Cholesky identification scheme.
 
     Uses the lower-triangular Cholesky decomposition of the residual
@@ -16,8 +18,6 @@ class Cholesky(BaseModel):
     Attributes:
         ordering: Ordered list of variable names (most exogenous first).
     """
-
-    model_config = ConfigDict(frozen=True)
 
     ordering: list[str]
 
@@ -32,17 +32,13 @@ class Cholesky(BaseModel):
             InferenceData with 'structural_shock_matrix' added to posterior.
         """
         sigma = idata.posterior["Sigma"].values  # (chains, draws, n, n)
-        n_chains, n_draws, _, _ = sigma.shape
 
         # Reorder if needed
         perm = [var_names.index(v) for v in self.ordering]
         sigma_ordered = sigma[:, :, np.ix_(perm, perm)[0], np.ix_(perm, perm)[1]]
 
-        # Cholesky decompose each draw
-        P = np.zeros_like(sigma_ordered)
-        for c in range(n_chains):
-            for d in range(n_draws):
-                P[c, d] = np.linalg.cholesky(sigma_ordered[c, d])
+        # Cholesky decompose each draw (broadcasts over leading dims)
+        P = np.linalg.cholesky(sigma_ordered)
 
         P_da = xr.DataArray(
             P,
@@ -54,7 +50,7 @@ class Cholesky(BaseModel):
         return az.InferenceData(posterior=new_posterior)
 
 
-class SignRestriction(BaseModel):
+class SignRestriction(ImpulsoModel):
     """Sign restriction identification scheme.
 
     Uses random rotation matrices to find structural impact matrices
@@ -65,8 +61,6 @@ class SignRestriction(BaseModel):
         n_rotations: Number of candidate rotations per draw.
         random_seed: Seed for reproducibility.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     restrictions: dict[str, dict[str, str]]
     n_rotations: int = Field(default=1000, ge=1)
@@ -92,6 +86,7 @@ class SignRestriction(BaseModel):
 
         P = np.full((n_chains, n_draws, n_vars, n_vars), np.nan)
 
+        fallback_count = 0
         for c in range(n_chains):
             for d in range(n_draws):
                 chol = np.linalg.cholesky(sigma[c, d])
@@ -104,7 +99,18 @@ class SignRestriction(BaseModel):
                         found = True
                         break
                 if not found:
-                    P[c, d] = chol  # fallback to Cholesky if no valid rotation found
+                    P[c, d] = chol
+                    fallback_count += 1
+
+        if fallback_count > 0:
+            import warnings
+
+            total = n_chains * n_draws
+            warnings.warn(
+                f"Sign restrictions not satisfied for {fallback_count}/{total} draws "
+                f"({fallback_count / total:.1%}). Those draws fell back to Cholesky.",
+                stacklevel=2,
+            )
 
         coord_shocks = shock_names if len(shock_names) == n_vars else var_names
         P_da = xr.DataArray(

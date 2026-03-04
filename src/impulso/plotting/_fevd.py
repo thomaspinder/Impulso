@@ -20,7 +20,7 @@ def plot_fevd(
 
     Args:
         result: FEVDResult from IdentifiedVAR.fevd().
-        figsize: Figure size.  Defaults to (12, 3 * n_vars).
+        figsize: Figure size.  Defaults to (7, 2 * n_vars).
 
     Returns:
         Matplotlib Figure.
