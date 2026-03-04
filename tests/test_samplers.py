@@ -36,3 +36,16 @@ class TestNUTSSampler:
     def test_rejects_invalid_draws(self, bad_draws):
         with pytest.raises(ValidationError):
             NUTSSampler(draws=bad_draws)
+
+    def test_default_nuts_sampler_is_nutpie_when_available(self):
+        """nutpie is installed in dev, so default should be 'nutpie'."""
+        sampler = NUTSSampler()
+        assert sampler.nuts_sampler == "nutpie"
+
+    def test_explicit_pymc_backend(self):
+        sampler = NUTSSampler(nuts_sampler="pymc")
+        assert sampler.nuts_sampler == "pymc"
+
+    def test_rejects_invalid_nuts_sampler(self):
+        with pytest.raises(ValidationError):
+            NUTSSampler(nuts_sampler="invalid")
