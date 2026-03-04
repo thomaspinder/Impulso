@@ -2,10 +2,12 @@
 
 import arviz as az
 import pymc as pm
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from impulso._base import ImpulsoModel
 
 
-class NUTSSampler(BaseModel):
+class NUTSSampler(ImpulsoModel):
     """NUTS sampler configuration for PyMC.
 
     Attributes:
@@ -16,8 +18,6 @@ class NUTSSampler(BaseModel):
         target_accept: Target acceptance rate for NUTS.
         random_seed: Random seed for reproducibility.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     draws: int = Field(1000, ge=1)
     tune: int = Field(1000, ge=0)

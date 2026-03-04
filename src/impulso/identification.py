@@ -3,10 +3,12 @@
 import arviz as az
 import numpy as np
 import xarray as xr
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from impulso._base import ImpulsoModel
 
 
-class Cholesky(BaseModel):
+class Cholesky(ImpulsoModel):
     """Cholesky identification scheme.
 
     Uses the lower-triangular Cholesky decomposition of the residual
@@ -16,8 +18,6 @@ class Cholesky(BaseModel):
     Attributes:
         ordering: Ordered list of variable names (most exogenous first).
     """
-
-    model_config = ConfigDict(frozen=True)
 
     ordering: list[str]
 
@@ -54,7 +54,7 @@ class Cholesky(BaseModel):
         return az.InferenceData(posterior=new_posterior)
 
 
-class SignRestriction(BaseModel):
+class SignRestriction(ImpulsoModel):
     """Sign restriction identification scheme.
 
     Uses random rotation matrices to find structural impact matrices
@@ -65,8 +65,6 @@ class SignRestriction(BaseModel):
         n_rotations: Number of candidate rotations per draw.
         random_seed: Seed for reproducibility.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     restrictions: dict[str, dict[str, str]]
     n_rotations: int = Field(default=1000, ge=1)

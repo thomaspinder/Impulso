@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+import numpy as np
+
 if TYPE_CHECKING:
     import arviz as az
     import pymc as pm
@@ -11,7 +13,7 @@ if TYPE_CHECKING:
 class Prior(Protocol):
     """Contract for prior specifications."""
 
-    def build_priors(self, n_vars: int, n_lags: int) -> dict: ...
+    def build_priors(self, n_vars: int, n_lags: int) -> dict[str, np.ndarray]: ...
 
 
 @runtime_checkable

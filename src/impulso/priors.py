@@ -3,10 +3,12 @@
 from typing import Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from impulso._base import ImpulsoModel
 
 
-class MinnesotaPrior(BaseModel):
+class MinnesotaPrior(ImpulsoModel):
     """Minnesota prior for VAR coefficient shrinkage.
 
     Attributes:
@@ -15,13 +17,11 @@ class MinnesotaPrior(BaseModel):
         cross_shrinkage: Shrinkage on other variables' lags vs own. 0 = only own lags, 1 = equal.
     """
 
-    model_config = ConfigDict(frozen=True)
-
     tightness: float = Field(0.1, gt=0)
     decay: Literal["harmonic", "geometric"] = "harmonic"
     cross_shrinkage: float = Field(0.5, ge=0, le=1)
 
-    def build_priors(self, n_vars: int, n_lags: int) -> dict:
+    def build_priors(self, n_vars: int, n_lags: int) -> dict[str, np.ndarray]:
         """Build prior mean and standard deviation arrays for VAR coefficients.
 
         Args:

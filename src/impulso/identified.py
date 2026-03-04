@@ -4,13 +4,14 @@ import arviz as az
 import numpy as np
 import pandas as pd
 import xarray as xr
-from pydantic import BaseModel, ConfigDict
+from pydantic import Field
 
+from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
 
 
-class IdentifiedVAR(BaseModel):
+class IdentifiedVAR(ImpulsoBaseModel):
     """Immutable structural VAR with identified shocks.
 
     Attributes:
@@ -20,9 +21,7 @@ class IdentifiedVAR(BaseModel):
         var_names: Endogenous variable names.
     """
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    idata: az.InferenceData
+    idata: az.InferenceData = Field(repr=False)
     n_lags: int
     data: VARData
     var_names: list[str]
@@ -194,10 +193,3 @@ class IdentifiedVAR(BaseModel):
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da}))
         return HistoricalDecompositionResult(idata=idata, var_names=self.var_names)
-
-    def __repr__(self) -> str:
-        n_vars = len(self.var_names)
-        posterior = self.idata.posterior
-        n_chains = posterior.sizes["chain"]
-        n_draws = posterior.sizes["draw"]
-        return f"IdentifiedVAR(n_lags={self.n_lags}, n_vars={n_vars}, n_draws={n_draws}, n_chains={n_chains})"

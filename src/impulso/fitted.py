@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING
 
 import arviz as az
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import Field, computed_field
 
+from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme
 
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from impulso.results import ForecastResult
 
 
-class FittedVAR(BaseModel):
+class FittedVAR(ImpulsoBaseModel):
     """Immutable container for a fitted (reduced-form) Bayesian VAR.
 
     Attributes:
@@ -24,13 +25,12 @@ class FittedVAR(BaseModel):
         var_names: Names of endogenous variables.
     """
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    idata: az.InferenceData
+    idata: az.InferenceData = Field(repr=False)
     n_lags: int
     data: VARData
     var_names: list[str]
 
+    @computed_field
     @property
     def has_exog(self) -> bool:
         """Whether the model includes exogenous variables."""
@@ -127,10 +127,3 @@ class FittedVAR(BaseModel):
             data=self.data,
             var_names=self.var_names,
         )
-
-    def __repr__(self) -> str:
-        n_vars = len(self.var_names)
-        posterior = self.idata.posterior
-        n_chains = posterior.sizes["chain"]
-        n_draws = posterior.sizes["draw"]
-        return f"FittedVAR(n_lags={self.n_lags}, n_vars={n_vars}, n_draws={n_draws}, n_chains={n_chains})"
