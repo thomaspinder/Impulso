@@ -123,6 +123,53 @@ class SignRestriction(ImpulsoModel):
         new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)
         return az.InferenceData(posterior=new_posterior)
 
+    def _check_restrictions_at_horizons(
+        self,
+        candidate: np.ndarray,
+        B_draw: np.ndarray,
+        var_names: list[str],
+        shock_names: list[str],
+        n_lags: int,
+    ) -> bool:
+        """Check sign restrictions at all horizons 0..restriction_horizon.
+
+        Args:
+            candidate: Candidate structural impact matrix (n_vars, n_vars).
+            B_draw: VAR coefficient matrix (n_vars, n_vars * n_lags) for this draw.
+            var_names: Variable names.
+            shock_names: Shock names from restrictions.
+            n_lags: Number of lags in the VAR.
+
+        Returns:
+            True if all restrictions satisfied at all horizons.
+        """
+        n_vars = candidate.shape[0]
+
+        # Always check impact (h=0)
+        if not self._check_restrictions(candidate, var_names, shock_names):
+            return False
+
+        if self.restriction_horizon == 0:
+            return True
+
+        # Extract lag coefficient matrices A_1..A_p
+        A = [B_draw[:, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
+
+        # MA recursion: Phi_0 = I, Phi_h = sum_{j=1}^{min(h,p)} A_j @ Phi_{h-j}
+        Phi_prev = [np.eye(n_vars)]
+        for h in range(1, self.restriction_horizon + 1):
+            phi_h = np.zeros((n_vars, n_vars))
+            for j in range(min(h, n_lags)):
+                phi_h += A[j] @ Phi_prev[h - j - 1]
+            Phi_prev.append(phi_h)
+
+            # IRF at horizon h = Phi_h @ candidate
+            irf_h = phi_h @ candidate
+            if not self._check_restrictions(irf_h, var_names, shock_names):
+                return False
+
+        return True
+
     def _check_restrictions(self, candidate: np.ndarray, var_names: list[str], shock_names: list[str]) -> bool:
         """Check if a candidate matrix satisfies all sign restrictions."""
         for var_name, shocks in self.restrictions.items():
