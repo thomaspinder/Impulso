@@ -38,7 +38,7 @@ nutpie = ["nutpie>=0.13"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
-    "pre-commit>=4.5.1",
+    "prek>=0.3.4",
     "tox-uv>=1.29.0",
     "ty>=0.0.14",
     "pytest-cov>=7.0.0",

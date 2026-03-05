@@ -9,7 +9,7 @@ Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stag
 ## Commands
 
 ```bash
-# Install dependencies and pre-commit hooks
+# Install dependencies and prek hooks
 make install
 
 # Run all code quality checks (lock file, pre-commit, type checking)
@@ -82,7 +82,7 @@ All result types (`results.py`) inherit from `VARResultBase` and provide `.media
 - **Package manager**: uv (lock file must stay in sync — `uv lock --locked`)
 - **Linter/Formatter**: Ruff — line length 120, target py311, auto-fix enabled
 - **Type checker**: ty (configured for `.venv`, Python 3.11)
-- **Pre-commit**: Ruff checks + standard hooks (trailing whitespace, TOML/YAML/JSON validation)
+- **Prek**: Ruff checks + standard hooks (trailing whitespace, TOML/YAML/JSON validation)
 - **CI**: GitHub Actions runs quality, tests (3.11–3.14), and docs checks on push/PR
 
 ## Code Conventions
