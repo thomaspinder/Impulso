@@ -86,6 +86,8 @@ class SignRestriction(ImpulsoModel):
         shock_names = list(next(iter(self.restrictions.values())).keys())
 
         # Extract B coefficients for multi-horizon checking
+        if self.restriction_horizon > 0 and "B" not in idata.posterior:
+            raise ValueError("restriction_horizon > 0 requires 'B' (VAR coefficients) in idata.posterior")
         B_all = idata.posterior["B"].values if self.restriction_horizon > 0 else None
         n_lags = B_all.shape[-1] // n_vars if B_all is not None else 0
 
@@ -159,9 +161,6 @@ class SignRestriction(ImpulsoModel):
         # Always check impact (h=0)
         if not self._check_restrictions(candidate, var_names, shock_names):
             return False
-
-        if self.restriction_horizon == 0:
-            return True
 
         # Extract lag coefficient matrices A_1..A_p
         A = [B_draw[:, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]

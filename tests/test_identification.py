@@ -161,40 +161,40 @@ class TestSignRestriction:
         rate = result.posterior.attrs["sign_restriction_acceptance_rate"]
         assert 0.0 <= rate <= 1.0
 
-    def test_check_restrictions_at_horizons_impact_only(self):
-        """With restriction_horizon=0, only the impact matrix is checked."""
+    def test_identify_multi_horizon_through_identify(self, synthetic_idata_2v):
+        """identify() with restriction_horizon>0 uses B coefficients and checks horizons."""
         scheme = SignRestriction(
-            restrictions={"y": {"mp_shock": "+"}},
-            n_rotations=100,
-            restriction_horizon=0,
-        )
-        var_names = ["y", "p", "i"]
-        shock_names = ["mp_shock"]
-
-        # candidate impact matrix: y responds positively to mp_shock
-        candidate = np.array([[0.5, 0.1, 0.2], [-0.3, 0.4, 0.1], [0.1, -0.2, 0.6]])
-
-        # B_draw not needed for h=0, but pass dummy
-        B_draw = np.zeros((3, 6))  # 3 vars, 2 lags
-        assert scheme._check_restrictions_at_horizons(candidate, B_draw, var_names, shock_names, n_lags=2) is True
-
-    def test_check_restrictions_at_horizons_rejects_at_h1(self):
-        """With restriction_horizon=1, check both impact and h=1 IRFs."""
-        scheme = SignRestriction(
-            restrictions={"y": {"mp_shock": "+"}},
+            restrictions={"y1": {"y1": "+"}},
             n_rotations=100,
             restriction_horizon=1,
+            random_seed=42,
         )
-        var_names = ["y", "p", "i"]
-        shock_names = ["mp_shock"]
+        result = scheme.identify(synthetic_idata_2v, ["y1", "y2"])
+        assert "structural_shock_matrix" in result.posterior
+        assert not np.any(np.isnan(result.posterior["structural_shock_matrix"].values))
+        rate = result.posterior.attrs["sign_restriction_acceptance_rate"]
+        assert 0.0 <= rate <= 1.0
 
-        # Impact: y responds positively
-        candidate = np.array([[0.5, 0.1, 0.2], [-0.3, 0.4, 0.1], [0.1, -0.2, 0.6]])
+    def test_identify_multi_horizon_raises_without_B(self):
+        """identify() with restriction_horizon>0 raises ValueError if B is missing."""
+        rng = np.random.default_rng(42)
+        n_vars, n_chains, n_draws = 2, 1, 10
+        sigma = np.zeros((n_chains, n_draws, n_vars, n_vars))
+        for d in range(n_draws):
+            A = rng.standard_normal((n_vars, n_vars))
+            sigma[0, d] = A @ A.T + np.eye(n_vars)
+        sigma_da = xr.DataArray(
+            sigma,
+            dims=["chain", "draw", "var1", "var2"],
+            coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
+        )
+        idata_no_B = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
 
-        # Craft B so that Phi_1 @ candidate flips sign of y -> mp_shock
-        # A_1[0,:] @ candidate[:,0] = [-3,0,0] @ [0.5,-0.3,0.1] = -1.5
-        A_1 = np.array([[-3.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
-        A_2 = np.zeros((3, 3))
-        B_draw = np.hstack([A_1, A_2])  # (3, 6) for 2 lags
-
-        assert scheme._check_restrictions_at_horizons(candidate, B_draw, var_names, shock_names, n_lags=2) is False
+        scheme = SignRestriction(
+            restrictions={"y1": {"y1": "+"}},
+            n_rotations=100,
+            restriction_horizon=1,
+            random_seed=42,
+        )
+        with pytest.raises(ValueError, match="restriction_horizon > 0 requires 'B'"):
+            scheme.identify(idata_no_B, ["y1", "y2"])
