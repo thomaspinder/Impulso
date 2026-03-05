@@ -64,6 +64,7 @@ class SignRestriction(ImpulsoModel):
 
     restrictions: dict[str, dict[str, str]]
     n_rotations: int = Field(default=1000, ge=1)
+    restriction_horizon: int = Field(default=0, ge=0)
     random_seed: int | None = None
 
     def identify(self, idata: az.InferenceData, var_names: list[str]) -> az.InferenceData:

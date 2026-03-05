@@ -130,3 +130,20 @@ class TestSignRestriction:
         # Check that restrictions are satisfied (or fallback was used)
         assert P.shape == (1, 20, 2, 2)
         assert not np.any(np.isnan(P))
+
+    def test_sign_restriction_accepts_restriction_horizon(self):
+        """SignRestriction should accept a restriction_horizon parameter."""
+        scheme = SignRestriction(
+            restrictions={"var_0": {"shock_0": "+"}},
+            n_rotations=100,
+            restriction_horizon=6,
+        )
+        assert scheme.restriction_horizon == 6
+
+    def test_sign_restriction_default_restriction_horizon_is_zero(self):
+        """Default restriction_horizon should be 0 (impact only)."""
+        scheme = SignRestriction(
+            restrictions={"var_0": {"shock_0": "+"}},
+            n_rotations=100,
+        )
+        assert scheme.restriction_horizon == 0
