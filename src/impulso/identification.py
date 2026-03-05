@@ -85,31 +85,41 @@ class SignRestriction(ImpulsoModel):
 
         shock_names = list(next(iter(self.restrictions.values())).keys())
 
+        # Extract B coefficients for multi-horizon checking
+        B_all = idata.posterior["B"].values if self.restriction_horizon > 0 else None
+        n_lags = B_all.shape[-1] // n_vars if B_all is not None else 0
+
         P = np.full((n_chains, n_draws, n_vars, n_vars), np.nan)
 
-        fallback_count = 0
+        accepted_count = 0
+        total_count = n_chains * n_draws
         for c in range(n_chains):
             for d in range(n_draws):
                 chol = np.linalg.cholesky(sigma[c, d])
                 found = False
+                B_draw = B_all[c, d] if B_all is not None else None
                 for _ in range(self.n_rotations):
                     Q = special_ortho_group.rvs(n_vars, random_state=rng)
                     candidate = chol @ Q
-                    if self._check_restrictions(candidate, var_names, shock_names):
+                    if self.restriction_horizon == 0:
+                        ok = self._check_restrictions(candidate, var_names, shock_names)
+                    else:
+                        ok = self._check_restrictions_at_horizons(candidate, B_draw, var_names, shock_names, n_lags)
+                    if ok:
                         P[c, d] = candidate
                         found = True
+                        accepted_count += 1
                         break
                 if not found:
                     P[c, d] = chol
-                    fallback_count += 1
 
+        fallback_count = total_count - accepted_count
         if fallback_count > 0:
             import warnings
 
-            total = n_chains * n_draws
             warnings.warn(
-                f"Sign restrictions not satisfied for {fallback_count}/{total} draws "
-                f"({fallback_count / total:.1%}). Those draws fell back to Cholesky.",
+                f"Sign restrictions not satisfied for {fallback_count}/{total_count} draws "
+                f"({fallback_count / total_count:.1%}). Those draws fell back to Cholesky.",
                 stacklevel=2,
             )
 
@@ -121,6 +131,7 @@ class SignRestriction(ImpulsoModel):
         )
 
         new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)
+        new_posterior.attrs["sign_restriction_acceptance_rate"] = accepted_count / total_count
         return az.InferenceData(posterior=new_posterior)
 
     def _check_restrictions_at_horizons(

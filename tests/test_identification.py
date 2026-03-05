@@ -148,6 +148,19 @@ class TestSignRestriction:
         )
         assert scheme.restriction_horizon == 0
 
+    def test_sign_restriction_identify_stores_acceptance_rate(self, synthetic_idata_2v):
+        """identify() should store acceptance_rate in posterior attrs."""
+        scheme = SignRestriction(
+            restrictions={"y1": {"y1": "+"}},
+            n_rotations=100,
+            restriction_horizon=0,
+            random_seed=42,
+        )
+        result = scheme.identify(synthetic_idata_2v, ["y1", "y2"])
+        assert "sign_restriction_acceptance_rate" in result.posterior.attrs
+        rate = result.posterior.attrs["sign_restriction_acceptance_rate"]
+        assert 0.0 <= rate <= 1.0
+
     def test_check_restrictions_at_horizons_impact_only(self):
         """With restriction_horizon=0, only the impact matrix is checked."""
         scheme = SignRestriction(
