@@ -64,6 +64,7 @@ class SignRestriction(ImpulsoModel):
 
     restrictions: dict[str, dict[str, str]]
     n_rotations: int = Field(default=1000, ge=1)
+    restriction_horizon: int = Field(default=0, ge=0)
     random_seed: int | None = None
 
     def identify(self, idata: az.InferenceData, var_names: list[str]) -> az.InferenceData:
@@ -84,31 +85,43 @@ class SignRestriction(ImpulsoModel):
 
         shock_names = list(next(iter(self.restrictions.values())).keys())
 
+        # Extract B coefficients for multi-horizon checking
+        if self.restriction_horizon > 0 and "B" not in idata.posterior:
+            raise ValueError("restriction_horizon > 0 requires 'B' (VAR coefficients) in idata.posterior")
+        B_all = idata.posterior["B"].values if self.restriction_horizon > 0 else None
+        n_lags = B_all.shape[-1] // n_vars if B_all is not None else 0
+
         P = np.full((n_chains, n_draws, n_vars, n_vars), np.nan)
 
-        fallback_count = 0
+        accepted_count = 0
+        total_count = n_chains * n_draws
         for c in range(n_chains):
             for d in range(n_draws):
                 chol = np.linalg.cholesky(sigma[c, d])
                 found = False
+                B_draw = B_all[c, d] if B_all is not None else None
                 for _ in range(self.n_rotations):
                     Q = special_ortho_group.rvs(n_vars, random_state=rng)
                     candidate = chol @ Q
-                    if self._check_restrictions(candidate, var_names, shock_names):
+                    if self.restriction_horizon == 0:
+                        ok = self._check_restrictions(candidate, var_names, shock_names)
+                    else:
+                        ok = self._check_restrictions_at_horizons(candidate, B_draw, var_names, shock_names, n_lags)
+                    if ok:
                         P[c, d] = candidate
                         found = True
+                        accepted_count += 1
                         break
                 if not found:
                     P[c, d] = chol
-                    fallback_count += 1
 
+        fallback_count = total_count - accepted_count
         if fallback_count > 0:
             import warnings
 
-            total = n_chains * n_draws
             warnings.warn(
-                f"Sign restrictions not satisfied for {fallback_count}/{total} draws "
-                f"({fallback_count / total:.1%}). Those draws fell back to Cholesky.",
+                f"Sign restrictions not satisfied for {fallback_count}/{total_count} draws "
+                f"({fallback_count / total_count:.1%}). Those draws fell back to Cholesky.",
                 stacklevel=2,
             )
 
@@ -120,7 +133,52 @@ class SignRestriction(ImpulsoModel):
         )
 
         new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)
+        new_posterior.attrs["sign_restriction_acceptance_rate"] = accepted_count / total_count
         return az.InferenceData(posterior=new_posterior)
+
+    def _check_restrictions_at_horizons(
+        self,
+        candidate: np.ndarray,
+        B_draw: np.ndarray,
+        var_names: list[str],
+        shock_names: list[str],
+        n_lags: int,
+    ) -> bool:
+        """Check sign restrictions at all horizons 0..restriction_horizon.
+
+        Args:
+            candidate: Candidate structural impact matrix (n_vars, n_vars).
+            B_draw: VAR coefficient matrix (n_vars, n_vars * n_lags) for this draw.
+            var_names: Variable names.
+            shock_names: Shock names from restrictions.
+            n_lags: Number of lags in the VAR.
+
+        Returns:
+            True if all restrictions satisfied at all horizons.
+        """
+        n_vars = candidate.shape[0]
+
+        # Always check impact (h=0)
+        if not self._check_restrictions(candidate, var_names, shock_names):
+            return False
+
+        # Extract lag coefficient matrices A_1..A_p
+        A = [B_draw[:, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
+
+        # MA recursion: Phi_0 = I, Phi_h = sum_{j=1}^{min(h,p)} A_j @ Phi_{h-j}
+        Phi_prev = [np.eye(n_vars)]
+        for h in range(1, self.restriction_horizon + 1):
+            phi_h = np.zeros((n_vars, n_vars))
+            for j in range(min(h, n_lags)):
+                phi_h += A[j] @ Phi_prev[h - j - 1]
+            Phi_prev.append(phi_h)
+
+            # IRF at horizon h = Phi_h @ candidate
+            irf_h = phi_h @ candidate
+            if not self._check_restrictions(irf_h, var_names, shock_names):
+                return False
+
+        return True
 
     def _check_restrictions(self, candidate: np.ndarray, var_names: list[str], shock_names: list[str]) -> bool:
         """Check if a candidate matrix satisfies all sign restrictions."""
