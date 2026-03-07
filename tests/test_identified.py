@@ -1,7 +1,9 @@
 """Tests for IdentifiedVAR."""
 
+import arviz as az
 import numpy as np
 import pytest
+import xarray as xr
 
 from impulso.identification import Cholesky
 from impulso.identified import IdentifiedVAR
@@ -114,6 +116,26 @@ class TestIdentifiedVARFast:
         P = synthetic_identified_idata_2v.posterior["structural_shock_matrix"].values
         # At h=0, IRF = Phi_0 @ P = I @ P = P
         np.testing.assert_allclose(irf_draws[:, :, 0, :, :], P, atol=1e-12)
+
+    def test_irf_propagates_custom_shock_coords(self, synthetic_idata_2v, var_data_2v):
+        """IRF shock coordinates should match structural_shock_matrix, not var_names."""
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        P = np.linalg.cholesky(sigma)
+        P_da = xr.DataArray(
+            P,
+            dims=["chain", "draw", "response", "shock"],
+            coords={"response": ["y1", "y2"], "shock": ["my_shock", "unidentified_1"]},
+        )
+        idata = az.InferenceData(posterior=synthetic_idata_2v.posterior.assign(structural_shock_matrix=P_da))
+        identified = IdentifiedVAR.model_construct(
+            idata=idata,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+        irf = identified.impulse_response(horizon=5)
+        irf_shocks = list(irf.idata.posterior_predictive["irf"].coords["shock"].values)
+        assert irf_shocks == ["my_shock", "unidentified_1"]
 
     def test_repr(self, synthetic_identified_idata_2v, var_data_2v):
         identified = IdentifiedVAR.model_construct(

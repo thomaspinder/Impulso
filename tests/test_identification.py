@@ -175,6 +175,57 @@ class TestSignRestriction:
         rate = result.posterior.attrs["sign_restriction_acceptance_rate"]
         assert 0.0 <= rate <= 1.0
 
+    def test_shock_coordinates_with_partial_identification(self):
+        """When fewer shocks are named than variables, remaining get 'unidentified_N' labels."""
+        rng = np.random.default_rng(42)
+        n_vars, n_chains, n_draws = 3, 1, 10
+        sigma = np.zeros((n_chains, n_draws, n_vars, n_vars))
+        for d in range(n_draws):
+            A = rng.standard_normal((n_vars, n_vars))
+            sigma[0, d] = A @ A.T + np.eye(n_vars)
+        sigma_da = xr.DataArray(
+            sigma,
+            dims=["chain", "draw", "var1", "var2"],
+            coords={"var1": ["y1", "y2", "y3"], "var2": ["y1", "y2", "y3"]},
+        )
+        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+
+        sr = SignRestriction(
+            restrictions={"y1": {"my_shock": "+"}},
+            n_rotations=100,
+            random_seed=42,
+        )
+        result = sr.identify(idata, var_names=["y1", "y2", "y3"])
+        shock_coords = list(result.posterior["structural_shock_matrix"].coords["shock"].values)
+        assert shock_coords == ["my_shock", "unidentified_1", "unidentified_2"]
+
+    def test_shock_coordinates_with_full_identification(self):
+        """When all shocks are named, use those names directly."""
+        rng = np.random.default_rng(42)
+        n_vars, n_chains, n_draws = 2, 1, 10
+        sigma = np.zeros((n_chains, n_draws, n_vars, n_vars))
+        for d in range(n_draws):
+            A = rng.standard_normal((n_vars, n_vars))
+            sigma[0, d] = A @ A.T + np.eye(n_vars)
+        sigma_da = xr.DataArray(
+            sigma,
+            dims=["chain", "draw", "var1", "var2"],
+            coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
+        )
+        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+
+        sr = SignRestriction(
+            restrictions={
+                "y1": {"s1": "+", "s2": "+"},
+                "y2": {"s1": "-", "s2": "+"},
+            },
+            n_rotations=5000,
+            random_seed=42,
+        )
+        result = sr.identify(idata, var_names=["y1", "y2"])
+        shock_coords = list(result.posterior["structural_shock_matrix"].coords["shock"].values)
+        assert shock_coords == ["s1", "s2"]
+
     def test_identify_multi_horizon_raises_without_B(self):
         """identify() with restriction_horizon>0 raises ValueError if B is missing."""
         rng = np.random.default_rng(42)
