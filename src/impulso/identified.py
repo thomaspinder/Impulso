@@ -26,6 +26,11 @@ class IdentifiedVAR(ImpulsoBaseModel):
     data: VARData
     var_names: list[str]
 
+    @property
+    def shock_names(self) -> list[str]:
+        """Shock coordinate labels from the structural shock matrix."""
+        return list(self.idata.posterior["structural_shock_matrix"].coords["shock"].values)
+
     def _ma_coefficients(self, B_draws: np.ndarray, n_vars: int, n_lags: int, horizon: int) -> np.ndarray:
         """Compute MA coefficient recursion, vectorised over (chains, draws).
 
@@ -67,7 +72,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             dims=["chain", "draw", "horizon", "response", "shock"],
             coords={
                 "response": self.var_names,
-                "shock": self.var_names,
+                "shock": self.shock_names,
                 "horizon": np.arange(horizon + 1),
             },
             name="irf",
@@ -100,7 +105,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         fevd_da = xr.DataArray(
             fevd,
             dims=["chain", "draw", "horizon", "response", "shock"],
-            coords={"response": self.var_names, "shock": self.var_names},
+            coords={"response": self.var_names, "shock": self.shock_names},
             name="fevd",
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
@@ -174,7 +179,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         hd_da = xr.DataArray(
             hd,
             dims=["chain", "draw", "time", "response", "shock"],
-            coords={"response": self.var_names, "shock": self.var_names},
+            coords={"response": self.var_names, "shock": self.shock_names},
             name="hd",
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da}))
