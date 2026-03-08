@@ -49,6 +49,85 @@ class ConjugateVAR(ImpulsoBaseModel):
             return MinnesotaPrior()
         return self.prior
 
+    @staticmethod
+    def _build_niw_params(
+        data: VARData,
+        n_lags: int,
+        prior: MinnesotaPrior,
+    ) -> dict[str, np.ndarray]:
+        """Build data matrices and compute NIW prior/posterior parameters.
+
+        Args:
+            data: VARData instance.
+            n_lags: Number of lags.
+            prior: MinnesotaPrior instance.
+
+        Returns:
+            Dictionary with keys: Y, X, B_prior, V_prior, V_prior_inv,
+            V_posterior, B_posterior, S_prior, S_posterior, nu_prior, nu_posterior.
+        """
+        n_vars = data.endog.shape[1]
+        prior_params = prior.build_priors(n_vars=n_vars, n_lags=n_lags)
+
+        # Build data matrices: Y = (T-p, n), X = (T-p, n*p + 1) with intercept
+        y = data.endog
+        Y = y[n_lags:]
+        X_parts = [np.ones((Y.shape[0], 1))]
+        for lag in range(1, n_lags + 1):
+            X_parts.append(y[n_lags - lag : -lag])
+        X = np.hstack(X_parts)
+
+        T_eff = Y.shape[0]
+        n_coeffs = X.shape[1]
+
+        # Convert Minnesota prior to NIW parameters
+        # Prior mean: [intercept_prior | B_mu]
+        B_prior = np.zeros((n_coeffs, n_vars))
+        B_prior[1:, :] = prior_params["B_mu"].T
+
+        # Prior covariance: diagonal from B_sigma
+        # Intercept gets a wide prior (variance=1.0, matching PyMC path)
+        intercept_var = 1.0
+        lag_var = np.mean(prior_params["B_sigma"] ** 2, axis=0)
+        prior_var_diag = np.concatenate([[intercept_var], lag_var])
+        V_prior = np.diag(prior_var_diag)
+        V_prior_inv = np.diag(1.0 / prior_var_diag)
+
+        # OLS estimates for scale matrix initialisation
+        B_ols = np.linalg.lstsq(X, Y, rcond=None)[0]
+        resid_ols = Y - X @ B_ols
+        sigma_ols = (resid_ols.T @ resid_ols) / T_eff
+
+        # NIW prior hyperparameters
+        nu_prior = n_vars + 2  # minimally informative
+        S_prior = sigma_ols * (nu_prior - n_vars - 1)  # centres IW mode at sigma_ols
+
+        # Posterior parameters
+        V_posterior = np.linalg.inv(V_prior_inv + X.T @ X)
+        B_posterior = V_posterior @ (V_prior_inv @ B_prior + X.T @ Y)
+        nu_posterior = nu_prior + T_eff
+        S_posterior = (
+            S_prior
+            + Y.T @ Y
+            + B_prior.T @ V_prior_inv @ B_prior
+            - B_posterior.T @ np.linalg.inv(V_posterior) @ B_posterior
+        )
+        S_posterior = (S_posterior + S_posterior.T) / 2
+
+        return {
+            "Y": Y,
+            "X": X,
+            "B_prior": B_prior,
+            "V_prior": V_prior,
+            "V_prior_inv": V_prior_inv,
+            "V_posterior": V_posterior,
+            "B_posterior": B_posterior,
+            "S_prior": S_prior,
+            "S_posterior": S_posterior,
+            "nu_prior": nu_prior,
+            "nu_posterior": nu_posterior,
+        }
+
     def fit(self, data: VARData) -> "FittedVAR":
         """Estimate the Bayesian VAR via conjugate NIW posterior sampling.
 
@@ -81,52 +160,12 @@ class ConjugateVAR(ImpulsoBaseModel):
         else:
             prior = self.resolved_prior
 
-        prior_params = prior.build_priors(n_vars=n_vars, n_lags=n_lags)
-
-        # Build data matrices: Y = (T-p, n), X = (T-p, n*p + 1) with intercept
-        y = data.endog
-        Y = y[n_lags:]  # (T-p, n)
-        X_parts = [np.ones((Y.shape[0], 1))]  # intercept column
-        for lag in range(1, n_lags + 1):
-            X_parts.append(y[n_lags - lag : -lag])
-        X = np.hstack(X_parts)  # (T-p, 1 + n*p)
-
-        T_eff = Y.shape[0]
-        n_coeffs = X.shape[1]  # 1 + n*p
-
-        # Convert Minnesota prior to NIW parameters
-        # Prior mean: [intercept_prior | B_mu]
-        B_prior = np.zeros((n_coeffs, n_vars))
-        B_prior[1:, :] = prior_params["B_mu"].T  # B_mu is (n, n*p), transpose to (n*p, n)
-
-        # Prior precision: diagonal from B_sigma
-        # Intercept gets a wide prior (sigma=1 as in PyMC path)
-        intercept_var = 1.0**2
-        lag_var = np.mean(prior_params["B_sigma"] ** 2, axis=0)  # average across equations
-        prior_var_diag = np.concatenate([[intercept_var], lag_var])
-        V_prior_inv = np.diag(1.0 / prior_var_diag)
-
-        # OLS estimates for scale matrix initialisation
-        B_ols = np.linalg.lstsq(X, Y, rcond=None)[0]
-        resid_ols = Y - X @ B_ols
-        sigma_ols = (resid_ols.T @ resid_ols) / T_eff
-
-        # NIW prior hyperparameters
-        nu_prior = n_vars + 2  # minimally informative
-        S_prior = sigma_ols * (nu_prior - n_vars - 1)  # centres IW mode at sigma_ols
-
-        # Posterior parameters
-        V_posterior = np.linalg.inv(V_prior_inv + X.T @ X)
-        B_posterior = V_posterior @ (V_prior_inv @ B_prior + X.T @ Y)
-        nu_posterior = nu_prior + T_eff
-        S_posterior = (
-            S_prior
-            + Y.T @ Y
-            + B_prior.T @ V_prior_inv @ B_prior
-            - B_posterior.T @ np.linalg.inv(V_posterior) @ B_posterior
-        )
-        # Symmetrise to avoid numerical issues
-        S_posterior = (S_posterior + S_posterior.T) / 2
+        params = self._build_niw_params(data, n_lags, prior)
+        V_posterior = params["V_posterior"]
+        B_posterior = params["B_posterior"]
+        S_posterior = params["S_posterior"]
+        nu_posterior = params["nu_posterior"]
+        n_coeffs = B_posterior.shape[0]  # 1 + n_vars * n_lags
 
         # Direct sampling
         rng = np.random.default_rng(self.random_seed)
@@ -248,6 +287,8 @@ class ConjugateVAR(ImpulsoBaseModel):
     ) -> float:
         """Compute log marginal likelihood p(Y|lambda) for NIW conjugate model.
 
+        Uses the closed-form NIW marginal likelihood from Kadiyala & Karlsson (1997).
+
         Args:
             data: VARData instance.
             n_lags: Number of lags.
@@ -259,47 +300,15 @@ class ConjugateVAR(ImpulsoBaseModel):
         from scipy.special import gammaln
 
         n_vars = data.endog.shape[1]
-        prior_params = prior.build_priors(n_vars=n_vars, n_lags=n_lags)
+        params = self._build_niw_params(data, n_lags, prior)
 
-        # Build data matrices
-        y = data.endog
-        Y = y[n_lags:]
-        X_parts = [np.ones((Y.shape[0], 1))]
-        for lag in range(1, n_lags + 1):
-            X_parts.append(y[n_lags - lag : -lag])
-        X = np.hstack(X_parts)
-
-        T_eff = Y.shape[0]
-        n_coeffs = X.shape[1]
-
-        # Prior parameters (same logic as fit)
-        B_prior = np.zeros((n_coeffs, n_vars))
-        B_prior[1:, :] = prior_params["B_mu"].T
-
-        intercept_var = 1.0
-        lag_var = np.mean(prior_params["B_sigma"] ** 2, axis=0)
-        prior_var_diag = np.concatenate([[intercept_var], lag_var])
-        V_prior = np.diag(prior_var_diag)
-        V_prior_inv = np.diag(1.0 / prior_var_diag)
-
-        B_ols = np.linalg.lstsq(X, Y, rcond=None)[0]
-        resid_ols = Y - X @ B_ols
-        sigma_ols = (resid_ols.T @ resid_ols) / T_eff
-
-        nu_prior = n_vars + 2
-        S_prior = sigma_ols * (nu_prior - n_vars - 1)
-
-        # Posterior parameters
-        V_posterior = np.linalg.inv(V_prior_inv + X.T @ X)
-        B_posterior = V_posterior @ (V_prior_inv @ B_prior + X.T @ Y)
-        nu_posterior = nu_prior + T_eff
-        S_posterior = (
-            S_prior
-            + Y.T @ Y
-            + B_prior.T @ V_prior_inv @ B_prior
-            - B_posterior.T @ np.linalg.inv(V_posterior) @ B_posterior
-        )
-        S_posterior = (S_posterior + S_posterior.T) / 2
+        T_eff = params["Y"].shape[0]
+        V_prior = params["V_prior"]
+        V_posterior = params["V_posterior"]
+        S_prior = params["S_prior"]
+        S_posterior = params["S_posterior"]
+        nu_prior = params["nu_prior"]
+        nu_posterior = params["nu_posterior"]
 
         # Log marginal likelihood formula
         log_ml = 0.0
