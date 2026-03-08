@@ -192,3 +192,76 @@ class SignRestriction(ImpulsoModel):
                 if sign == "-" and val > 0:
                     return False
         return True
+
+
+class LongRunRestriction(ImpulsoModel):
+    """Blanchard-Quah long-run identification scheme.
+
+    Identifies structural shocks by their long-run cumulative effects.
+    The long-run impact matrix is forced to be lower triangular via
+    Cholesky decomposition, so the first shock has no permanent effect
+    on the second variable, etc.
+
+    Attributes:
+        ordering: Variable ordering (determines which shocks have
+            permanent effects on which variables).
+    """
+
+    ordering: list[str]
+
+    def identify(self, idata: az.InferenceData, var_names: list[str]) -> az.InferenceData:
+        """Apply Blanchard-Quah long-run identification.
+
+        Args:
+            idata: InferenceData with 'B' and 'Sigma' in posterior.
+            var_names: Variable names from the VAR model.
+
+        Returns:
+            InferenceData with 'structural_shock_matrix' added to posterior.
+        """
+        B_draws = idata.posterior["B"].values  # (C, D, n, n*p)
+        sigma_draws = idata.posterior["Sigma"].values  # (C, D, n, n)
+        n_chains, n_draws, n_vars, n_total_coeffs = B_draws.shape
+        n_lags = n_total_coeffs // n_vars
+
+        # Compute permutation for reordering
+        perm = [var_names.index(v) for v in self.ordering]
+
+        P = np.zeros((n_chains, n_draws, n_vars, n_vars))
+
+        for c in range(n_chains):
+            for d in range(n_draws):
+                B = B_draws[c, d]  # (n, n*p)
+                Sigma = sigma_draws[c, d]  # (n, n)
+
+                # Sum of lag coefficient matrices: A_1 + A_2 + ... + A_p
+                lag_coefficient_sum = np.zeros((n_vars, n_vars))
+                for j in range(n_lags):
+                    lag_coefficient_sum += B[:, j * n_vars : (j + 1) * n_vars]
+
+                # Long-run multiplier: (I - A_1 - ... - A_p)^{-1}
+                long_run_multiplier = np.linalg.inv(np.eye(n_vars) - lag_coefficient_sum)
+
+                # Reorder for requested ordering
+                long_run_multiplier_ordered = long_run_multiplier[np.ix_(perm, perm)]
+                Sigma_ordered = Sigma[np.ix_(perm, perm)]
+
+                # Long-run covariance
+                long_run_covariance = long_run_multiplier_ordered @ Sigma_ordered @ long_run_multiplier_ordered.T
+
+                # Cholesky of long-run covariance
+                long_run_cholesky = np.linalg.cholesky(long_run_covariance)
+
+                # Structural impact matrix: P = C(1)^{-1} @ L
+                structural_impact_matrix = np.linalg.inv(long_run_multiplier_ordered) @ long_run_cholesky
+
+                P[c, d] = structural_impact_matrix
+
+        P_da = xr.DataArray(
+            P,
+            dims=["chain", "draw", "response", "shock"],
+            coords={"response": self.ordering, "shock": self.ordering},
+        )
+
+        new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)
+        return az.InferenceData(posterior=new_posterior)
