@@ -78,3 +78,16 @@ class TestDummyObservationPriors:
     def test_raises_if_n_lags_not_positive(self, var_data):
         with pytest.raises(ValueError, match="n_lags must be"):
             var_data.with_dummy_observations(n_lags=0, mu=5.0)
+
+    def test_exog_zero_padded(self):
+        rng = np.random.default_rng(42)
+        T, n = 100, 2
+        endog = rng.standard_normal((T, n))
+        exog = rng.standard_normal((T, 1))
+        index = pd.date_range("2000-01-01", periods=T, freq="QS")
+        data = VARData(endog=endog, endog_names=["y1", "y2"], exog=exog, exog_names=["x1"], index=index)
+        augmented = data.with_dummy_observations(n_lags=2, mu=5.0)
+        assert augmented.exog.shape[0] == augmented.endog.shape[0]
+        np.testing.assert_array_equal(augmented.exog[:T], data.exog)
+        np.testing.assert_array_equal(augmented.exog[T:], 0.0)
+        assert augmented.exog_names == ["x1"]

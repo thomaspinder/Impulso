@@ -112,7 +112,9 @@ class VARData(ImpulsoBaseModel):
         following Doan, Litterman & Sims (1984) and Sims (1993).
 
         Args:
-            n_lags: Number of VAR lags (needed to construct dummy rows).
+            n_lags: Number of VAR lags. Validated here for API consistency;
+                the dummy values themselves do not depend on n_lags, but
+                downstream fitting requires it to be valid.
             mu: Sum-of-coefficients hyperparameter. Larger = weaker prior.
             delta: Single-unit-root hyperparameter. Larger = weaker prior.
 
