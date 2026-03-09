@@ -99,3 +99,67 @@ class VARData(ImpulsoBaseModel):
             exog_names=exog,
             index=df.index,
         )
+
+    def with_dummy_observations(
+        self,
+        n_lags: int,
+        mu: float | None = None,
+        delta: float | None = None,
+    ) -> "VARData":
+        """Return new VARData with dummy observations appended.
+
+        Dummy observations encode beliefs about unit roots and persistence,
+        following Doan, Litterman & Sims (1984) and Sims (1993).
+
+        Args:
+            n_lags: Number of VAR lags. Validated here for API consistency;
+                the dummy values themselves do not depend on n_lags, but
+                downstream fitting requires it to be valid.
+            mu: Sum-of-coefficients hyperparameter. Larger = weaker prior.
+            delta: Single-unit-root hyperparameter. Larger = weaker prior.
+
+        Returns:
+            New VARData with dummy observations appended to endog.
+        """
+        if mu is None and delta is None:
+            raise ValueError("At least one of mu or delta must be provided")
+        if mu is not None and mu <= 0:
+            raise ValueError(f"mu must be strictly positive, got {mu}")
+        if delta is not None and delta <= 0:
+            raise ValueError(f"delta must be strictly positive, got {delta}")
+        if n_lags < 1:
+            raise ValueError(f"n_lags must be >= 1, got {n_lags}")
+
+        n_vars = self.endog.shape[1]
+        y_bar = self.endog.mean(axis=0)
+        dummy_rows = []
+
+        if mu is not None:
+            soc = np.zeros((n_vars, n_vars))
+            np.fill_diagonal(soc, y_bar / mu)
+            dummy_rows.append(soc)
+
+        if delta is not None:
+            sur = (y_bar / delta).reshape(1, n_vars)
+            dummy_rows.append(sur)
+
+        dummies = np.vstack(dummy_rows)
+        new_endog = np.vstack([self.endog, dummies])
+
+        freq = self.index.freq or pd.tseries.frequencies.to_offset(pd.infer_freq(self.index))
+        n_dummy = dummies.shape[0]
+        extra_index = pd.date_range(start=self.index[-1] + freq, periods=n_dummy, freq=freq)
+        new_index = self.index.append(extra_index)
+
+        new_exog = None
+        if self.exog is not None:
+            exog_padding = np.zeros((n_dummy, self.exog.shape[1]))
+            new_exog = np.vstack([self.exog, exog_padding])
+
+        return VARData(
+            endog=new_endog,
+            endog_names=self.endog_names,
+            exog=new_exog,
+            exog_names=self.exog_names,
+            index=new_index,
+        )

@@ -1,0 +1,3 @@
+# Forecast Conditions
+
+::: impulso.conditions

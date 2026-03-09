@@ -7,14 +7,18 @@ from impulso.spec import VAR
 __all__ = [
     "VAR",
     "Cholesky",
+    "ConditionalForecastResult",
+    "ConjugateVAR",
     "FEVDResult",
     "FittedVAR",
+    "ForecastCondition",
     "ForecastResult",
     "HDIResult",
     "HistoricalDecompositionResult",
     "IRFResult",
     "IdentifiedVAR",
     "LagOrderResult",
+    "LongRunRestriction",
     "MinnesotaPrior",
     "NUTSSampler",
     "SignRestriction",
@@ -27,9 +31,13 @@ __all__ = [
 def __getattr__(name: str):
     """Lazy imports for types not needed at import time."""
     _lazy_imports = {
+        "ConditionalForecastResult": "impulso.results",
+        "ConjugateVAR": "impulso.conjugate",
         "FittedVAR": "impulso.fitted",
+        "ForecastCondition": "impulso.conditions",
         "IdentifiedVAR": "impulso.identified",
         "Cholesky": "impulso.identification",
+        "LongRunRestriction": "impulso.identification",
         "SignRestriction": "impulso.identification",
         "MinnesotaPrior": "impulso.priors",
         "NUTSSampler": "impulso.samplers",

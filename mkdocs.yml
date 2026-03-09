@@ -11,8 +11,6 @@ nav:
   - Home: index.md
   - Tutorials:
     - tutorials/index.md
-    # - tutorials/quickstart.ipynb
-    # - tutorials/forecasting.ipynb
     - tutorials/structural-analysis.ipynb
   - How-To Guides:
     - how-to/index.md
@@ -20,15 +18,21 @@ nav:
     - how-to/custom-priors.md
     - how-to/lag-selection.md
     - how-to/sign-restrictions.md
+    - how-to/conjugate-estimation.md
+    - how-to/long-run-restrictions.md
+    - how-to/conditional-forecasting.md
   - Explanation:
     - explanation/index.md
     - explanation/bayesian-var.md
     - explanation/minnesota-prior.md
     - explanation/identification.md
+    - explanation/conditional-forecasting.md
   - Reference:
     - reference/index.md
     - reference/data.md
     - reference/spec.md
+    - reference/conjugate.md
+    - reference/conditions.md
     - reference/priors.md
     - reference/samplers.md
     - reference/fitted.md
