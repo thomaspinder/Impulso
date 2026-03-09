@@ -14,6 +14,7 @@ nav:
     # - tutorials/quickstart.ipynb
     # - tutorials/forecasting.ipynb
     - tutorials/structural-analysis.ipynb
+    - tutorials/monetrary-policy.ipynb
   - How-To Guides:
     - how-to/index.md
     - how-to/data-preparation.md
