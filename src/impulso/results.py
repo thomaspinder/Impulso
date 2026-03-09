@@ -101,6 +101,16 @@ class ForecastResult(VARResultBase):
         return plot_forecast(self)
 
 
+class ConditionalForecastResult(ForecastResult):
+    """Result from conditional VAR forecasting.
+
+    Attributes:
+        conditions: List of ForecastConditions applied.
+    """
+
+    conditions: list  # list[ForecastCondition], but avoid circular import
+
+
 class IRFResult(VARResultBase):
     """Result from impulse response function computation.
 

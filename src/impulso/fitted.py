@@ -12,7 +12,7 @@ from impulso.protocols import IdentificationScheme
 
 if TYPE_CHECKING:
     from impulso.identified import IdentifiedVAR
-    from impulso.results import ForecastResult
+    from impulso.results import ConditionalForecastResult, ForecastResult
 
 
 class FittedVAR(ImpulsoBaseModel):
@@ -110,6 +110,171 @@ class FittedVAR(ImpulsoBaseModel):
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
 
         return ForecastResult(idata=idata, steps=steps, var_names=self.var_names)
+
+    @staticmethod
+    def _ma_coefficients_single(B: np.ndarray, n_vars: int, n_lags: int, steps: int) -> list[np.ndarray]:
+        """Compute MA coefficient recursion for a single draw.
+
+        Args:
+            B: Coefficient matrix (n_vars, n_vars*n_lags).
+            n_vars: Number of endogenous variables.
+            n_lags: Number of lags.
+            steps: Number of forecast steps.
+
+        Returns:
+            List of MA coefficient matrices [Phi_0, ..., Phi_{steps-1}].
+        """
+        A_matrices = [B[:, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
+        ma_coefficients: list[np.ndarray] = [np.eye(n_vars)]
+        for h in range(1, steps):
+            phi_h = np.zeros((n_vars, n_vars))
+            for j in range(min(h, n_lags)):
+                phi_h += A_matrices[j] @ ma_coefficients[h - j - 1]
+            ma_coefficients.append(phi_h)
+        return ma_coefficients
+
+    @staticmethod
+    def _build_constraint_system(
+        conditions: list,
+        var_names: list[str],
+        ma_coefficients: list[np.ndarray],
+        impact_matrix: np.ndarray,
+        unconditional: np.ndarray,
+        steps: int,
+        n_vars: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build the linear constraint system R @ shocks = target.
+
+        Args:
+            conditions: List of ForecastCondition instances.
+            var_names: Variable names.
+            ma_coefficients: MA coefficient matrices.
+            impact_matrix: Cholesky factor of Sigma or structural matrix P.
+            unconditional: Unconditional forecast array (steps, n_vars).
+            steps: Number of forecast steps.
+            n_vars: Number of variables.
+
+        Returns:
+            Tuple of (R, target) arrays for the constraint system.
+        """
+        constraint_rows = []
+        constraint_targets = []
+        for cond in conditions:
+            var_idx = var_names.index(cond.variable)
+            for period, value in zip(cond.periods, cond.values, strict=True):
+                row = np.zeros(steps * n_vars)
+                for s in range(period + 1):
+                    response = ma_coefficients[period - s] @ impact_matrix
+                    row[s * n_vars : (s + 1) * n_vars] = response[var_idx, :]
+                constraint_rows.append(row)
+                constraint_targets.append(value - unconditional[period, var_idx])
+        return np.array(constraint_rows), np.array(constraint_targets)
+
+    def conditional_forecast(
+        self,
+        steps: int,
+        conditions: list,
+        exog_future: np.ndarray | None = None,
+    ) -> "ConditionalForecastResult":
+        """Produce conditional forecasts subject to constraints on future paths.
+
+        Implements the Waggoner & Zha (1999) algorithm for hard constraints.
+        Computes unconditional forecasts, then solves for the shock paths
+        that satisfy the constraints.
+
+        Args:
+            steps: Number of forecast steps.
+            conditions: List of ForecastCondition instances specifying constraints.
+            exog_future: Future exogenous values if model has exog.
+
+        Returns:
+            ConditionalForecastResult with constrained posterior forecast draws.
+        """
+        import xarray as xr
+
+        from impulso.results import ConditionalForecastResult
+
+        self._validate_conditions(conditions, steps)
+
+        B_draws = self.coefficients  # (C, D, n, n*p)
+        intercept_draws = self.intercepts  # (C, D, n)
+        sigma_draws = self.sigma  # (C, D, n, n)
+        n_chains, n_draws, n_vars, _ = B_draws.shape
+
+        y_hist = self.data.endog[-self.n_lags :]
+        forecasts = np.zeros((n_chains, n_draws, steps, n_vars))
+
+        for c in range(n_chains):
+            for d in range(n_draws):
+                B = B_draws[c, d]
+                intercept = intercept_draws[c, d]
+                chol_sigma = np.linalg.cholesky(sigma_draws[c, d])
+
+                ma_coefficients = self._ma_coefficients_single(B, n_vars, self.n_lags, steps)
+                unconditional = self._unconditional_forecast_single(
+                    B, intercept, y_hist, steps, self.n_lags, n_vars, c, d, exog_future
+                )
+
+                R, target = self._build_constraint_system(
+                    conditions, self.var_names, ma_coefficients, chol_sigma, unconditional, steps, n_vars
+                )
+
+                shocks, _, _, _ = np.linalg.lstsq(R, target, rcond=None)
+                shocks = shocks.reshape(steps, n_vars)
+
+                conditional = unconditional.copy()
+                for h in range(steps):
+                    for s in range(h + 1):
+                        conditional[h] += ma_coefficients[h - s] @ chol_sigma @ shocks[s]
+
+                forecasts[c, d] = conditional
+
+        forecast_da = xr.DataArray(
+            forecasts,
+            dims=["chain", "draw", "step", "variable"],
+            coords={"variable": self.var_names},
+            name="forecast",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
+        return ConditionalForecastResult(idata=idata, steps=steps, var_names=self.var_names, conditions=conditions)
+
+    def _validate_conditions(self, conditions: list, steps: int) -> None:
+        """Validate forecast conditions against model variables and step range."""
+        for cond in conditions:
+            if cond.variable not in self.var_names:
+                raise ValueError(f"Condition variable '{cond.variable}' not in var_names {self.var_names}")
+            for p in cond.periods:
+                if p < 0 or p >= steps:
+                    raise ValueError(f"Condition period {p} out of range for {steps} forecast steps")
+
+    def _unconditional_forecast_single(
+        self,
+        B: np.ndarray,
+        intercept: np.ndarray,
+        y_hist: np.ndarray,
+        steps: int,
+        n_lags: int,
+        n_vars: int,
+        chain_idx: int,
+        draw_idx: int,
+        exog_future: np.ndarray | None,
+    ) -> np.ndarray:
+        """Compute unconditional forecast for a single posterior draw.
+
+        Returns:
+            Array of shape (steps, n_vars).
+        """
+        y_buffer = y_hist.copy()
+        unconditional = np.zeros((steps, n_vars))
+        for h in range(steps):
+            x_lag = np.concatenate([y_buffer[-(lag + 1)] for lag in range(n_lags)])
+            y_new = intercept + B @ x_lag
+            if self.has_exog and exog_future is not None:
+                B_exog = self.idata.posterior["B_exog"].values[chain_idx, draw_idx]
+                y_new = y_new + B_exog @ exog_future[h]
+            unconditional[h] = y_new
+            y_buffer = np.vstack([y_buffer[1:], y_new.reshape(1, -1)])
+        return unconditional
 
     def set_identification_strategy(self, scheme: IdentificationScheme) -> "IdentifiedVAR":
         """Apply a structural identification scheme.
