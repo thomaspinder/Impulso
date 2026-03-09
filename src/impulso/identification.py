@@ -219,6 +219,13 @@ class LongRunRestriction(ImpulsoModel):
         Returns:
             InferenceData with 'structural_shock_matrix' added to posterior.
         """
+        if "B" not in idata.posterior:
+            raise ValueError("LongRunRestriction requires 'B' (VAR coefficients) in idata.posterior")
+
+        unknown = set(self.ordering) - set(var_names)
+        if unknown:
+            raise ValueError(f"ordering contains unknown variables: {unknown}")
+
         B_draws = idata.posterior["B"].values  # (C, D, n, n*p)
         sigma_draws = idata.posterior["Sigma"].values  # (C, D, n, n)
         n_chains, n_draws, n_vars, n_total_coeffs = B_draws.shape
