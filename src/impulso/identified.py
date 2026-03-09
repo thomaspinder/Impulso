@@ -13,6 +13,7 @@ from impulso.data import VARData
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
 
 if TYPE_CHECKING:
+    from impulso.conditions import ForecastCondition
     from impulso.results import ConditionalForecastResult
 
 
@@ -188,8 +189,8 @@ class IdentifiedVAR(ImpulsoBaseModel):
     def conditional_forecast(
         self,
         steps: int,
-        conditions: list,
-        shock_conditions: list | None = None,
+        conditions: "list[ForecastCondition]",
+        shock_conditions: "list[ForecastCondition] | None" = None,
         exog_future: np.ndarray | None = None,
     ) -> "ConditionalForecastResult":
         """Produce structural conditional forecasts.
@@ -219,9 +220,17 @@ class IdentifiedVAR(ImpulsoBaseModel):
             )
             return fitted.conditional_forecast(steps=steps, conditions=conditions, exog_future=exog_future)
 
+        if exog_future is not None:
+            raise NotImplementedError(
+                "exog_future is not yet supported with shock_conditions. "
+                "Use shock_conditions=None to use the reduced-form path with exog support."
+            )
+
         return self._structural_conditional_forecast(steps, conditions, shock_conditions)
 
-    def _validate_structural_conditions(self, conditions: list, shock_conditions: list, steps: int) -> list[str]:
+    def _validate_structural_conditions(
+        self, conditions: "list[ForecastCondition]", shock_conditions: "list[ForecastCondition]", steps: int
+    ) -> list[str]:
         """Validate observable and shock conditions, returning shock names.
 
         Args:
@@ -247,8 +256,8 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
     @staticmethod
     def _build_structural_constraint_system(
-        conditions: list,
-        shock_conditions: list,
+        conditions: "list[ForecastCondition]",
+        shock_conditions: "list[ForecastCondition]",
         var_names: list[str],
         shock_names: list[str],
         ma_coefficients: list[np.ndarray],
@@ -288,7 +297,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         return np.array(constraint_rows), np.array(constraint_targets)
 
     def _structural_conditional_forecast(
-        self, steps: int, conditions: list, shock_conditions: list
+        self, steps: int, conditions: "list[ForecastCondition]", shock_conditions: "list[ForecastCondition]"
     ) -> "ConditionalForecastResult":
         """Compute structural conditional forecast with shock constraints."""
         from impulso.fitted import FittedVAR

@@ -108,7 +108,7 @@ class ConditionalForecastResult(ForecastResult):
         conditions: List of ForecastConditions applied.
     """
 
-    conditions: list  # list[ForecastCondition], but avoid circular import
+    conditions: list  # list[ForecastCondition] — bare list avoids Pydantic rebuild issues
 
 
 class IRFResult(VARResultBase):

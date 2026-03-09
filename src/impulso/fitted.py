@@ -11,6 +11,7 @@ from impulso.data import VARData
 from impulso.protocols import IdentificationScheme
 
 if TYPE_CHECKING:
+    from impulso.conditions import ForecastCondition
     from impulso.identified import IdentifiedVAR
     from impulso.results import ConditionalForecastResult, ForecastResult
 
@@ -135,7 +136,7 @@ class FittedVAR(ImpulsoBaseModel):
 
     @staticmethod
     def _build_constraint_system(
-        conditions: list,
+        conditions: "list[ForecastCondition]",
         var_names: list[str],
         ma_coefficients: list[np.ndarray],
         impact_matrix: np.ndarray,
@@ -173,7 +174,7 @@ class FittedVAR(ImpulsoBaseModel):
     def conditional_forecast(
         self,
         steps: int,
-        conditions: list,
+        conditions: "list[ForecastCondition]",
         exog_future: np.ndarray | None = None,
     ) -> "ConditionalForecastResult":
         """Produce conditional forecasts subject to constraints on future paths.
@@ -238,7 +239,7 @@ class FittedVAR(ImpulsoBaseModel):
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
         return ConditionalForecastResult(idata=idata, steps=steps, var_names=self.var_names, conditions=conditions)
 
-    def _validate_conditions(self, conditions: list, steps: int) -> None:
+    def _validate_conditions(self, conditions: "list[ForecastCondition]", steps: int) -> None:
         """Validate forecast conditions against model variables and step range."""
         for cond in conditions:
             if cond.variable not in self.var_names:
