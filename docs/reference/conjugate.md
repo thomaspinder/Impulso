@@ -1,0 +1,3 @@
+# ConjugateVAR
+
+::: impulso.conjugate
