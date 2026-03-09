@@ -1,5 +1,7 @@
 """IdentifiedVAR — structural VAR with identified shocks."""
 
+from typing import TYPE_CHECKING
+
 import arviz as az
 import numpy as np
 import pandas as pd
@@ -9,6 +11,9 @@ from pydantic import Field
 from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
+
+if TYPE_CHECKING:
+    from impulso.results import ConditionalForecastResult
 
 
 class IdentifiedVAR(ImpulsoBaseModel):
@@ -179,3 +184,186 @@ class IdentifiedVAR(ImpulsoBaseModel):
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da}))
         return HistoricalDecompositionResult(idata=idata, var_names=self.var_names)
+
+    def conditional_forecast(
+        self,
+        steps: int,
+        conditions: list,
+        shock_conditions: list | None = None,
+        exog_future: np.ndarray | None = None,
+    ) -> "ConditionalForecastResult":
+        """Produce structural conditional forecasts.
+
+        Extends reduced-form conditional forecasting by allowing constraints
+        on structural shock paths in addition to observable variable paths.
+
+        Args:
+            steps: Number of forecast steps.
+            conditions: List of ForecastCondition instances for observables.
+            shock_conditions: Optional list of ForecastCondition instances for
+                structural shocks.
+            exog_future: Future exogenous values if model has exog.
+
+        Returns:
+            ConditionalForecastResult with constrained forecast draws.
+        """
+        from impulso.fitted import FittedVAR
+
+        # If no shock conditions, delegate to the reduced-form method
+        if shock_conditions is None:
+            fitted = FittedVAR.model_construct(
+                idata=self.idata,
+                n_lags=self.n_lags,
+                data=self.data,
+                var_names=self.var_names,
+            )
+            return fitted.conditional_forecast(steps=steps, conditions=conditions, exog_future=exog_future)
+
+        return self._structural_conditional_forecast(steps, conditions, shock_conditions)
+
+    def _validate_structural_conditions(self, conditions: list, shock_conditions: list, steps: int) -> list[str]:
+        """Validate observable and shock conditions, returning shock names.
+
+        Args:
+            conditions: Observable variable conditions.
+            shock_conditions: Structural shock conditions.
+            steps: Number of forecast steps.
+
+        Returns:
+            List of shock variable names from the structural matrix.
+        """
+        for cond in conditions:
+            if cond.variable not in self.var_names:
+                raise ValueError(f"Condition variable '{cond.variable}' not in var_names")
+            for p in cond.periods:
+                if p < 0 or p >= steps:
+                    raise ValueError(f"Condition period {p} out of range for {steps} steps")
+
+        shock_names = self.idata.posterior["structural_shock_matrix"].coords["shock"].values.tolist()
+        for cond in shock_conditions:
+            if cond.variable not in shock_names:
+                raise ValueError(f"Shock condition variable '{cond.variable}' not in shock_names {shock_names}")
+        return shock_names
+
+    @staticmethod
+    def _build_structural_constraint_system(
+        conditions: list,
+        shock_conditions: list,
+        var_names: list[str],
+        shock_names: list[str],
+        ma_coefficients: list[np.ndarray],
+        P: np.ndarray,
+        unconditional: np.ndarray,
+        steps: int,
+        n_vars: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build the combined observable + shock constraint system.
+
+        Returns:
+            Tuple of (R, target) arrays for the constraint system.
+        """
+        constraint_rows = []
+        constraint_targets = []
+
+        # Observable constraints
+        for cond in conditions:
+            var_idx = var_names.index(cond.variable)
+            for period, value in zip(cond.periods, cond.values, strict=True):
+                row = np.zeros(steps * n_vars)
+                for s in range(period + 1):
+                    structural_response = ma_coefficients[period - s] @ P
+                    row[s * n_vars : (s + 1) * n_vars] = structural_response[var_idx, :]
+                constraint_rows.append(row)
+                constraint_targets.append(value - unconditional[period, var_idx])
+
+        # Shock constraints
+        for cond in shock_conditions:
+            shock_idx = shock_names.index(cond.variable)
+            for period, value in zip(cond.periods, cond.values, strict=True):
+                row = np.zeros(steps * n_vars)
+                row[period * n_vars + shock_idx] = 1.0
+                constraint_rows.append(row)
+                constraint_targets.append(value)
+
+        return np.array(constraint_rows), np.array(constraint_targets)
+
+    def _structural_conditional_forecast(
+        self, steps: int, conditions: list, shock_conditions: list
+    ) -> "ConditionalForecastResult":
+        """Compute structural conditional forecast with shock constraints."""
+        from impulso.fitted import FittedVAR
+        from impulso.results import ConditionalForecastResult
+
+        shock_names = self._validate_structural_conditions(conditions, shock_conditions, steps)
+
+        B_draws = self.idata.posterior["B"].values
+        intercept_draws = self.idata.posterior["intercept"].values
+        P_draws = self.idata.posterior["structural_shock_matrix"].values
+        n_chains, n_draws, n_vars, _ = B_draws.shape
+
+        y_hist = self.data.endog[-self.n_lags :]
+        forecasts = np.zeros((n_chains, n_draws, steps, n_vars))
+
+        for c in range(n_chains):
+            for d in range(n_draws):
+                B = B_draws[c, d]
+                P = P_draws[c, d]
+
+                ma_coefficients = FittedVAR._ma_coefficients_single(B, n_vars, self.n_lags, steps)
+                unconditional = self._unconditional_forecast_single(
+                    B, intercept_draws[c, d], y_hist, steps, self.n_lags, n_vars
+                )
+
+                R, target = self._build_structural_constraint_system(
+                    conditions,
+                    shock_conditions,
+                    self.var_names,
+                    shock_names,
+                    ma_coefficients,
+                    P,
+                    unconditional,
+                    steps,
+                    n_vars,
+                )
+
+                structural_shocks, _, _, _ = np.linalg.lstsq(R, target, rcond=None)
+                structural_shocks = structural_shocks.reshape(steps, n_vars)
+
+                conditional = unconditional.copy()
+                for h in range(steps):
+                    for s in range(h + 1):
+                        conditional[h] += ma_coefficients[h - s] @ P @ structural_shocks[s]
+
+                forecasts[c, d] = conditional
+
+        forecast_da = xr.DataArray(
+            forecasts,
+            dims=["chain", "draw", "step", "variable"],
+            coords={"variable": self.var_names},
+            name="forecast",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
+        all_conditions = conditions + (shock_conditions or [])
+        return ConditionalForecastResult(idata=idata, steps=steps, var_names=self.var_names, conditions=all_conditions)
+
+    @staticmethod
+    def _unconditional_forecast_single(
+        B: np.ndarray,
+        intercept: np.ndarray,
+        y_hist: np.ndarray,
+        steps: int,
+        n_lags: int,
+        n_vars: int,
+    ) -> np.ndarray:
+        """Compute unconditional forecast for a single posterior draw.
+
+        Returns:
+            Array of shape (steps, n_vars).
+        """
+        y_buffer = y_hist.copy()
+        unconditional = np.zeros((steps, n_vars))
+        for h in range(steps):
+            x_lag = np.concatenate([y_buffer[-(lag + 1)] for lag in range(n_lags)])
+            unconditional[h] = intercept + B @ x_lag
+            y_buffer = np.vstack([y_buffer[1:], unconditional[h].reshape(1, -1)])
+        return unconditional
