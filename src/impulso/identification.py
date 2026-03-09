@@ -225,6 +225,8 @@ class LongRunRestriction(ImpulsoModel):
         unknown = set(self.ordering) - set(var_names)
         if unknown:
             raise ValueError(f"ordering contains unknown variables: {unknown}")
+        if len(self.ordering) != len(var_names):
+            raise ValueError(f"ordering must contain exactly {len(var_names)} variables, got {len(self.ordering)}")
 
         B_draws = idata.posterior["B"].values  # (C, D, n, n*p)
         sigma_draws = idata.posterior["Sigma"].values  # (C, D, n, n)

@@ -126,3 +126,25 @@ class TestLongRunRestrictionIdentify:
         result = lr.identify(stationary_idata_2v, var_names=["y1", "y2"])
         assert "B" in result.posterior
         assert "Sigma" in result.posterior
+
+    def test_raises_when_B_missing(self, stationary_idata_2v):
+        from impulso.identification import LongRunRestriction
+
+        lr = LongRunRestriction(ordering=["y1", "y2"])
+        idata_no_B = az.InferenceData(posterior=stationary_idata_2v.posterior.drop_vars("B"))
+        with pytest.raises(ValueError, match="requires 'B'"):
+            lr.identify(idata_no_B, var_names=["y1", "y2"])
+
+    def test_raises_for_unknown_variables(self, stationary_idata_2v):
+        from impulso.identification import LongRunRestriction
+
+        lr = LongRunRestriction(ordering=["y1", "unknown"])
+        with pytest.raises(ValueError, match="unknown variables"):
+            lr.identify(stationary_idata_2v, var_names=["y1", "y2"])
+
+    def test_raises_for_wrong_ordering_length(self, stationary_idata_2v):
+        from impulso.identification import LongRunRestriction
+
+        lr = LongRunRestriction(ordering=["y1"])
+        with pytest.raises(ValueError, match="exactly 2 variables"):
+            lr.identify(stationary_idata_2v, var_names=["y1", "y2"])

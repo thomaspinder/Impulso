@@ -216,7 +216,6 @@ class ConjugateVAR(ImpulsoBaseModel):
     def optimize_prior(
         self,
         data: VARData,
-        optimize_dummy: bool = False,
     ) -> MinnesotaPrior:
         """Find Minnesota hyperparameters maximising the marginal likelihood.
 
@@ -225,7 +224,6 @@ class ConjugateVAR(ImpulsoBaseModel):
 
         Args:
             data: VARData instance (may include dummy observations).
-            optimize_dummy: If True, also optimise dummy hyperparameters.
 
         Returns:
             MinnesotaPrior with optimal tightness and cross_shrinkage.
@@ -240,13 +238,12 @@ class ConjugateVAR(ImpulsoBaseModel):
         else:
             n_lags = self.lags
 
-        return self._optimize_prior_internal(data, n_lags, optimize_dummy)
+        return self._optimize_prior_internal(data, n_lags)
 
     def _optimize_prior_internal(
         self,
         data: VARData,
         n_lags: int,
-        optimize_dummy: bool = False,
     ) -> MinnesotaPrior:
         """Internal implementation of prior optimisation."""
         from scipy.optimize import minimize
