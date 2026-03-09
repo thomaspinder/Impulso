@@ -125,7 +125,7 @@ class SignRestriction(ImpulsoModel):
                 stacklevel=2,
             )
 
-        coord_shocks = shock_names if len(shock_names) == n_vars else var_names
+        coord_shocks = self._build_shock_coords(shock_names, n_vars)
         P_da = xr.DataArray(
             P,
             dims=["chain", "draw", "response", "shock"],
@@ -135,6 +135,17 @@ class SignRestriction(ImpulsoModel):
         new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)
         new_posterior.attrs["sign_restriction_acceptance_rate"] = accepted_count / total_count
         return az.InferenceData(posterior=new_posterior)
+
+    @staticmethod
+    def _build_shock_coords(shock_names: list[str], n_vars: int) -> list[str]:
+        """Build shock coordinate labels for the structural shock matrix.
+
+        Named shocks occupy their column positions; remaining columns
+        are labeled 'unidentified_1', 'unidentified_2', etc.
+        """
+        if len(shock_names) == n_vars:
+            return shock_names
+        return shock_names + [f"unidentified_{i}" for i in range(1, n_vars - len(shock_names) + 1)]
 
     def _check_restrictions_at_horizons(
         self,
