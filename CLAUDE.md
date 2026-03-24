@@ -30,10 +30,13 @@ uv run ty check
 # Lint/format only
 uv run ruff check . && uv run ruff format .
 
-# Build docs locally
+# Render Quarto notebooks to markdown
+make docs-render
+
+# Build and serve docs locally (renders notebooks first)
 make docs
 
-# Test docs build
+# Test docs build (renders notebooks first)
 make docs-test
 
 # Multi-version test (Python 3.11-3.14)
@@ -44,7 +47,7 @@ uv run tox
 
 - **Source**: `src/impulso/` — library code, built as a wheel via Hatchling
 - **Tests**: `tests/` — pytest with `--cov`, 90% coverage target (codecov.yaml)
-- **Docs**: `docs/` — MkDocs Material, docstrings auto-rendered via mkdocstrings
+- **Docs**: `docs/` — Zensical (zensical.toml), tutorials as Quarto .qmd files, docstrings auto-rendered via mkdocstrings
 
 ### Core Pipeline
 

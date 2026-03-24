@@ -70,7 +70,7 @@ jobs:
 
   build-docs:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: Check out
         uses: actions/checkout@v6
@@ -78,8 +78,24 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
+      - name: Install Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Cache Quarto freeze
+        uses: actions/cache@v4
+        with:
+          path: _freeze
+          key: quarto-freeze-${{ hashFiles('docs/tutorials/*.qmd') }}
+          restore-keys: |
+            quarto-freeze-
+
+      - name: Render Quarto notebooks
+        run: quarto render
+        env:
+          QUARTO_PYTHON: .venv/bin/python
+
       - name: Build documentation
-        run: uv run mkdocs build -s
+        run: uv run zensical build
 
       - name: Upload docs artifact
         uses: actions/upload-pages-artifact@v4

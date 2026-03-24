@@ -155,8 +155,17 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
+# Documentation build output
 /site
+docs/plans/
+
+# Quarto rendered output
+_freeze/
+docs/tutorials/*_files/
+docs/tutorials/quickstart.md
+docs/tutorials/forecasting.md
+docs/tutorials/structural-analysis.md
+docs/tutorials/monetary-policy.md
 
 # mypy
 .mypy_cache/
@@ -209,3 +218,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+/.quarto/
+**/*.quarto_ipynb

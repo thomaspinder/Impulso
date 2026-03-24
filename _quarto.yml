@@ -1,0 +1,12 @@
+project:
+  type: default
+  render:
+    - docs/tutorials/*.qmd
+
+execute:
+  freeze: auto
+
+format:
+  gfm:
+    variant: +pipe_tables+tex_math_dollars
+    wrap: none
