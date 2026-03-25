@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.2), scaffolded from cookiecutter-uv.
+Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.4), requires Python >=3.11.
 
 ## Commands
 
@@ -32,6 +32,9 @@ uv run ruff check . && uv run ruff format .
 
 # Render Quarto notebooks to markdown
 make docs-render
+
+# Render notebooks in CI mode (fast, ~30s, minimal MCMC)
+make docs-render-ci
 
 # Build and serve docs locally (renders notebooks first)
 make docs
@@ -74,19 +77,40 @@ Three `Protocol` classes in `protocols.py` define the extension points:
 
 All result types (`results.py`) inherit from `VARResultBase` and provide `.median()`, `.hdi()`, `.to_dataframe()`, and `.plot()`. Plot methods delegate to `plotting/` subpackage.
 
+### Base Model Classes (`_base.py`)
+
+Two base classes centralise Pydantic config:
+
+- **`ImpulsoBaseModel`**: `frozen=True, arbitrary_types_allowed=True` — for models holding numpy arrays, InferenceData, etc.
+- **`ImpulsoModel`**: `frozen=True` only — for models with standard Python types (e.g., `Cholesky`, `SignRestriction`).
+
+All domain models inherit from one of these. Use `object.__setattr__` only for internal setup (e.g., making arrays read-only in validators).
+
 ### Key Patterns
 
-- **All models are frozen Pydantic `BaseModel`s** with `arbitrary_types_allowed=True`. Use `object.__setattr__` only for internal setup (e.g., making arrays read-only in validators).
-- **Lazy imports**: PyMC, plotting modules, and cross-module types are imported inside methods to avoid circular imports and reduce import time.
+- **Lazy imports**: PyMC, plotting modules, and cross-module types are imported inside methods (or guarded by `TYPE_CHECKING`) to avoid circular imports and reduce import time.
 - **Prior registry**: `spec.py` maps string shorthands (e.g., `"minnesota"`) to `Prior` classes via `_PRIOR_REGISTRY`.
+- **Runtime type checking**: `impulso.enable_runtime_checks()` wraps public API classes with beartype decorators. Intended for test suites.
+- **`select_lag_order(data, max_lags)`**: OLS-based information criteria (AIC/BIC/HQ) for choosing VAR lag order — fast, no MCMC.
 
 ## Tooling
 
 - **Package manager**: uv (lock file must stay in sync — `uv lock --locked`)
 - **Linter/Formatter**: Ruff — line length 120, target py311, auto-fix enabled
-- **Type checker**: ty (configured for `.venv`, Python 3.11)
+- **Type checker**: ty (configured for `.venv`, Python 3.11). Ignores `unresolved-attribute`, `not-subscriptable`, and `invalid-argument-type` due to ArviZ/PyMC/pandas dynamic attrs.
 - **Prek**: Ruff checks + standard hooks (trailing whitespace, TOML/YAML/JSON validation)
-- **CI**: GitHub Actions runs quality, tests (3.11–3.14), and docs checks on push/PR
+- **CI**: GitHub Actions runs quality, tests (3.11–3.14), and docs checks on push/PR. Heavy notebooks (monetary-policy) use a `ci` parameter for fast smoke rendering in PR CI. Rendered `.md` + `_files/` are committed to the repo. Full rendering runs weekly and on release via `full-render-notebooks.yml`.
+
+## Test Fixtures (`conftest.py`)
+
+Shared fixtures available in all test files:
+
+- **`rng`**: Deterministic `np.random.default_rng(42)`.
+- **`var_data_3v`**: 3 endogenous variables, 100 obs (random).
+- **`var_data_2v`**: 2-var VAR(1) DGP, 200 obs (stable coefficients).
+- **`var_data_3v_dgp2`**: 3-var VAR(2) DGP, 200 obs.
+- **`synthetic_idata_2v`**: Synthetic `InferenceData` mimicking a fitted 2-var VAR(1) — no MCMC needed. Use for fast tests of post-fitting logic.
+- **`synthetic_identified_idata_2v`**: Same plus `structural_shock_matrix` (Cholesky of Sigma).
 
 ## Code Conventions
 
