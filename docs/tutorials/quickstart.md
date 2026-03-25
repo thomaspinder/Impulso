@@ -45,7 +45,13 @@ for t in range(1, T):
 
 ## Load data into VARData
 
-`VARData` is the entry point for all data in Impulso. It validates the shape of your arrays, checks for NaN and Inf values, and makes the underlying arrays read-only so that data cannot be accidentally mutated after construction. If you already have a pandas DataFrame, you can use `VARData.from_df()` instead.
+`VARData` is the entry point for all data in Impulso. It validates the shape of your arrays, checks for NaN and Inf values, and makes the underlying arrays read-only so that data cannot be accidentally mutated after construction.
+
+> [!TIP]
+>
+> ### Already have a DataFrame?
+>
+> Use `VARData.from_df(df, endog=["col1", "col2"])` to build the dataset directly from a pandas DataFrame without constructing arrays manually.
 
 ``` python
 index = pd.date_range("2000-01-01", periods=T, freq="QS")
@@ -88,7 +94,7 @@ spec
 
 ## Estimate the model
 
-Calling `.fit()` builds a PyMC model under the hood, places the Minnesota prior on the coefficient matrix, and samples the posterior using NUTS (the No-U-Turn Sampler). We use `cores=1` to avoid multiprocessing issues and a fixed `random_seed` for reproducibility. More draws improve the posterior approximation but take longer.
+Calling `.fit()` builds a PyMC model under the hood, places the Minnesota prior on the coefficient matrix, and samples the posterior using NUTS (the No-U-Turn Sampler). We use a fixed `random_seed` for reproducibility. More draws improve the posterior approximation but take longer.
 
 ``` python
 sampler = NUTSSampler(draws=500, tune=500, chains=2, cores=1, random_seed=42)

@@ -82,6 +82,8 @@ icon = "fontawesome/brands/python"
 link = "https://pypi.org/project/impulso"
 
 [project.markdown_extensions]
+admonition = {}
+"pymdownx.details" = {}
 toc = { permalink = true }
 "pymdownx.arithmatex" = { generic = true }
 "pymdownx.tabbed" = { alternate_style = true }
