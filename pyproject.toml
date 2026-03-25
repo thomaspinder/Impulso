@@ -49,6 +49,7 @@ dev = [
     "nutpie>=0.13",
     "zensical>=0.0.28",
     "tabulate>=0.10.0",
+    "papermill>=2.7.0",
 ]
 docs = [
     "statsmodels>=0.14.6",

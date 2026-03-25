@@ -92,7 +92,7 @@ axes[0].set_title("U.S. Monetary Policy VAR -- Raw Data (1965-2007)")
 fig.tight_layout()
 ```
 
-![](monetary-policy_files/figure-commonmark/cell-5-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-7-output-1.png)
 
 ## Reduced-form VAR estimation
 
@@ -144,15 +144,18 @@ ic.summary()
 The standard choice for monthly monetary policy VARs is 12 lags, which allows the model to capture up to one year of dynamic feedback. We follow this convention for comparability with published results (Christiano, Eichenbaum, and Evans, 1999; Uhlig, 2005). The information criteria above suggest shorter lag lengths, but information criteria optimise one-step-ahead prediction, not the recovery of structural dynamics. A model with fewer lags may forecast well because most of the predictable variation is captured by the first few lags, yet still truncate the slower-moving feedback channels (e.g., from interest rates through investment to output over many months) that shape impulse responses at longer horizons.
 
 ``` python
-sampler = NUTSSampler(
-    draws=1500,
-    tune=3000,
-    chains=8,
-    cores=8,
-    random_seed=123,
-    target_accept=0.9,
-    nuts_sampler="nutpie",
-)
+if ci:
+    sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=123)
+else:
+    sampler = NUTSSampler(
+        draws=1500,
+        tune=3000,
+        chains=8,
+        cores=8,
+        random_seed=123,
+        target_accept=0.9,
+        nuts_sampler="nutpie",
+    )
 fitted = VAR(lags=12, prior="minnesota").fit(data, sampler=sampler)
 fitted
 ```
@@ -241,21 +244,21 @@ fitted
 
 <div class="nutpie">
     <p><strong>Sampler Progress</strong></p>
-    <p>Total Chains: <span id="total-chains">8</span></p>
+    <p>Total Chains: <span id="total-chains">1</span></p>
     <p>Active Chains: <span id="active-chains">0</span></p>
     <p>
         Finished Chains:
-        <span id="active-chains">8</span>
+        <span id="active-chains">1</span>
     </p>
-    <p>Sampling for 3 minutes</p>
+    <p>Sampling for now</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>
     </p>
 &#10;    <progress
         id="total-progress-bar"
-        max="36000"
-        value="36000">
+        max="60"
+        value="60">
     </progress>
     <table>
         <thead>
@@ -271,98 +274,14 @@ fitted
             &#10;                <tr>
                     <td class="progress-cell">
                         <progress
-                            max="4500"
-                            value="4500">
+                            max="60"
+                            value="60">
                         </progress>
                     </td>
-                    <td>4500</td>
+                    <td>60</td>
                     <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
+                    <td>0.31</td>
+                    <td>31</td>
                 </tr>
             &#10;            </tr>
         </tbody>
@@ -378,8 +297,8 @@ print(f"Min ESS (bulk): {summary['ess_bulk'].min():.0f}")
 print(f"Divergences: {fitted.idata.sample_stats['diverging'].sum().values}")
 ```
 
-    Max R-hat: 1.010
-    Min ESS (bulk): 2981
+    Max R-hat: nan
+    Min ESS (bulk): 6
     Divergences: 0
 
 The sampler has converged well: no divergences, R-hat close to 1, and effective sample sizes comfortably above 1,000.A note on prior sensitivity: we use the default Minnesota prior hyperparameters from impulso throughout this notebook. The tightness $\lambda_1$, cross-variable shrinkage $\lambda_2$, and lag decay $\lambda_3$ (introduced above) all affect the posterior and hence the impulse responses. A full prior sensitivity analysis – varying $\lambda_1$ across a range like 0.05 to 0.5 – would be a valuable robustness exercise, but we defer it here to keep the focus on identification. The reader should be aware that the choice of prior is an additional modelling decision on top of the identification strategy, and in principle both should be subjected to sensitivity analysis in applied work.
@@ -403,7 +322,7 @@ fig.suptitle("Cholesky IRFs -- Ordering A: Output, Prices, Rate", y=1.02)
 
     Text(0.5, 1.02, 'Cholesky IRFs -- Ordering A: Output, Prices, Rate')
 
-![](monetary-policy_files/figure-commonmark/cell-9-output-2.png)
+![](monetary-policy_files/figure-commonmark/cell-11-output-2.png)
 
 The 3x3 grid above shows every shock-response pair. Read it as “column shock causes row response.” Focus on the third column (the rate shock, i.e. the identified monetary policy shock). Note that because output and CPI enter as $100 \times \log$, a one-unit change in those series is approximately a one-percentage-point change; the rate is in percentage points directly.- **rate -\> output** (top right): Industrial production drops sharply after a contractionary monetary shock, falling by about 0.5 to 1.0 percentage points over 48 months. This is the standard transmission mechanism: higher rates make borrowing more expensive, which reduces investment and consumption, which in turn reduces output. The response is persistent, with no clear sign of returning to zero within 4 years.- **rate -\> rate** (bottom right): The rate shock itself starts at about 0.6 percentage points and decays gradually. The policy tightening is partially reversed over time, consistent with the Fed easing as the economy weakens.- **rate -\> prices** (middle right): Here is the problem. After a contractionary monetary shock, prices *rise*. The CPI response is positive, reaching about 0.3-0.4 over 48 months. This is the **price puzzle**: higher interest rates reduce demand, which should put downward pressure on prices, yet the estimated response goes the wrong way.Why does this happen? The most common explanation: the Fed raises rates when it expects future inflation. A three-variable VAR cannot capture the full set of data and signals the Fed uses when making decisions, so the “surprise” component of the rate change still contains a predictable response to anticipated inflation. The subsequent price increase is not caused by the rate hike; it is the inflation the Fed saw coming. The “shock” is not really a shock.Sims (1992) and Christiano, Eichenbaum, and Evans (1999) argued that adding commodity prices to the VAR can help resolve this, because commodity prices capture forward-looking inflation signals the Fed responds to. We stick with three variables here to illustrate the problem clearly.
 
@@ -415,7 +334,7 @@ fig.suptitle("FEVD -- Cholesky Ordering A", y=1.02)
 
     Text(0.5, 1.02, 'FEVD -- Cholesky Ordering A')
 
-![](monetary-policy_files/figure-commonmark/cell-10-output-2.png)
+![](monetary-policy_files/figure-commonmark/cell-12-output-2.png)
 
 The **forecast error variance decomposition** (FEVD) partitions the variance of each variable’s $h$-step-ahead forecast error into contributions from each structural shock. At each horizon $h$, the shares sum to 100%, telling us which shocks are the dominant drivers of unpredictable variation in each variable.Focus on the monetary policy shock (the rate shock, third column). In the literature, monetary policy shocks typically account for 10-20% of the forecast error variance in output at medium-term horizons (12-24 months). This is a useful benchmark: monetary policy matters, but it is not the dominant driver of output fluctuations. Most of the variation in industrial production is explained by its own shocks (supply and demand disturbances that are not monetary in origin).For prices, the monetary policy shock explains relatively little of the forecast error variance, which is consistent with the price puzzle: the identified shock is pushing prices in the wrong direction, so it cannot be a major explanatory factor for price movements. The rate itself is largely explained by its own shock at short horizons, but the contribution of output and price shocks grows at longer horizons as the Fed’s policy rule – the systematic mapping from economic conditions to rate decisions – feeds back.
 
@@ -478,7 +397,7 @@ axes[-1].set_xlabel("Months")
 fig.tight_layout()
 ```
 
-![](monetary-policy_files/figure-commonmark/cell-12-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-14-output-1.png)
 
 The three orderings produce noticeably different impulse responses to a monetary policy shock.
 
@@ -524,7 +443,7 @@ print(
 )
 ```
 
-    Acceptance rate: 100.0%
+    Acceptance rate: 50.0%
 
 ``` python
 irf_sr_h6 = identified_sr_h6.impulse_response(horizon=48)
@@ -568,7 +487,7 @@ axes[-1].set_xlabel("Months")
 fig.tight_layout()
 ```
 
-![](monetary-policy_files/figure-commonmark/cell-14-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-16-output-1.png)
 
 The three panels above show how each variable responds to the identified monetary policy shock under sign restrictions with $h = 6$.
 
@@ -607,8 +526,8 @@ for h in [0, 6, 12]:
 ```
 
     h= 0: acceptance rate = 100.0%
-    h= 6: acceptance rate = 100.0%
-    h=12: acceptance rate = 100.0%
+    h= 6: acceptance rate = 50.0%
+    h=12: acceptance rate = 0.0%
 
 ``` python
 fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
@@ -632,7 +551,7 @@ axes[-1].set_xlabel("Months")
 fig.tight_layout()
 ```
 
-![](monetary-policy_files/figure-commonmark/cell-16-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-18-output-1.png)
 
 The three restriction horizons produce median responses that are qualitatively similar but quantitatively different.**Output (top).** All three horizons show output initially rising then falling, but the timing differs. With $h = 0$, the output decline is slowest to materialise, which makes sense: restricting only the impact period leaves the impulse response at all subsequent horizons completely unconstrained. With $h = 12$, the decline starts earlier and is slightly deeper, because the longer horizon forces the retained rotations to produce IRFs with more conventional-looking dynamics.**Prices (middle).** The CPI response is negative under all horizons (by construction), but more strongly negative under $h = 6$ and $h = 12$ than under $h = 0$. The longer the horizon over which prices must remain non-positive, the more aggressively the identified shock must push prices down.**Rate (bottom).** The interest rate responses are nearly identical across horizons. This makes sense: the rate is restricted to be positive at all horizons, and the dynamics of the rate shock are well-determined by the data regardless of the horizon.The acceptance rates printed above are all near 100%, which itself is informative. We are imposing only two sign restrictions on a three-variable system – the rate must be positive and prices must be non-positive – and these conditions are broadly consistent with the reduced-form dynamics. Even at $h = 12$, the restrictions barely constrain the space of admissible rotations. This tells us that the identified set is large: many very different structural decompositions all satisfy our qualitative beliefs. The wide credible bands on the output response above are the direct consequence.In a larger system (say 5-7 variables) with more restrictions, or with restrictions that cut against the grain of the reduced-form dynamics, acceptance rates would drop materially, and the computational cost of the rotation algorithm would become a real consideration. The acceptance rate is a diagnostic of how constraining your identification scheme is. Here, it is telling us: not very.
 
@@ -726,7 +645,7 @@ axes[-1].set_xlabel("Months")
 fig.tight_layout()
 ```
 
-![](monetary-policy_files/figure-commonmark/cell-17-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-19-output-1.png)
 
 ``` python
 # Quantitative band width comparison: 68% HDI width for output response
@@ -768,9 +687,9 @@ pd.DataFrame(band_rows)
 
 |  | Horizon (months) | Cholesky 68% width | Sign Restr. 68% width | Ratio (SR / Chol) |
 |----|----|----|----|----|
-| 0 | 12 | 0.163 | 1.026 | 6.3x |
-| 1 | 24 | 0.234 | 0.809 | 3.5x |
-| 2 | 48 | 0.304 | 0.532 | 1.7x |
+| 0 | 12 | 253.750 | 447.612 | 1.8x |
+| 1 | 24 | 566375.417 | 2742584.988 | 4.8x |
+| 2 | 48 | 1299282692435.848 | 1848195671362.945 | 1.4x |
 
 </div>
 
@@ -829,12 +748,12 @@ pd.DataFrame(rows)
 
 |  | Specification | Peak Output Response | Month of Peak | Price Puzzle (months \> 0) |
 |----|----|----|----|----|
-| 0 | Cholesky A (y,p,i) | -0.737 | 40 | 48 |
-| 1 | Cholesky B (p,y,i) | -0.737 | 40 | 48 |
-| 2 | Cholesky C (i,y,p) | 0.081 | 48 | 49 |
-| 3 | Sign Restr. h=0 (AR=100%) | -0.321 | 42 | N/A (restricted) |
-| 4 | Sign Restr. h=6 (AR=100%) | -0.286 | 48 | N/A (restricted) |
-| 5 | Sign Restr. h=12 (AR=100%) | -0.282 | 48 | N/A (restricted) |
+| 0 | Cholesky A (y,p,i) | -1357941085155.402 | 48 | 23 |
+| 1 | Cholesky B (p,y,i) | -1357941085155.402 | 48 | 23 |
+| 2 | Cholesky C (i,y,p) | -225848129490.771 | 43 | 25 |
+| 3 | Sign Restr. h=0 (AR=100%) | -1735518658346.610 | 48 | N/A (restricted) |
+| 4 | Sign Restr. h=6 (AR=50%) | -88296758950.966 | 43 | N/A (restricted) |
+| 5 | Sign Restr. h=12 (AR=0%) | -166392713604.881 | 43 | N/A (restricted) |
 
 </div>
 
