@@ -68,12 +68,55 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  render-notebooks:
+  check-notebook-freshness:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check rendered output is up to date
+        run: |
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          NOTEBOOKS=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- 'docs/tutorials/*.qmd' | grep -v '^$' || true)
+          if [ -z "$NOTEBOOKS" ]; then
+            echo "No .qmd files changed — skipping freshness check."
+            exit 0
+          fi
+          MISSING=""
+          for qmd in $NOTEBOOKS; do
+            md="${qmd%.qmd}.md"
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- "$md" | grep -q .; then
+              MISSING="$MISSING\n  $qmd changed but $md was not updated"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::Rendered notebook output is stale:$MISSING"
+            echo ""
+            echo "Run locally:  make docs-render"
+            echo "Then commit:  git add docs/tutorials/*.md docs/tutorials/*_files/"
+            exit 1
+          fi
+          echo "All changed notebooks have updated rendered output."
+
+  smoke-render-notebooks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
-        notebook: [quickstart, forecasting, structural-analysis, monetary-policy]
+        include:
+          - notebook: quickstart
+            ci_param: false
+          - notebook: forecasting
+            ci_param: false
+          - notebook: structural-analysis
+            ci_param: false
+          - notebook: monetary-policy
+            ci_param: true
       fail-fast: false
     steps:
       - name: Check out
@@ -85,31 +128,19 @@ jobs:
       - name: Install Quarto
         uses: quarto-dev/quarto-actions/setup@v2
 
-      - name: Cache Quarto freeze
-        uses: actions/cache@v4
-        with:
-          path: _freeze/docs/tutorials/${{ matrix.notebook }}
-          key: quarto-freeze-${{ matrix.notebook }}-${{ hashFiles(format('docs/tutorials/{0}.qmd', matrix.notebook)) }}
-          restore-keys: |
-            quarto-freeze-${{ matrix.notebook }}-
-
       - name: Render notebook
-        run: quarto render docs/tutorials/${{ matrix.notebook }}.qmd
+        run: |
+          ARGS=""
+          if [ "${{ matrix.ci_param }}" = "true" ]; then
+            ARGS="-P ci:true"
+          fi
+          quarto render docs/tutorials/${{ matrix.notebook }}.qmd $ARGS
         env:
           QUARTO_PYTHON: .venv/bin/python
 
-      - name: Upload rendered output
-        uses: actions/upload-artifact@v4
-        with:
-          name: notebook-${{ matrix.notebook }}
-          path: |
-            docs/tutorials/${{ matrix.notebook }}.md
-            docs/tutorials/${{ matrix.notebook }}_files/
-          if-no-files-found: error
-
   build-docs:
     runs-on: ubuntu-latest
-    needs: render-notebooks
+    needs: [smoke-render-notebooks]
     timeout-minutes: 10
     steps:
       - name: Check out
@@ -117,13 +148,6 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
-
-      - name: Download rendered notebooks
-        uses: actions/download-artifact@v4
-        with:
-          path: docs/tutorials
-          pattern: notebook-*
-          merge-multiple: true
 
       - name: Build documentation
         run: uv run zensical build
@@ -152,7 +176,7 @@ jobs:
 
   deploy-docs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [quality, tests-and-type-check, build-docs]
+    needs: [quality, tests-and-type-check, build-docs, check-notebook-freshness]
     runs-on: ubuntu-latest
     concurrency:
       group: pages
