@@ -176,7 +176,7 @@ jobs:
 
   deploy-docs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [quality, tests-and-type-check, build-docs, check-notebook-freshness]
+    needs: [quality, tests-and-type-check, build-docs]
     runs-on: ubuntu-latest
     concurrency:
       group: pages
