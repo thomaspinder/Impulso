@@ -159,13 +159,8 @@ venv.bak/
 /site
 /plans/
 
-# Quarto rendered output
+# Quarto intermediate files
 _freeze/
-docs/tutorials/*_files/
-docs/tutorials/quickstart.md
-docs/tutorials/forecasting.md
-docs/tutorials/structural-analysis.md
-docs/tutorials/monetary-policy.md
 
 # mypy
 .mypy_cache/
