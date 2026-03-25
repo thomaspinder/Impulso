@@ -1,0 +1,106 @@
+[project]
+site_name = "impulso"
+site_url = "https://thomaspinder.github.io/impulso"
+site_description = "Bayesian Vector Autoregression (VAR) in Python."
+site_author = "Thomas Pinder"
+repo_url = "https://github.com/thomaspinder/impulso"
+repo_name = "thomaspinder/impulso"
+edit_uri = "edit/main/docs"
+copyright = "Maintained by <a href=\"https://thomaspinder.com\">thomaspinder</a>."
+
+nav = [
+  { "Home" = "index.md" },
+  { "Tutorials" = [
+    "tutorials/index.md",
+    "tutorials/quickstart.md",
+    "tutorials/forecasting.md",
+    "tutorials/structural-analysis.md",
+    "tutorials/monetary-policy.md",
+  ]},
+  { "How-To Guides" = [
+    "how-to/index.md",
+    "how-to/data-preparation.md",
+    "how-to/custom-priors.md",
+    "how-to/lag-selection.md",
+    "how-to/sign-restrictions.md",
+  ]},
+  { "Explanation" = [
+    "explanation/index.md",
+    "explanation/bayesian-var.md",
+    "explanation/minnesota-prior.md",
+    "explanation/identification.md",
+  ]},
+  { "Reference" = [
+    "reference/index.md",
+    "reference/data.md",
+    "reference/spec.md",
+    "reference/priors.md",
+    "reference/samplers.md",
+    "reference/fitted.md",
+    "reference/results.md",
+    "reference/protocols.md",
+    "reference/identified.md",
+    "reference/identification.md",
+    "reference/plotting.md",
+  ]},
+]
+
+[project.theme]
+features = [
+  "navigation.tabs",
+  "navigation.sections",
+  "navigation.indexes",
+  "navigation.footer",
+  "navigation.top",
+  "content.code.copy",
+  "content.tabs.link",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "white"
+accent = "deep orange"
+toggle = { icon = "material/brightness-7", name = "Switch to dark mode" }
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "black"
+accent = "deep orange"
+toggle = { icon = "material/brightness-4", name = "Switch to light mode" }
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/thomaspinder/impulso"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/impulso"
+
+[project.markdown_extensions]
+admonition = {}
+"pymdownx.details" = {}
+toc = { permalink = true }
+"pymdownx.arithmatex" = { generic = true }
+"pymdownx.tabbed" = { alternate_style = true }
+"pymdownx.highlight" = { anchor_linenums = true }
+
+[project.plugins.mkdocstrings]
+handlers.python.paths = ["src"]
+handlers.python.options.docstring_style = "google"
+handlers.python.options.show_source = false
+handlers.python.options.heading_level = 2
+
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.snippets]
+[project.markdown_extensions.pymdownx.superfences]
+[project.markdown_extensions.tables]

@@ -21,6 +21,12 @@ scheme = Cholesky(ordering=["gdp", "inflation", "rate"])
 
 The ordering encodes your assumptions. Changing it changes the results.
 
+!!! info "Ordering sensitivity"
+    The ordering encodes your causal assumptions. Changing the ordering
+    changes the results — not because the data changed, but because the
+    identifying restrictions changed. Always justify your ordering with
+    domain knowledge.
+
 ## Sign restrictions
 
 A more agnostic approach. Instead of imposing a full recursive structure, you specify qualitative constraints: "a supply shock raises GDP and lowers inflation." The algorithm searches over random rotation matrices to find decompositions consistent with your restrictions.

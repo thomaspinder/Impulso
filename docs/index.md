@@ -17,15 +17,14 @@ fitted = VAR(lags="bic", prior="minnesota").fit(data)
 # Forecast
 forecast = fitted.forecast(steps=8)
 forecast.median()  # point forecasts
-forecast.hdi()     # credible intervals
+forecast.hdi()  # credible intervals
 
 # Structural analysis
-identified = fitted.set_identification_strategy(
-    Cholesky(ordering=["gdp", "inflation", "rate"])
-)
+identified = fitted.set_identification_strategy(Cholesky(ordering=["gdp", "inflation", "rate"]))
 irf = identified.impulse_response(horizon=20)
 irf.plot()
 ```
+
 
 ## Features
 
@@ -47,7 +46,7 @@ pip install impulso
 
 ## Learn more
 
-- [Quickstart tutorial](tutorials/quickstart.ipynb) — fit your first Bayesian VAR
-- [Forecasting tutorial](tutorials/forecasting.ipynb) — produce probabilistic forecasts
-- [Structural analysis tutorial](tutorials/structural-analysis.ipynb) — impulse responses and variance decompositions
+- [Quickstart tutorial](tutorials/quickstart.md) — fit your first Bayesian VAR
+- [Forecasting tutorial](tutorials/forecasting.md) — produce probabilistic forecasts
+- [Structural analysis tutorial](tutorials/structural-analysis.md) — impulse responses and variance decompositions
 - [API Reference](reference/index.md) — complete module documentation

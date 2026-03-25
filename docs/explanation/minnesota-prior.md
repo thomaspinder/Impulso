@@ -1,6 +1,6 @@
 # The Minnesota Prior
 
-The **Minnesota prior** (Impulso, 1986) is the most widely used prior for Bayesian VARs. It encodes the belief that each variable follows a random walk, with coefficients on other variables' lags shrunk toward zero.
+The **Minnesota prior** (Doan, Litterman, and Sims, 1984; Litterman, 1986) is the most widely used prior for Bayesian VARs. It encodes the belief that each variable follows a random walk, with coefficients on other variables' lags shrunk toward zero.
 
 ## Key hyperparameters
 
