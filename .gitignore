@@ -157,7 +157,7 @@ venv.bak/
 
 # Documentation build output
 /site
-docs/plans/
+/plans/
 
 # Quarto rendered output
 _freeze/

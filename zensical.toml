@@ -92,3 +92,13 @@ handlers.python.paths = ["src"]
 handlers.python.options.docstring_style = "google"
 handlers.python.options.show_source = false
 handlers.python.options.heading_level = 2
+
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.snippets]
+[project.markdown_extensions.pymdownx.superfences]
+[project.markdown_extensions.tables]

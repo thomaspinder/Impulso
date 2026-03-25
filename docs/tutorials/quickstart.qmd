@@ -97,9 +97,13 @@ information criteria:
 Since the true DGP is VAR(1), BIC should recover lag 1.
 
 ```{python}
+# | output: asis
 ic = select_lag_order(data, max_lags=8)
-print(f"AIC selects {ic.aic} lag(s), BIC selects {ic.bic} lag(s), HQ selects {ic.hq} lag(s)")
-ic.summary()
+print(
+    f"AIC selects {ic.aic} lag(s), BIC selects {ic.bic} lag(s), HQ selects {ic.hq} lag(s)"
+)
+
+print(ic.summary().to_markdown())
 ```
 
 BIC selects 1 lag -- correctly recovering the true DGP order. The criteria table above
