@@ -40,6 +40,12 @@ logging.getLogger("pytensor").setLevel(logging.ERROR)
 ```
 
 ```{python}
+#| tags: [parameters]
+#| include: false
+ci = False
+```
+
+```{python}
 import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
@@ -101,15 +107,18 @@ ic.summary()
 The standard choice for monthly monetary policy VARs is 12 lags, which allows the model to capture up to one year of dynamic feedback. We follow this convention for comparability with published results (Christiano, Eichenbaum, and Evans, 1999; Uhlig, 2005). The information criteria above suggest shorter lag lengths, but information criteria optimise one-step-ahead prediction, not the recovery of structural dynamics. A model with fewer lags may forecast well because most of the predictable variation is captured by the first few lags, yet still truncate the slower-moving feedback channels (e.g., from interest rates through investment to output over many months) that shape impulse responses at longer horizons.
 
 ```{python}
-sampler = NUTSSampler(
-    draws=1500,
-    tune=3000,
-    chains=8,
-    cores=8,
-    random_seed=123,
-    target_accept=0.9,
-    nuts_sampler="nutpie",
-)
+if ci:
+    sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=123)
+else:
+    sampler = NUTSSampler(
+        draws=1500,
+        tune=3000,
+        chains=8,
+        cores=8,
+        random_seed=123,
+        target_accept=0.9,
+        nuts_sampler="nutpie",
+    )
 fitted = VAR(lags=12, prior="minnesota").fit(data, sampler=sampler)
 fitted
 ```
