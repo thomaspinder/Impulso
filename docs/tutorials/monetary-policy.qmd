@@ -22,7 +22,6 @@ At a high-level, the Cholesky decomposition imposes a recursive ordering among t
 
 By running both identification strategies on the same data, we can see observe how assumptions drive conclusions: how the ordering matters, why the *price puzzle* appears (the counterintuitive finding that prices *rise* after an estimated monetary tightening) and what it signals, and why wider bands under sign restrictions are not a failure but an honest accounting of what the data alone can tell us.
 
-
 !!! note "Impulse Response Function"
 
     A central analytical object in this notebook is the impulse response function (IRF): the dynamic path of each variable following a one-time, one-unit structural shock, traced out over subsequent periods. IRFs answer questions like “if the central bank unexpectedly raises rates today, what happens to output over the next four years?”
