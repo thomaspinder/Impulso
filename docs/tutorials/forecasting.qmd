@@ -5,7 +5,7 @@ execute:
   echo: true
 format:
   gfm:
-    variant: +pipe_tables+tex_math_dollars
+    variant: -smart+pipe_tables+tex_math_dollars
     wrap: none
 jupyter: python3
 ---

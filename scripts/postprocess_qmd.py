@@ -1,6 +1,6 @@
 """Post-process Quarto-rendered markdown for Zensical compatibility.
 
-Fixes two issues with Quarto GFM output:
+Fixes three issues with Quarto GFM output:
 
 1. DataFrame tables: Quarto wraps pandas DataFrame pipe tables in
    <div><style scoped>...</style>...</div> blocks.  Python-Markdown does not
@@ -11,6 +11,11 @@ Fixes two issues with Quarto GFM output:
    lines.  pymdownx.arithmatex misparses inline ``$$`` as two consecutive ``$``
    delimiters.  This script moves ``$$...$$`` onto dedicated lines so arithmatex
    recognises them as display math.
+
+3. Smart quotes: Pandoc's ``smart`` extension converts straight quotes to
+   typographic curly quotes (\u201c \u201d \u2018 \u2019).  This breaks
+   admonition titles (``!!! note "title"``).  The ``-smart`` variant flag is the
+   primary fix; this script acts as a safety net.
 """
 
 from __future__ import annotations
@@ -31,6 +36,9 @@ _INLINE_DISPLAY_MATH = re.compile(
     re.DOTALL,
 )
 
+# Admonition line with curly quotes: !!! type \u201ctitle\u201d
+_CURLY_ADMONITION = re.compile(r"^(!!! \w+ )\u201c(.*?)\u201d", re.MULTILINE)
+
 
 def postprocess(text: str) -> str:
     # Strip <div>/<style scoped> wrappers around DataFrame pipe tables
@@ -38,6 +46,9 @@ def postprocess(text: str) -> str:
 
     # Move inline $$...$$ onto their own lines
     text = _INLINE_DISPLAY_MATH.sub(r"\n\n$$\1$$\n\n", text)
+
+    # Replace curly quotes with straight quotes on admonition lines
+    text = _CURLY_ADMONITION.sub(r'\1"\2"', text)
 
     return text
 
