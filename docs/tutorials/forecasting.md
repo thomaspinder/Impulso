@@ -189,19 +189,6 @@ fcast = fitted.forecast(steps=8)
 fcast.median()
 ```
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |     | gdp_growth | inflation | rate      |
 |-----|------------|-----------|-----------|
 | 0   | -0.013904  | 0.072168  | -0.053514 |
@@ -212,8 +199,6 @@ fcast.median()
 | 5   | -0.001996  | -0.005426 | -0.003812 |
 | 6   | -0.001585  | -0.008575 | -0.003110 |
 | 7   | -0.001419  | -0.010643 | -0.002580 |
-
-</div>
 
 Each row is a forecast horizon (1 through 8 quarters ahead). The values converge toward the unconditional mean of the process as the horizon increases — a hallmark of stationary VARs.
 
@@ -274,19 +259,6 @@ For downstream analysis or dashboarding, `.to_dataframe()` returns the median fo
 fcast.to_dataframe()
 ```
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |      | gdp_growth | inflation | rate      |
 |------|------------|-----------|-----------|
 | step |            |           |           |
@@ -298,8 +270,6 @@ fcast.to_dataframe()
 | 5    | -0.001996  | -0.005426 | -0.003812 |
 | 6    | -0.001585  | -0.008575 | -0.003110 |
 | 7    | -0.001419  | -0.010643 | -0.002580 |
-
-</div>
 
 ## Summary
 

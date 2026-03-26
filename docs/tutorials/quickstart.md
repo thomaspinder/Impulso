@@ -252,19 +252,6 @@ The fitted model stores the full posterior in ArviZ `InferenceData` format. `az.
 az.summary(fitted.idata, var_names=["B", "intercept"])
 ```
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |  | mean | sd | hdi_3% | hdi_97% | mcse_mean | mcse_sd | ess_bulk | ess_tail | r_hat |
 |----|----|----|----|----|----|----|----|----|----|
 | B\[0, 0\] | 0.645 | 0.056 | 0.543 | 0.748 | 0.001 | 0.002 | 2321.0 | 694.0 | 1.00 |
@@ -279,8 +266,6 @@ az.summary(fitted.idata, var_names=["B", "intercept"])
 | intercept\[0\] | -0.001 | 0.008 | -0.016 | 0.012 | 0.000 | 0.000 | 1500.0 | 800.0 | 1.00 |
 | intercept\[1\] | -0.006 | 0.007 | -0.020 | 0.007 | 0.000 | 0.000 | 2181.0 | 784.0 | 1.00 |
 | intercept\[2\] | -0.001 | 0.007 | -0.014 | 0.011 | 0.000 | 0.000 | 2040.0 | 844.0 | 1.01 |
-
-</div>
 
 The posterior means for the `B` coefficients should be close to the true values in `A_true`. For example, the GDP-on-GDP-lag coefficient should be near 0.6 and the GDP-on-rate-lag coefficient near -0.1. The 94% HDIs give you a credible range – if they contain the true value, the model is well calibrated. The intercepts should be near zero since the DGP has no intercept.
 
