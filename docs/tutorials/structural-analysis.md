@@ -47,19 +47,6 @@ df = df[["pressure", "wind", "temperature", "humidity"]].dropna()
 df.describe().round(1)
 ```
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |       | pressure | wind   | temperature | humidity |
 |-------|----------|--------|-------------|----------|
 | count | 2239.0   | 2239.0 | 2239.0      | 2239.0   |
@@ -70,8 +57,6 @@ df.describe().round(1)
 | 50%   | 1015.9   | 3.8    | 11.0        | 83.0     |
 | 75%   | 1022.2   | 5.2    | 16.2        | 89.0     |
 | max   | 1046.8   | 13.8   | 28.4        | 99.0     |
-
-</div>
 
 ## Remove the seasonal cycle
 
@@ -147,19 +132,6 @@ ic.summary()
 
     AIC selects 3 lag(s), BIC selects 2 lag(s), HQ selects 3 lag(s)
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |     | aic      | bic      | hq       |
 |-----|----------|----------|----------|
 | lag |          |          |          |
@@ -177,8 +149,6 @@ ic.summary()
 | 12  | 8.942743 | 9.445144 | 9.126212 |
 | 13  | 8.947023 | 9.490638 | 9.145548 |
 | 14  | 8.953962 | 9.538822 | 9.167554 |
-
-</div>
 
 ## Fit the Bayesian VAR
 

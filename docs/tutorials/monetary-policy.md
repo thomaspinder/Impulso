@@ -49,19 +49,6 @@ df = pd.read_csv("data/monetary_policy.csv", index_col="date", parse_dates=True)
 df.describe().round(2)
 ```
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |       | output | prices | rate   |
 |-------|--------|--------|--------|
 | count | 516.00 | 516.00 | 516.00 |
@@ -72,8 +59,6 @@ df.describe().round(2)
 | 50%   | 401.33 | 469.73 | 5.56   |
 | 75%   | 437.08 | 507.41 | 8.23   |
 | max   | 462.87 | 535.40 | 19.10  |
-
-</div>
 
 ``` python
 fig, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
@@ -96,7 +81,11 @@ fig.tight_layout()
 
 ## Reduced-form VAR estimation
 
-The reduced-form VAR($p$) model is:$$y_t = c + A_1 y_{t-1} + A_2 y_{t-2} + \cdots + A_p y_{t-p} + u_t, \qquad u_t \sim N(0, \Sigma_u)$$where $y_t = (\text{output}_t, \text{prices}_t, \text{rate}_t)'$ is the $3 \times 1$ vector of endogenous variables, $c$ is a vector of intercepts, and $A_1, \ldots, A_p$ are $3 \times 3$ coefficient matrices. Each $A_j$ captures how the variables at lag $j$ feed back into the current period.The term $u_t$ is the reduced-form residual. It is what is left over after the systematic linear dependence on past values has been accounted for. These residuals are correlated across equations: $\Sigma_u$ is not diagonal. The off-diagonal elements of $\Sigma_u$ tell us, for instance, that when the output residual is large and positive, the interest rate residual tends to be large too. But they do not tell us which caused which. That ambiguity is the identification problem, which we return to below.We estimate this model with a Minnesota (Litterman) prior. The idea behind Minnesota is simple: most macroeconomic time series look roughly like random walks, so a good starting point is to shrink each variable’s own first lag toward 1 and everything else toward 0. Cross-variable lags get shrunk harder than own lags, and higher lags get shrunk harder than lower ones. The prior is governed by three key hyperparameters: the **overall tightness** $\lambda_1$ (how strongly all coefficients are shrunk toward the prior – larger values give the data more influence), the **cross-variable shrinkage** $\lambda_2$ (how much harder coefficients on *other* variables’ lags are shrunk relative to own lags), and the **lag decay** $\lambda_3$ (how quickly shrinkage increases with lag order). This regularisation is important for monthly VARs with many lags, where the number of free parameters (here $3 \times 3 \times 12 = 108$ in the $A$ matrices alone, plus 3 intercepts) can overwhelm the data.
+The reduced-form VAR($p$) model is:
+
+$$y_t = c + A_1 y_{t-1} + A_2 y_{t-2} + \cdots + A_p y_{t-p} + u_t, \qquad u_t \sim N(0, \Sigma_u)$$
+
+where $y_t = (\text{output}_t, \text{prices}_t, \text{rate}_t)'$ is the $3 \times 1$ vector of endogenous variables, $c$ is a vector of intercepts, and $A_1, \ldots, A_p$ are $3 \times 3$ coefficient matrices. Each $A_j$ captures how the variables at lag $j$ feed back into the current period.The term $u_t$ is the reduced-form residual. It is what is left over after the systematic linear dependence on past values has been accounted for. These residuals are correlated across equations: $\Sigma_u$ is not diagonal. The off-diagonal elements of $\Sigma_u$ tell us, for instance, that when the output residual is large and positive, the interest rate residual tends to be large too. But they do not tell us which caused which. That ambiguity is the identification problem, which we return to below.We estimate this model with a Minnesota (Litterman) prior. The idea behind Minnesota is simple: most macroeconomic time series look roughly like random walks, so a good starting point is to shrink each variable’s own first lag toward 1 and everything else toward 0. Cross-variable lags get shrunk harder than own lags, and higher lags get shrunk harder than lower ones. The prior is governed by three key hyperparameters: the **overall tightness** $\lambda_1$ (how strongly all coefficients are shrunk toward the prior – larger values give the data more influence), the **cross-variable shrinkage** $\lambda_2$ (how much harder coefficients on *other* variables’ lags are shrunk relative to own lags), and the **lag decay** $\lambda_3$ (how quickly shrinkage increases with lag order). This regularisation is important for monthly VARs with many lags, where the number of free parameters (here $3 \times 3 \times 12 = 108$ in the $A$ matrices alone, plus 3 intercepts) can overwhelm the data.
 
 ``` python
 data = VARData.from_df(df, endog=["output", "prices", "rate"])
@@ -107,19 +96,6 @@ ic.summary()
 ```
 
     AIC: 14 lags, BIC: 2 lags, HQ: 3 lags
-
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
 
 |     | aic       | bic       | hq        |
 |-----|-----------|-----------|-----------|
@@ -138,8 +114,6 @@ ic.summary()
 | 12  | -5.235752 | -4.305780 | -4.870957 |
 | 13  | -5.234359 | -4.227458 | -4.839354 |
 | 14  | -5.268781 | -4.184718 | -4.843469 |
-
-</div>
 
 The standard choice for monthly monetary policy VARs is 12 lags, which allows the model to capture up to one year of dynamic feedback. We follow this convention for comparability with published results (Christiano, Eichenbaum, and Evans, 1999; Uhlig, 2005). The information criteria above suggest shorter lag lengths, but information criteria optimise one-step-ahead prediction, not the recovery of structural dynamics. A model with fewer lags may forecast well because most of the predictable variation is captured by the first few lags, yet still truncate the slower-moving feedback channels (e.g., from interest rates through investment to output over many months) that shape impulse responses at longer horizons.
 
@@ -389,11 +363,19 @@ The sampler has converged well: no divergences, R-hat close to 1, and effective 
 
 ## The identification problem
 
-We now have posterior draws of the reduced-form parameters: the coefficient matrices $A_1, \ldots, A_p$ and the residual covariance $\Sigma_u$. The reduced-form residuals $u_t$ are correlated across equations, but we want to recover the *structural* shocks $\varepsilon_t$ – orthogonal (uncorrelated with each other) latent variables that have a causal interpretation: an output shock, a price shock, a monetary policy shock. Throughout this notebook, “structural” means “given a causal interpretation by the identifying assumptions.” The reduced-form VAR is purely statistical; structural analysis begins when we map its correlated residuals onto orthogonal, economically labelled shocks.The structural model assumes:$$u_t = B_0 \, \varepsilon_t, \qquad \varepsilon_t \sim N(0, I_n)$$where $B_0$ is the $n \times n$ structural impact matrix. Column $j$ of $B_0$ describes how a one-standard-deviation structural shock $j$ moves each variable on impact. The orthogonality assumption $\text{Var}(\varepsilon_t) = I_n$ means the structural shocks are uncorrelated and unit-variance, so all the interesting structure lives in $B_0$.Since $\Sigma_u = \text{Var}(u_t) = B_0 \, B_0'$, we can in principle recover $B_0$ from $\Sigma_u$. But here is the problem. For $n = 3$ variables, the symmetric matrix $\Sigma_u$ has $n(n+1)/2 = 6$ unique elements. The matrix $B_0$ has $n^2 = 9$ free entries. Six equations, nine unknowns. We are three restrictions short.Without additional restrictions, there are infinitely many matrices $B_0$ that satisfy $\Sigma_u = B_0 B_0'$. If $B_0$ is one solution, then $B_0 Q$ is another for any orthogonal matrix $Q$ (since $B_0 Q (B_0 Q)' = B_0 Q Q' B_0' = B_0 B_0' = \Sigma_u$). The data cannot tell these apart. The choice of $Q$ is the identification problem.It is worth pausing on why this works. An orthogonal matrix $Q$ satisfies $Q Q' = I_n$: it is a rotation (or reflection) that preserves lengths and angles. When we form $B_0 Q$, we are rotating the columns of $B_0$ – redistributing the structural shocks into new linear combinations – without changing the covariance they imply. Every such rotation gives a different economic story (different shocks, different impulse responses) that is equally consistent with the observed data. The identification problem is not a generic “too many unknowns” issue; it is specifically a *rotational* indeterminacy, and the two strategies below differ in how they resolve it: Cholesky pins the rotation to the identity by choosing the unique lower-triangular factor, while sign restrictions accept all rotations that satisfy qualitative constraints.Two ways to resolve it:**Cholesky decomposition.** Force $B_0$ to be lower triangular, which pins down $Q$ uniquely. This imposes $n(n-1)/2 = 3$ zeros above the diagonal. These zeros have direct economic meaning: they say that certain variables cannot respond to certain shocks within the period.**Sign restrictions.** Instead of zeros, impose inequality constraints on the elements of $B_0$ (or on the impulse responses it implies). Accept all rotation matrices $Q$ that produce a $B_0 Q$ consistent with these constraints. This gives a *set* of admissible models rather than a single point.
+We now have posterior draws of the reduced-form parameters: the coefficient matrices $A_1, \ldots, A_p$ and the residual covariance $\Sigma_u$. The reduced-form residuals $u_t$ are correlated across equations, but we want to recover the *structural* shocks $\varepsilon_t$ – orthogonal (uncorrelated with each other) latent variables that have a causal interpretation: an output shock, a price shock, a monetary policy shock. Throughout this notebook, “structural” means “given a causal interpretation by the identifying assumptions.” The reduced-form VAR is purely statistical; structural analysis begins when we map its correlated residuals onto orthogonal, economically labelled shocks.The structural model assumes:
+
+$$u_t = B_0 \, \varepsilon_t, \qquad \varepsilon_t \sim N(0, I_n)$$
+
+where $B_0$ is the $n \times n$ structural impact matrix. Column $j$ of $B_0$ describes how a one-standard-deviation structural shock $j$ moves each variable on impact. The orthogonality assumption $\text{Var}(\varepsilon_t) = I_n$ means the structural shocks are uncorrelated and unit-variance, so all the interesting structure lives in $B_0$.Since $\Sigma_u = \text{Var}(u_t) = B_0 \, B_0'$, we can in principle recover $B_0$ from $\Sigma_u$. But here is the problem. For $n = 3$ variables, the symmetric matrix $\Sigma_u$ has $n(n+1)/2 = 6$ unique elements. The matrix $B_0$ has $n^2 = 9$ free entries. Six equations, nine unknowns. We are three restrictions short.Without additional restrictions, there are infinitely many matrices $B_0$ that satisfy $\Sigma_u = B_0 B_0'$. If $B_0$ is one solution, then $B_0 Q$ is another for any orthogonal matrix $Q$ (since $B_0 Q (B_0 Q)' = B_0 Q Q' B_0' = B_0 B_0' = \Sigma_u$). The data cannot tell these apart. The choice of $Q$ is the identification problem.It is worth pausing on why this works. An orthogonal matrix $Q$ satisfies $Q Q' = I_n$: it is a rotation (or reflection) that preserves lengths and angles. When we form $B_0 Q$, we are rotating the columns of $B_0$ – redistributing the structural shocks into new linear combinations – without changing the covariance they imply. Every such rotation gives a different economic story (different shocks, different impulse responses) that is equally consistent with the observed data. The identification problem is not a generic “too many unknowns” issue; it is specifically a *rotational* indeterminacy, and the two strategies below differ in how they resolve it: Cholesky pins the rotation to the identity by choosing the unique lower-triangular factor, while sign restrictions accept all rotations that satisfy qualitative constraints.Two ways to resolve it:**Cholesky decomposition.** Force $B_0$ to be lower triangular, which pins down $Q$ uniquely. This imposes $n(n-1)/2 = 3$ zeros above the diagonal. These zeros have direct economic meaning: they say that certain variables cannot respond to certain shocks within the period.**Sign restrictions.** Instead of zeros, impose inequality constraints on the elements of $B_0$ (or on the impulse responses it implies). Accept all rotation matrices $Q$ that produce a $B_0 Q$ consistent with these constraints. This gives a *set* of admissible models rather than a single point.
 
 ## Cholesky identification
 
-The Cholesky decomposition factors $\Sigma_u$ into $L L'$ where $L$ is lower triangular with positive diagonal entries. Setting $B_0 = L$ gives us a structural impact matrix where the zeros above the diagonal carry specific economic meaning determined by the variable ordering.Our baseline ordering is: output, prices, rate. Written out, $B_0$ looks like:$$B_0 = \begin{pmatrix} * & 0 & 0 \\ * & * & 0 \\ * & * & * \end{pmatrix}$$Read column by column. The first column is the “output shock”: it can move all three variables on impact. The second column is the “price shock”: it can move prices and the rate, but not output (the zero in position $(1,2)$). The third column is the “rate shock” (our monetary policy shock): it can only move the rate on impact, not output or prices (the zeros in positions $(1,3)$ and $(2,3)$).What does this mean economically? The zeros say that output and prices are “sluggish” within the month and cannot respond contemporaneously to a monetary policy shock. The Fed, by contrast, sits in the last row and can see and respond to everything. This is a timing assumption: it takes at least one month for a change in the funds rate to show up in industrial production or consumer prices, but the Federal Open Market Committee (FOMC) – the body that sets the funds rate – can observe current economic conditions and adjust policy within the month.The monetary policy shock itself is the residual variation in the funds rate equation after removing the predicted response to current output and prices (i.e., the part not explained by the linear model). If the Fed raises rates by more than its usual reaction to the current state of the economy, the excess is the “shock.”This is a defensible set of assumptions for monthly data, but it is not the only defensible set. The three zeros are doing real work, and different zeros give different answers.
+The Cholesky decomposition factors $\Sigma_u$ into $L L'$ where $L$ is lower triangular with positive diagonal entries. Setting $B_0 = L$ gives us a structural impact matrix where the zeros above the diagonal carry specific economic meaning determined by the variable ordering.Our baseline ordering is: output, prices, rate. Written out, $B_0$ looks like:
+
+$$B_0 = \begin{pmatrix} * & 0 & 0 \\ * & * & 0 \\ * & * & * \end{pmatrix}$$
+
+Read column by column. The first column is the “output shock”: it can move all three variables on impact. The second column is the “price shock”: it can move prices and the rate, but not output (the zero in position $(1,2)$). The third column is the “rate shock” (our monetary policy shock): it can only move the rate on impact, not output or prices (the zeros in positions $(1,3)$ and $(2,3)$).What does this mean economically? The zeros say that output and prices are “sluggish” within the month and cannot respond contemporaneously to a monetary policy shock. The Fed, by contrast, sits in the last row and can see and respond to everything. This is a timing assumption: it takes at least one month for a change in the funds rate to show up in industrial production or consumer prices, but the Federal Open Market Committee (FOMC) – the body that sets the funds rate – can observe current economic conditions and adjust policy within the month.The monetary policy shock itself is the residual variation in the funds rate equation after removing the predicted response to current output and prices (i.e., the part not explained by the linear model). If the Fed raises rates by more than its usual reaction to the current state of the economy, the excess is the “shock.”This is a defensible set of assumptions for monthly data, but it is not the only defensible set. The three zeros are doing real work, and different zeros give different answers.
 
 ``` python
 ordering_a = ["output", "prices", "rate"]
@@ -756,26 +738,11 @@ pd.DataFrame(band_rows)
 
     Band width comparison: output response to monetary policy shock
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |  | Horizon (months) | Cholesky 68% width | Sign Restr. 68% width | Ratio (SR / Chol) |
 |----|----|----|----|----|
 | 0 | 12 | 0.163 | 1.026 | 6.3x |
 | 1 | 24 | 0.234 | 0.809 | 3.5x |
 | 2 | 48 | 0.304 | 0.532 | 1.7x |
-
-</div>
 
 The table above makes the precision-versus-honesty tradeoff concrete. At every horizon, the sign restriction credible band for the output response is substantially wider than the Cholesky band — typically by a factor of 2–4x. This additional width is not noise or computational imprecision. It is identification uncertainty: the range of structural models that are all consistent with the data and the sign restrictions. The Cholesky bands are narrower because the three zero restrictions eliminate all but one decomposition per posterior draw. Whether that precision reflects genuine knowledge or false confidence depends entirely on whether the zero restrictions are correct.
 
@@ -817,19 +784,6 @@ for h in [0, 6, 12]:
 pd.DataFrame(rows)
 ```
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |  | Specification | Peak Output Response | Month of Peak | Price Puzzle (months \> 0) |
 |----|----|----|----|----|
 | 0 | Cholesky A (y,p,i) | -0.737 | 40 | 48 |
@@ -838,8 +792,6 @@ pd.DataFrame(rows)
 | 3 | Sign Restr. h=0 (AR=100%) | -0.321 | 42 | N/A (restricted) |
 | 4 | Sign Restr. h=6 (AR=100%) | -0.286 | 48 | N/A (restricted) |
 | 5 | Sign Restr. h=12 (AR=100%) | -0.282 | 48 | N/A (restricted) |
-
-</div>
 
 ## Discussion
 

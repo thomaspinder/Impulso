@@ -39,10 +39,12 @@ build-and-publish: build publish ## Build and publish.
 .PHONY: docs-render
 docs-render: ## Render Quarto notebooks to markdown
 	@QUARTO_PYTHON=.venv/bin/python quarto render
+	@uv run python scripts/postprocess_qmd.py docs/tutorials/*.md
 
 .PHONY: docs-render-ci
 docs-render-ci: ## Render notebooks in CI mode (fast, minimal sampling)
 	@QUARTO_PYTHON=.venv/bin/python quarto render -P ci:true
+	@uv run python scripts/postprocess_qmd.py docs/tutorials/*.md
 
 .PHONY: docs-test
 docs-test: docs-render ## Test if documentation can be built without warnings or errors
