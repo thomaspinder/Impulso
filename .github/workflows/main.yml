@@ -80,9 +80,9 @@ jobs:
 
       - name: Check rendered output is up to date
         run: |
-          BASE_SHA=${{ github.event.pull_request.base.sha }}
           HEAD_SHA=${{ github.event.pull_request.head.sha }}
-          NOTEBOOKS=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- 'docs/tutorials/*.qmd' | grep -v '^$' || true)
+          MERGE_BASE=$(git merge-base ${{ github.event.pull_request.base.sha }} "$HEAD_SHA")
+          NOTEBOOKS=$(git diff --name-only "$MERGE_BASE" "$HEAD_SHA" -- 'docs/tutorials/*.qmd' | grep -v '^$' || true)
           if [ -z "$NOTEBOOKS" ]; then
             echo "No .qmd files changed — skipping freshness check."
             exit 0
@@ -90,7 +90,15 @@ jobs:
           MISSING=""
           for qmd in $NOTEBOOKS; do
             md="${qmd%.qmd}.md"
-            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- "$md" | grep -q .; then
+            # Skip if the .md exists at HEAD and its content is unchanged from the base
+            # (the .qmd change did not affect the rendered output)
+            if git cat-file -e "$HEAD_SHA:$md" 2>/dev/null \
+               && git cat-file -e "$MERGE_BASE:$md" 2>/dev/null \
+               && [ "$(git rev-parse "$HEAD_SHA:$md")" = "$(git rev-parse "$MERGE_BASE:$md")" ]; then
+              echo "  $qmd changed but $md output is identical — OK"
+              continue
+            fi
+            if ! git diff --name-only "$MERGE_BASE" "$HEAD_SHA" -- "$md" | grep -q .; then
               MISSING="$MISSING\n  $qmd changed but $md was not updated"
             fi
           done
