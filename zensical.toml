@@ -86,13 +86,13 @@ icon = "fontawesome/brands/python"
 link = "https://pypi.org/project/impulso"
 
 [project.markdown_extensions]
-admonition = {}
-"pymdownx.details" = {}
 toc = { permalink = true }
 "pymdownx.arithmatex" = { generic = true }
 "pymdownx.tabbed" = { alternate_style = true }
 "pymdownx.highlight" = { anchor_linenums = true }
-
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.superfences]
 [project.plugins.mkdocstrings]
 handlers.python.paths = ["src"]
 handlers.python.options.docstring_style = "google"
@@ -106,5 +106,4 @@ line_spans = "__span"
 pygments_lang_class = true
 [project.markdown_extensions.pymdownx.inlinehilite]
 [project.markdown_extensions.pymdownx.snippets]
-[project.markdown_extensions.pymdownx.superfences]
 [project.markdown_extensions.tables]

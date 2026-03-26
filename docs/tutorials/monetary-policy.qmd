@@ -5,29 +5,26 @@ execute:
   echo: true
 format:
   gfm:
-    variant: +pipe_tables+tex_math_dollars
+    variant: -smart+pipe_tables+tex_math_dollars
     wrap: none
 jupyter: python3
 ---
 
-
 ## A case study using U.S. monetary policy data
 
-In October 1979, Paul Volcker's Federal Reserve raised the federal funds rate -- the overnight interest rate at which banks lend to each other, and the primary lever the U.S. central bank uses to influence the economy -- from 11% to over 17% in a matter of weeks. Industrial production fell. Unemployment rose. Inflation, eventually, came down. Most macroeconomists agree on this basic narrative: the Fed tightened, and the economy contracted.
+The US Federal funds rate determines the overnight interest rate at which banks lend to each other, and it is the primary lever the U.S. central bank uses to influence the economy. In October 1979, Paul Volcker’s Federal Reserve raised the federal funds rate from 11% to over 17% in a matter of weeks. Industrial production fell. Unemployment rose. Inflation, eventually, came down. Most macroeconomists agree on this basic narrative: the Fed tightened, and the economy contracted.
 
 But suppose you did not know the history and only had the data. You would see that output, prices, and interest rates move together over time. You would not know *why*. Did the Fed raise rates, causing output to fall? Or did output fall for other reasons, prompting the Fed to respond? The raw correlations are consistent with both stories, and with many others.
 
-A vector autoregression (VAR) captures these co-movements in a system of linear equations, where each variable depends on its own past and the past of the other variables. The residuals from this system tell you what is left after accounting for predictable dynamics. But those residuals are correlated across equations. Disentangling them into economically meaningful shocks -- a monetary policy shock, a supply shock, a demand shock -- requires additional assumptions beyond what the data can provide. In the language of structural equation modelling, the reduced-form residuals are mixtures of latent orthogonal shocks, and recovering those shocks requires restrictions that the data alone cannot supply. This is the **identification problem**, and how you solve it determines what you conclude.
+A vector autoregression (VAR) captures these co-movements in a system of linear equations, where each variable depends on its own past and the past of the other variables. The residuals from this system tell you what is left after accounting for predictable dynamics. But those residuals are correlated across equations. Disentangling them into economically meaningful shocks e.g., a monetary policy shock, requires additional assumptions beyond what the data can provide. In structural equation modelling we say that the reduced-form residuals are mixtures of latent orthogonal shocks, and recovering those shocks requires restrictions that the data alone cannot supply. This is the identification problem, and how you solve it determines what you conclude. In this notebook we'll present and compare two identification strategies - the Cholesky decomposition and the sign restriction.
 
-The central analytical object in this notebook is the **impulse response function** (IRF): the dynamic path of each variable following a one-time, one-unit structural shock, traced out over subsequent periods. IRFs answer questions like "if the central bank unexpectedly raises rates today, what happens to output over the next four years?"
+At a high-level, the Cholesky decomposition imposes a recursive ordering among the variables whereby variable 1 can affect all others contemporaneously, variable 2 can affect all except variable 1, and so on. The triangular structure of the Cholesky factor maps directly to these causal restrictions, delivering a unique structural decomposition for each posterior draw. Change the ordering and you change the answer. Meanwhile a Sign restrictions impose qualitative constraints on the *direction* of responses (e.g., “a contractionary monetary shock does not increase prices”). Instead of a single decomposition, you get a *set* of admissible decompositions. The credible bands are wider, but they reflect genuine uncertainty about identification that Cholesky hides.
 
-This notebook works through two identification strategies on the same dataset:
+By running both identification strategies on the same data, we can see observe how assumptions drive conclusions: how the ordering matters, why the *price puzzle* appears (the counterintuitive finding that prices *rise* after an estimated monetary tightening) and what it signals, and why wider bands under sign restrictions are not a failure but an honest accounting of what the data alone can tell us.
 
-1. **Cholesky decomposition** imposes a recursive ordering among the variables -- variable 1 can affect all others contemporaneously, variable 2 can affect all except variable 1, and so on. The triangular structure of the Cholesky factor maps directly to these causal restrictions, delivering a unique structural decomposition for each posterior draw. Change the ordering and you change the answer.
+!!! note "Impulse Response Function"
 
-2. **Sign restrictions** impose qualitative constraints on the *direction* of responses (e.g., "a contractionary monetary shock does not increase prices"). Instead of a single decomposition, you get a *set* of admissible decompositions. The credible bands are wider, but they reflect genuine uncertainty about identification that Cholesky hides.
-
-By running both on the same data, we can see concretely how assumptions drive conclusions: how the ordering matters, why the **price puzzle** appears -- the counterintuitive finding that prices *rise* after an estimated monetary tightening -- and what it signals, and why wider bands under sign restrictions are not a failure but an honest accounting of what the data alone can tell us.
+    A central analytical object in this notebook is the impulse response function (IRF): the dynamic path of each variable following a one-time, one-unit structural shock, traced out over subsequent periods. IRFs answer questions like “if the central bank unexpectedly raises rates today, what happens to output over the next four years?”
 
 
 ```{python}
@@ -58,7 +55,7 @@ from impulso.samplers import NUTSSampler
 
 ## Data
 
-We use the three-variable system that has been the workhorse of the monetary policy structural VAR (SVAR) literature since Sims (1980):
+We use the three-variable system that forms the basis of many monetary policy structural VAR (SVAR) models ([Sims (1980)](https://www.jstor.org/stable/1912017)):
 
 | Variable | FRED code | What it measures | Transformation |
 |----------|-----------|-----------------|----------------|
@@ -66,17 +63,22 @@ We use the three-variable system that has been the workhorse of the monetary pol
 | prices | `CPIAUCSL` | Consumer price index (all urban) | $100 \times \log$ |
 | rate | `FEDFUNDS` | Effective federal funds rate | Level (%) |
 
-Why these three? Industrial production is a monthly measure of real economic activity (GDP is only quarterly). The CPI captures the price level. The federal funds rate is the rate the Fed controls directly to steer the economy: by raising it, the Fed makes borrowing more expensive, which slows spending and investment; by lowering it, the Fed stimulates activity. Together, these three variables form the minimal system needed to study how monetary policy affects the real economy and prices.The sample runs from January 1965 to December 2007. The start date captures the period when the Fed began actively setting short-term interest rates as its primary policy tool. The end date is deliberate: from December 2008 onward, the funds rate sat at the **zero lower bound** -- effectively zero, leaving no room for conventional rate cuts -- and identification of monetary policy shocks via interest rate movements breaks down. You cannot identify a "surprise tightening" when the rate cannot move.Industrial production and CPI enter the VAR as $100 \times \log(\cdot)$, so a one-unit change is approximately a one-percent change. The federal funds rate enters in levels (percentage points). We do not difference the data. Sims, Stock, and Watson (1990) showed that Bayesian inference in levels VARs is valid regardless of whether the series have unit roots, and differencing can distort impulse responses when variables are cointegrated.
+Whilst GDP is measured quarterly, industrial production (`output`) offers a more granular monthly measure of real economic activity. The consumer price index (CPI, `prices`) captures the price level, and the federal funds rate (`rate`) is the rate the Fed controls directly to steer the economy. By raising the rate, the Fed makes borrowing more expensive, which slows spending and investment; by lowering it, the Fed stimulates activity. Together, these three variables form the minimal system needed to study how monetary policy affects the real economy and prices.
+
+The sample we'll be using here runs from January 1965 to December 2007. The start date captures the period when the Fed began actively setting short-term interest rates as its primary policy tool. The end date is deliberate: from December 2008 onward, the funds rate sat at the *zero lower bound* (effectively zero), thus leaving no room for conventional rate cuts and subsequently breaking the identification of monetary policy shocks via interest rate movements. You cannot identify a "surprise tightening" when the rate cannot move. Industrial production and CPI enter the VAR as $100 \times \log(\cdot)$, so a one-unit change is approximately a one-percent change. The federal funds rate enters in levels (percentage points).
+
+!!! note "Differencing"
+
+    We do not difference the data. [Sims, Stock, and Watson (1990)](https://www.princeton.edu/~mwatson/papers/Sims_Stock_Watson_Ecta_1990.pdf) showed that Bayesian inference in levels VARs is valid regardless of whether the series have unit roots, and differencing can distort impulse responses when variables are cointegrated.
 
 ```{python}
-# Data sourced from FRED: INDPRO, CPIAUCSL, FEDFUNDS (1965-01 to 2007-12)
-# output = 100 * log(Industrial Production), prices = 100 * log(CPI), rate = Federal Funds Rate (%)
+# | code-fold: true
+# | label: data-series
+# | fig-cap: "The three time series of output, prices, and rate."
 df = pd.read_csv("data/monetary_policy.csv", index_col="date", parse_dates=True)
 df.describe().round(2)
-```
 
-```{python}
-fig, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
+fig, axes = plt.subplots(3, 1, figsize=(8, 5.5), sharex=True)
 labels = {
     "output": "Log Industrial Production (x100)",
     "prices": "Log CPI (x100)",
@@ -84,27 +86,23 @@ labels = {
 }
 
 for ax, col in zip(axes, df.columns, strict=True):
-    ax.plot(df.index, df[col], linewidth=0.6, color="0.3")
+    ax.plot(df.index, df[col], linewidth=1, color="0.3")
     ax.set_ylabel(labels[col], fontsize=9)
     ax.grid(alpha=0.3)
 
-axes[0].set_title("U.S. Monetary Policy VAR -- Raw Data (1965-2007)")
+axes[0].set_title("U.S. Monetary Policy VAR - Raw Data (1965-2007)")
 fig.tight_layout()
 ```
 
 ## Reduced-form VAR estimation
 
-The reduced-form VAR($p$) model is:$$y_t = c + A_1 y_{t-1} + A_2 y_{t-2} + \cdots + A_p y_{t-p} + u_t, \qquad u_t \sim N(0, \Sigma_u)$$where $y_t = (\text{output}_t, \text{prices}_t, \text{rate}_t)'$ is the $3 \times 1$ vector of endogenous variables, $c$ is a vector of intercepts, and $A_1, \ldots, A_p$ are $3 \times 3$ coefficient matrices. Each $A_j$ captures how the variables at lag $j$ feed back into the current period.The term $u_t$ is the reduced-form residual. It is what is left over after the systematic linear dependence on past values has been accounted for. These residuals are correlated across equations: $\Sigma_u$ is not diagonal. The off-diagonal elements of $\Sigma_u$ tell us, for instance, that when the output residual is large and positive, the interest rate residual tends to be large too. But they do not tell us which caused which. That ambiguity is the identification problem, which we return to below.We estimate this model with a Minnesota (Litterman) prior. The idea behind Minnesota is simple: most macroeconomic time series look roughly like random walks, so a good starting point is to shrink each variable's own first lag toward 1 and everything else toward 0. Cross-variable lags get shrunk harder than own lags, and higher lags get shrunk harder than lower ones. The prior is governed by three key hyperparameters: the **overall tightness** $\lambda_1$ (how strongly all coefficients are shrunk toward the prior -- larger values give the data more influence), the **cross-variable shrinkage** $\lambda_2$ (how much harder coefficients on *other* variables' lags are shrunk relative to own lags), and the **lag decay** $\lambda_3$ (how quickly shrinkage increases with lag order). This regularisation is important for monthly VARs with many lags, where the number of free parameters (here $3 \times 3 \times 12 = 108$ in the $A$ matrices alone, plus 3 intercepts) can overwhelm the data.
+The reduced-form VAR($p$) model is: $$y_t = c + A_1 y_{t-1} + A_2 y_{t-2} + \cdots + A_p y_{t-p} + u_t, \qquad u_t \sim N(0, \Sigma_u)$$where $y_t = (\text{output}_t, \text{prices}_t, \text{rate}_t)'$ is the $3 \times 1$ vector of endogenous variables, $c$ is a vector of intercepts, and $A_1, \ldots, A_p$ are $3 \times 3$ coefficient matrices. Each $A_j$ captures how the variables at lag $j$ feed back into the current period. The term $u_t$ is the reduced-form residual and quantifies what is left over after the systematic linear dependence on past values has been accounted for.
 
-```{python}
-data = VARData.from_df(df, endog=["output", "prices", "rate"])
+The $\Sigma_u$ matrix allows us to capture correlation of residuals across. Consequently, the off-diagonal elements of $\Sigma_u$ tell us tell us how any two series covary. However, they do not tell us which caused which and it is precisely this ambiguity that is addressed in the identification problem.
 
-ic = select_lag_order(data, max_lags=14)
-print(f"AIC: {ic.aic} lags, BIC: {ic.bic} lags, HQ: {ic.hq} lags")
-ic.summary()
-```
+We estimate this model with a Minnesota prior. The idea behind Minnesota is simple: most macroeconomic time series look roughly like random walks, so a good starting point is to shrink each variable's own first lag toward 1 and everything else toward 0. Cross-variable lags get shrunk harder than own lags, and higher lags get shrunk harder than lower ones. The prior is governed by three key hyperparameters: the *overall tightness* $\lambda_1$ which determines how strongly all coefficients are shrunk toward the prior. Larger values give the data more influence, whilst smaller values increase the prior's influence on the posterior. The *cross-variable shrinkage* $\lambda_2$ is the strength of the shrinkage applied to cross-variable lags. Finally, the *lag decay* $\lambda_3$  measures the rate of increasing shrinkage that is applied as the lags' order increases. This regularisation is important for monthly VARs with many lags, where the number of free parameters (here $3 \times 3 \times 12 = 108$ in the $A$ matrices alone, plus 3 intercepts) can overwhelm the data.
 
-The standard choice for monthly monetary policy VARs is 12 lags, which allows the model to capture up to one year of dynamic feedback. We follow this convention for comparability with published results (Christiano, Eichenbaum, and Evans, 1999; Uhlig, 2005). The information criteria above suggest shorter lag lengths, but information criteria optimise one-step-ahead prediction, not the recovery of structural dynamics. A model with fewer lags may forecast well because most of the predictable variation is captured by the first few lags, yet still truncate the slower-moving feedback channels (e.g., from interest rates through investment to output over many months) that shape impulse responses at longer horizons.
+The standard choice for monthly monetary policy VARs is 12 lags as this allows the model to capture up to one year of dynamic feedback. We follow this convention for comparability with published results ([Christiano, Eichenbaum, and Evans, 1999](https://faculty.wcas.northwestern.edu/lchrist/research/Handbook/paper2.pdf); [Uhlig, 2005](https://www.sciencedirect.com/science/article/abs/pii/S0304393205000073)).
 
 ```{python}
 if ci:
@@ -119,26 +117,35 @@ else:
         target_accept=0.9,
         nuts_sampler="nutpie",
     )
+
+data = VARData.from_df(df, endog=["output", "prices", "rate"])
 fitted = VAR(lags=12, prior="minnesota").fit(data, sampler=sampler)
-fitted
+az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
 ```
 
-```{python}
-summary = az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
-print(f"Max R-hat: {summary['r_hat'].max():.3f}")
-print(f"Min ESS (bulk): {summary['ess_bulk'].min():.0f}")
-print(f"Divergences: {fitted.idata.sample_stats['diverging'].sum().values}")
-```
+The sampler has converged well: no divergences, R-hat close to 1, and effective sample sizes comfortably above 1000.
 
-The sampler has converged well: no divergences, R-hat close to 1, and effective sample sizes comfortably above 1,000.A note on prior sensitivity: we use the default Minnesota prior hyperparameters from impulso throughout this notebook. The tightness $\lambda_1$, cross-variable shrinkage $\lambda_2$, and lag decay $\lambda_3$ (introduced above) all affect the posterior and hence the impulse responses. A full prior sensitivity analysis -- varying $\lambda_1$ across a range like 0.05 to 0.5 -- would be a valuable robustness exercise, but we defer it here to keep the focus on identification. The reader should be aware that the choice of prior is an additional modelling decision on top of the identification strategy, and in principle both should be subjected to sensitivity analysis in applied work.
+!!! note "Prior Sensitivity"
+
+    A note on prior sensitivity: we use the default Minnesota prior hyperparameters from impulso throughout this notebook. The tightness $\lambda_1$, cross-variable shrinkage $\lambda_2$, and lag decay $\lambda_3$ (introduced above) all affect the posterior and hence the impulse responses. A full prior sensitivity analysis involving varying $\lambda_1$ across a range like 0.05 to 0.5 would be a valuable robustness exercise, but we defer it here to keep the focus on identification. The reader should be aware that the choice of prior is an additional modelling decision on top of the identification strategy, and in principle both should be subjected to sensitivity analysis in applied work.
 
 ## The identification problem
 
-We now have posterior draws of the reduced-form parameters: the coefficient matrices $A_1, \ldots, A_p$ and the residual covariance $\Sigma_u$. The reduced-form residuals $u_t$ are correlated across equations, but we want to recover the *structural* shocks $\varepsilon_t$ -- orthogonal (uncorrelated with each other) latent variables that have a causal interpretation: an output shock, a price shock, a monetary policy shock. Throughout this notebook, "structural" means "given a causal interpretation by the identifying assumptions." The reduced-form VAR is purely statistical; structural analysis begins when we map its correlated residuals onto orthogonal, economically labelled shocks.The structural model assumes:$$u_t = B_0 \, \varepsilon_t, \qquad \varepsilon_t \sim N(0, I_n)$$where $B_0$ is the $n \times n$ structural impact matrix. Column $j$ of $B_0$ describes how a one-standard-deviation structural shock $j$ moves each variable on impact. The orthogonality assumption $\text{Var}(\varepsilon_t) = I_n$ means the structural shocks are uncorrelated and unit-variance, so all the interesting structure lives in $B_0$.Since $\Sigma_u = \text{Var}(u_t) = B_0 \, B_0'$, we can in principle recover $B_0$ from $\Sigma_u$. But here is the problem. For $n = 3$ variables, the symmetric matrix $\Sigma_u$ has $n(n+1)/2 = 6$ unique elements. The matrix $B_0$ has $n^2 = 9$ free entries. Six equations, nine unknowns. We are three restrictions short.Without additional restrictions, there are infinitely many matrices $B_0$ that satisfy $\Sigma_u = B_0 B_0'$. If $B_0$ is one solution, then $B_0 Q$ is another for any orthogonal matrix $Q$ (since $B_0 Q (B_0 Q)' = B_0 Q Q' B_0' = B_0 B_0' = \Sigma_u$). The data cannot tell these apart. The choice of $Q$ is the identification problem.It is worth pausing on why this works. An orthogonal matrix $Q$ satisfies $Q Q' = I_n$: it is a rotation (or reflection) that preserves lengths and angles. When we form $B_0 Q$, we are rotating the columns of $B_0$ -- redistributing the structural shocks into new linear combinations -- without changing the covariance they imply. Every such rotation gives a different economic story (different shocks, different impulse responses) that is equally consistent with the observed data. The identification problem is not a generic "too many unknowns" issue; it is specifically a *rotational* indeterminacy, and the two strategies below differ in how they resolve it: Cholesky pins the rotation to the identity by choosing the unique lower-triangular factor, while sign restrictions accept all rotations that satisfy qualitative constraints.Two ways to resolve it:**Cholesky decomposition.** Force $B_0$ to be lower triangular, which pins down $Q$ uniquely. This imposes $n(n-1)/2 = 3$ zeros above the diagonal. These zeros have direct economic meaning: they say that certain variables cannot respond to certain shocks within the period.**Sign restrictions.** Instead of zeros, impose inequality constraints on the elements of $B_0$ (or on the impulse responses it implies). Accept all rotation matrices $Q$ that produce a $B_0 Q$ consistent with these constraints. This gives a *set* of admissible models rather than a single point.
+We now have posterior draws of the reduced-form parameters: the coefficient matrices $A_1, \ldots, A_p$ and the residual covariance $\Sigma_u$. The reduced-form residuals $u_t$ are correlated across equations, but we want to recover the *structural* shocks $\varepsilon_t$. Unlike the reduced-form residuals, these structural are orthogonal latent variables from which we can elicit a causal interpretation.
+
+Throughout this notebook, the term _"structural"_ is used to mean _"given a causal interpretation by the identifying assumptions."_. The structural model assumes:$$u_t = B_0 \, \varepsilon_t, \qquad \varepsilon_t \sim N(0, I_n)$$where $B_0$ is the $n \times n$ structural impact matrix. Column $j$ of $B_0$ describes how a one-standard-deviation structural shock $j$ moves each variable on impact. The orthogonality assumption $\text{Var}(\varepsilon_t) = I_n$ means the structural shocks are uncorrelated and unit-variance, so all the interesting structure lives in $B_0$.
+
+Since $\Sigma_u = \text{Var}(u_t) = B_0 \, B_0'$, we can, in principle, recover $B_0$ from $\Sigma_u$. But here is the problem: for $n = 3$ variables, the symmetric matrix $\Sigma_u$ has $n(n+1)/2 = 6$ unique elements. The matrix $B_0$ has $n^2 = 9$ free entries. Six equations, nine unknowns. We are three restrictions short. Without additional restrictions, there are infinitely many matrices $B_0$ that satisfy $\Sigma_u = B_0 B_0'$. If $B_0$ is one solution, then $B_0 Q$ is another for any orthogonal matrix $Q$ since $B_0 Q (B_0 Q)' = B_0 Q Q' B_0' = B_0 B_0' = \Sigma_u$. The data cannot tell these apart. The choice of $Q$ is, precisely, the identification problem.
+
+!!! note "A note on Orthogonalisation"
+
+    It is worth pausing on why this works. An orthogonal matrix $Q$ satisfies $Q Q' = I_n$ i.e., it is a rotation that preserves lengths and angles. When we form $B_0 Q$, we are rotating the columns of $B_0$, the implication of which is that we are redistributing the structural shocks into new linear combinations without changing the covariance they imply. Every such rotation gives a different economic story (different shocks, different impulse responses) that is equally consistent with the observed data.
+
+The identification problem is not a generic "too many unknowns" issue; it is specifically a *rotational* indeterminacy, and the two strategies below differ in how they resolve it: Cholesky pins the rotation to the identity by choosing the unique lower-triangular factor, while sign restrictions accept all rotations that satisfy qualitative constraints.
 
 ## Cholesky identification
 
-The Cholesky decomposition factors $\Sigma_u$ into $L L'$ where $L$ is lower triangular with positive diagonal entries. Setting $B_0 = L$ gives us a structural impact matrix where the zeros above the diagonal carry specific economic meaning determined by the variable ordering.Our baseline ordering is: output, prices, rate. Written out, $B_0$ looks like:$$B_0 = \begin{pmatrix} * & 0 & 0 \\ * & * & 0 \\ * & * & * \end{pmatrix}$$Read column by column. The first column is the "output shock": it can move all three variables on impact. The second column is the "price shock": it can move prices and the rate, but not output (the zero in position $(1,2)$). The third column is the "rate shock" (our monetary policy shock): it can only move the rate on impact, not output or prices (the zeros in positions $(1,3)$ and $(2,3)$).What does this mean economically? The zeros say that output and prices are "sluggish" within the month and cannot respond contemporaneously to a monetary policy shock. The Fed, by contrast, sits in the last row and can see and respond to everything. This is a timing assumption: it takes at least one month for a change in the funds rate to show up in industrial production or consumer prices, but the Federal Open Market Committee (FOMC) -- the body that sets the funds rate -- can observe current economic conditions and adjust policy within the month.The monetary policy shock itself is the residual variation in the funds rate equation after removing the predicted response to current output and prices (i.e., the part not explained by the linear model). If the Fed raises rates by more than its usual reaction to the current state of the economy, the excess is the "shock."This is a defensible set of assumptions for monthly data, but it is not the only defensible set. The three zeros are doing real work, and different zeros give different answers.
+The Cholesky decomposition factors $\Sigma_u$ into $L L'$ where $L$ is lower triangular with positive diagonal entries. Setting $B_0 = L$ gives us a structural impact matrix where the zeros above the diagonal carry specific economic meaning determined by the variable ordering. Our baseline ordering is: output, prices, rate. Written out, $B_0$ looks like:$$B_0 = \begin{pmatrix} * & 0 & 0 \\ * & * & 0 \\ * & * & * \end{pmatrix}$$Read column by column. The first column is the "output shock": it can move all three variables on impact. The second column is the "price shock": it can move prices and the rate, but not output as there is a zero in position $(1,2)$. The third column is the "rate shock" (our monetary policy shock): it can only move the rate on impact, not output or prices, again because there are zeros in positions $(1,3)$ and $(2,3)$. What does this mean economically? The zeros say that output and prices are "sluggish" within the month and cannot respond contemporaneously to a monetary policy shock. The Fed, by contrast, sits in the last row and can see and respond to everything. This is a timing assumption: it takes at least one month for a change in the funds rate to show up in industrial production or consumer prices, but the Federal Open Market Committee (FOMC) - the body that sets the funds rate - can observe current economic conditions and adjust policy within the month. The monetary policy shock itself is the residual variation in the funds rate equation after removing the predicted response to current output and prices (i.e., the part not explained by the linear model). If the Fed raises rates by more than its usual reaction to the current state of the economy, the excess is the *"shock"*. This is a defensible set of assumptions for monthly data, but it is not the only defensible set. The three zeros are doing real work, and different orderings will give different answers.
 
 ```{python}
 ordering_a = ["output", "prices", "rate"]
@@ -149,19 +156,17 @@ fig = irf_chol_a.plot()
 fig.suptitle("Cholesky IRFs -- Ordering A: Output, Prices, Rate", y=1.02)
 ```
 
-The 3x3 grid above shows every shock-response pair. Read it as "column shock causes row response." Focus on the third column (the rate shock, i.e. the identified monetary policy shock). Note that because output and CPI enter as $100 \times \log$, a one-unit change in those series is approximately a one-percentage-point change; the rate is in percentage points directly.- **rate -> output** (top right): Industrial production drops sharply after a contractionary monetary shock, falling by about 0.5 to 1.0 percentage points over 48 months. This is the standard transmission mechanism: higher rates make borrowing more expensive, which reduces investment and consumption, which in turn reduces output. The response is persistent, with no clear sign of returning to zero within 4 years.- **rate -> rate** (bottom right): The rate shock itself starts at about 0.6 percentage points and decays gradually. The policy tightening is partially reversed over time, consistent with the Fed easing as the economy weakens.- **rate -> prices** (middle right): Here is the problem. After a contractionary monetary shock, prices *rise*. The CPI response is positive, reaching about 0.3-0.4 over 48 months. This is the **price puzzle**: higher interest rates reduce demand, which should put downward pressure on prices, yet the estimated response goes the wrong way.Why does this happen? The most common explanation: the Fed raises rates when it expects future inflation. A three-variable VAR cannot capture the full set of data and signals the Fed uses when making decisions, so the "surprise" component of the rate change still contains a predictable response to anticipated inflation. The subsequent price increase is not caused by the rate hike; it is the inflation the Fed saw coming. The "shock" is not really a shock.Sims (1992) and Christiano, Eichenbaum, and Evans (1999) argued that adding commodity prices to the VAR can help resolve this, because commodity prices capture forward-looking inflation signals the Fed responds to. We stick with three variables here to illustrate the problem clearly.
+The 3x3 grid above shows every shock-response pair. The panel of figures may be read as "column shock causes row response." Focussing on the third column, the rate shock, we note that because output and CPI enter as $100 \times \log$, a one-unit change in those series is approximately a one-percentage-point change.
 
-```{python}
-fevd_chol_a = identified_chol_a.fevd(horizon=48)
-fig = fevd_chol_a.plot()
-fig.suptitle("FEVD -- Cholesky Ordering A", y=1.02)
-```
+- **rate -> output** (top right): Industrial production drops sharply after a contractionary monetary shock, falling by about 0.5 to 1.0 percentage points over 48 months. This is the standard transmission mechanism: higher rates make borrowing more expensive, which reduces investment and consumption, which in turn reduces output. The response is persistent, with no clear sign of returning to zero within 4 years.
+- **rate -> rate** (bottom right): The rate shock itself starts at about 0.6 percentage points and decays gradually. The policy tightening is partially reversed over time, consistent with the Fed easing as the economy weakens.
+- **rate -> prices** (middle right): Here is the problem. After a contractionary monetary shock, prices *rise*. The CPI response is positive, reaching about 0.3-0.4 over 48 months.
 
-The **forecast error variance decomposition** (FEVD) partitions the variance of each variable's $h$-step-ahead forecast error into contributions from each structural shock. At each horizon $h$, the shares sum to 100%, telling us which shocks are the dominant drivers of unpredictable variation in each variable.Focus on the monetary policy shock (the rate shock, third column). In the literature, monetary policy shocks typically account for 10-20% of the forecast error variance in output at medium-term horizons (12-24 months). This is a useful benchmark: monetary policy matters, but it is not the dominant driver of output fluctuations. Most of the variation in industrial production is explained by its own shocks (supply and demand disturbances that are not monetary in origin).For prices, the monetary policy shock explains relatively little of the forecast error variance, which is consistent with the price puzzle: the identified shock is pushing prices in the wrong direction, so it cannot be a major explanatory factor for price movements. The rate itself is largely explained by its own shock at short horizons, but the contribution of output and price shocks grows at longer horizons as the Fed's policy rule -- the systematic mapping from economic conditions to rate decisions -- feeds back.
+This is the *price puzzle*. Higher interest rates reduce demand, which should put downward pressure on prices, yet the estimated response goes the wrong way.Why does this happen? The most common explanation: the Fed raises rates when it expects future inflation. A three-variable VAR cannot capture the full set of data and signals the Fed uses when making decisions, so the "surprise" component of the rate change still contains a predictable response to anticipated inflation. The subsequent price increase is not caused by the rate hike; it is the inflation the Fed saw coming. The "shock" is not really a shock.
 
 ### Sensitivity to variable ordering
 
-If the Cholesky ordering embodies economic assumptions, then changing the ordering changes the assumptions and should change the results. Let us see by how much.We compare three orderings, each implying a different contemporaneous causal structure:- **Ordering A (baseline):** output, prices, rate. Output and prices are sluggish; the Fed sees everything.- **Ordering B:** prices, output, rate. Prices ordered before output, so prices can affect output contemporaneously but not vice versa. The Fed still sees everything.- **Ordering C:** rate, output, prices. The interest rate is ordered *first*, meaning it is assumed to be the most exogenous variable, unable to respond to current output or prices within the month. This contradicts how monetary policy actually works: the FOMC meets roughly every six weeks, reviews current economic data, and explicitly sets the rate in response to output and inflation conditions. Treating the rate as exogenous removes exactly this feedback. It is instructive to see what happens when the ordering is wrong.
+If the Cholesky ordering embodies economic assumptions, then changing the ordering changes the assumptions and will, consequently, change the results. Let us see by how much. We compare three orderings, each implying a different contemporaneous causal structure:- **Ordering A (baseline):** output, prices, rate. Output and prices are sluggish; the Fed sees everything.- **Ordering B:** prices, output, rate. Prices ordered before output, so prices can affect output contemporaneously but not vice versa. The Fed still sees everything.- **Ordering C:** rate, output, prices. The interest rate is ordered *first*, meaning it is assumed to be the most exogenous variable, unable to respond to current output or prices within the month. This contradicts how monetary policy actually works: the FOMC meets roughly every six weeks, reviews current economic data, and explicitly sets the rate in response to output and inflation conditions. Treating the rate as exogenous removes exactly this feedback. It is instructive to see what happens when the ordering is wrong.
 
 ```{python}
 # Ordering B: prices, output, rate
@@ -176,6 +181,8 @@ irf_chol_c = identified_chol_c.impulse_response(horizon=48)
 ```
 
 ```{python}
+# | code-fold: true
+
 response_vars = ["output", "prices", "rate"]
 response_labels = {
     "output": "Industrial Production",
@@ -195,7 +202,11 @@ for i, resp in enumerate(response_vars):
         ("C: i,y,p", irf_chol_c, "C3"),
     ]:
         irf_data = irf_result.idata.posterior_predictive["irf"]
-        med_vals = irf_data.sel(response=resp, shock="rate").median(dim=("chain", "draw")).values
+        med_vals = (
+            irf_data.sel(response=resp, shock="rate")
+            .median(dim=("chain", "draw"))
+            .values
+        )
         hdi_ds = az.hdi(irf_data.sel(response=resp, shock="rate"), hdi_prob=0.68)
         hdi_vals = hdi_ds["irf"]
 
@@ -212,27 +223,31 @@ for i, resp in enumerate(response_vars):
     ax.set_ylabel(response_labels[resp])
     if i == 0:
         ax.legend(fontsize=9, title="Ordering")
-        ax.set_title("Response to Contractionary Monetary Policy Shock — Cholesky Orderings")
+        ax.set_title(
+            "Response to Contractionary Monetary Policy Shock — Cholesky Orderings"
+        )
 
 axes[-1].set_xlabel("Months")
 fig.tight_layout()
 ```
 
-The three orderings produce noticeably different impulse responses to a monetary policy shock.
+Let's breakdown the different interpretations that can be drawn from the three orderings. Overall, orderings A and B produce *identical* impulse responses. This is not a coincidence. In both orderings, the federal funds rate sits in position 3 (last), so the monetary policy shock is the third column of the lower-triangular $B_0$, which depends only on the Cholesky factor's third column. Swapping output and prices in positions 1 and 2 changes the output shock and the price shock, but leaves the monetary policy shock untouched. This is a useful structural insight: ordering sensitivity for a given shock depends on *where that shock's variable sits in the ordering*, not on the full permutation. The monetary policy shock only changes when the rate moves to a different position, as in ordering C.
 
-**Output (top panel).** Orderings A and B produce *identical* impulse responses — not merely similar, but exactly the same. This is not a coincidence. In both orderings, the federal funds rate sits in position 3 (last), so the monetary policy shock is the third column of the lower-triangular $B_0$, which depends only on the Cholesky factor's third column. Swapping output and prices in positions 1 and 2 changes the output shock and the price shock, but leaves the monetary policy shock untouched. This is a useful structural insight: ordering sensitivity for a given shock depends on *where that shock's variable sits in the ordering*, not on the full permutation. The monetary policy shock only changes when the rate moves to a different position, as in ordering C.
-
-Ordering C tells a starkly different story: output *rises* initially, staying positive for the first 20 months before declining only slightly. When the rate is ordered first, the "monetary policy shock" no longer cleanly separates unexpected policy from the Fed's systematic response, so the estimated effect is contaminated.
-
-**Prices (middle panel).** The price puzzle appears in all three orderings, but to very different degrees. Orderings A and B show moderate price increases (around 0.2-0.4) — again identical, for the same reason. Ordering C produces the most severe puzzle, with prices rising by 0.6-0.8. With the rate most exogenous, less of the Fed's systematic response to inflation is stripped out, so the "shock" still contains the Fed's reaction to anticipated inflation.
-
-**Rate (bottom panel).** Orderings A and B produce a large initial rate increase (~0.6 percentage points) that decays over 4 years. Ordering C shows a much smaller initial impact (~0.2) because, with the rate first, the shock is measured differently.
-
-The lesson is clear. The monetary policy shock is invariant to the ordering of variables that come *before* it (orderings A and B), but changes fundamentally when the rate itself moves to a different position (ordering C). Ordering C, which makes an economically implausible assumption about the Fed, gives a qualitatively different answer. These differences are not coming from the data. They come entirely from the three zeros we chose to impose.
+The takeaway here is that the ordering of variables is an important choice of the modeller, and different orderings can impose very different chains of causality. Considering the example here, we can see that the monetary policy shock is invariant to the ordering of variables that come *before* it, but changes fundamentally when the rate itself moves to a different position. Ordering C, which makes an economically implausible assumption about the Fed, gives a qualitatively different answer. These differences are not coming from the data. They come entirely from the three zeros we chose to impose.
 
 ## Sign restrictions
 
-Sign restrictions take a different approach to the identification problem. Instead of asserting that specific elements of $B_0$ are exactly zero, we assert only the *direction* of certain responses: "a contractionary monetary policy shock raises the interest rate" or "a contractionary monetary policy shock does not increase prices." Any $B_0$ matrix consistent with these qualitative constraints is admissible. The collection of all such admissible decompositions is called the **identified set**.The mechanics work as follows. For each posterior draw of $\Sigma_u$, we:1. Compute the Cholesky factor $L = \text{chol}(\Sigma_u)$.2. Draw a random orthogonal matrix $Q$ from the Haar distribution on $O(n)$ -- the unique probability distribution over rotation matrices that is invariant to further rotation, making it the natural "uniform" distribution over orientations.3. Form the candidate structural impact matrix $\tilde{B}_0 = L Q$.4. Check whether the impulse responses implied by $\tilde{B}_0$ satisfy the sign conditions at all required horizons. If the restriction horizon is $h > 0$, we also need the moving-average (MA) coefficient matrices $\Phi_1, \ldots, \Phi_h$. These are computed recursively from the VAR coefficients: $\Phi_s = \sum_{j=1}^{\min(s,p)} A_j \Phi_{s-j}$ with $\Phi_0 = I_n$. The matrix $\Phi_s \tilde{B}_0$ then gives the structural impulse response at horizon $s$, and we check that it satisfies the sign conditions for $s = 0, 1, \ldots, h$.5. If the conditions hold, keep $\tilde{B}_0$. If not, draw another $Q$ and try again.The result is not a single $B_0$ but a set of them, and the posterior distribution over impulse responses is correspondingly wider. This additional width reflects identification uncertainty: many structural models are consistent with the same reduced-form evidence and the same qualitative sign beliefs.Our baseline restrictions follow Uhlig (2005):
+Sign restrictions take a different approach to the identification problem. Instead of asserting that specific elements of $B_0$ are exactly zero, we assert only the *direction* of certain responses e.g., "a contractionary monetary policy shock raises the interest rate" or "a contractionary monetary policy shock does not increase prices." Any $B_0$ matrix consistent with these qualitative constraints is admissible. The collection of all such admissible decompositions is called the *identified set*.
+
+The mechanics work as follows. For each posterior draw of $\Sigma_u$, we:
+
+1. Compute the Cholesky factor $L = \text{chol}(\Sigma_u)$.
+2. Draw a random orthogonal matrix $Q$ from the Haar distribution on $O(n)$ - the unique probability distribution over rotation matrices that is invariant to further rotation, making it the natural "uniform" distribution over orientations.
+3. Form the candidate structural impact matrix $\tilde{B}_0 = L Q$.
+4. Check whether the impulse responses implied by $\tilde{B}_0$ satisfy the sign conditions at all required horizons. If the restriction horizon is $h > 0$, we also need the moving-average (MA) coefficient matrices $\Phi_1, \ldots, \Phi_h$. These are computed recursively from the VAR coefficients: $\Phi_s = \sum_{j=1}^{\min(s,p)} A_j \Phi_{s-j}$ with $\Phi_0 = I_n$. The matrix $\Phi_s \tilde{B}_0$ then gives the structural impulse response at horizon $s$, and we check that it satisfies the sign conditions for $s = 0, 1, \ldots, h$.
+5. If the conditions hold, keep $\tilde{B}_0$. If not, draw another $Q$ and try again.
+
+The result is not a single $B_0$ but a set of them, and the posterior distribution over impulse responses is correspondingly wider. This additional width reflects identification uncertainty: many structural models are consistent with the same reduced-form evidence and the same qualitative sign beliefs.Our baseline restrictions follow [Uhlig, (2005)](https://www.sciencedirect.com/science/article/abs/pii/S0304393205000073):
 
 | Variable | Restriction | Rationale |
 |----------|-------------|-----------|
@@ -240,7 +255,9 @@ Sign restrictions take a different approach to the identification problem. Inste
 | prices | $\leq 0$ at horizons $0, \ldots, h$ | Higher rates reduce demand, which should put downward pressure on prices |
 | output | Unrestricted | The output effect is what we want to learn from the data |
 
-Leaving output unrestricted is the point. We want the data, not our priors, to tell us whether monetary contractions reduce output and by how much. If we restricted output to be non-positive, we would be assuming the answer to the question we are trying to ask.We start with a restriction horizon of $h = 6$ months (Uhlig's baseline), then explore sensitivity to $h = 0$ (impact only) and $h = 12$ (one year).
+Leaving output unrestricted is the point. We want the data, not our priors, to tell us whether monetary contractions reduce output and by how much. If we restricted output to be non-positive, we would be assuming the answer to the question we are trying to ask.
+
+We start with a restriction horizon of $h = 6$ months, then explore sensitivity to $h = 0$ (impact only) and $h = 12$ (one year).
 
 ```{python}
 scheme_h6 = SignRestriction(
@@ -263,9 +280,9 @@ print(
 ```
 
 ```{python}
-irf_sr_h6 = identified_sr_h6.impulse_response(horizon=48)
+# | code-fold: true
 
-# Only plot the identified monetary policy shock (not the unidentified residuals)
+irf_sr_h6 = identified_sr_h6.impulse_response(horizon=48)
 irf_sr_data = irf_sr_h6.idata.posterior_predictive["irf"]
 sr_shock_name = "monetary_policy"
 
@@ -306,13 +323,13 @@ fig.tight_layout()
 
 The three panels above show how each variable responds to the identified monetary policy shock under sign restrictions with $h = 6$.
 
-**Output (top).** The median response is slightly positive for the first few months, then turns negative, reaching about -0.25 by month 48. But look at the credible bands: they span from roughly +0.75 to -0.60 in the first year. The data, combined with only two sign restrictions, cannot tell us whether output rises or falls in the short run. This is exactly what Uhlig (2005) found: the output response to a monetary contraction is ambiguous under these restrictions. The sign restrictions on prices and the interest rate alone are not enough to pin down the monetary transmission mechanism.
+In the upper panel, the median response is slightly positive for the first few months, then turns negative, reaching about -0.25 by month 48. But look at the credible bands: they span from roughly +0.75 to -0.60 in the first year. The data, combined with only two sign restrictions, cannot tell us whether output rises or falls in the short run. This is exactly what Uhlig (2005) found: the output response to a monetary contraction is ambiguous under these restrictions. The sign restrictions on prices and the interest rate alone are not enough to pin down the monetary transmission mechanism.
 
-**Prices (middle).** The CPI response is negative by construction, hovering around -0.15 to -0.20. There is no price puzzle here, but that is not a victory for the model. We *imposed* that prices cannot rise. The absence of the puzzle is an assumption, not a finding.
+Considering the prices (middle panel), the CPI response is negative by construction, hovering around -0.15 to -0.20. There is no price puzzle here, but that is not a victory for the model. We *imposed* that prices cannot rise. The absence of the puzzle is an assumption, not a finding.
 
-**Rate (bottom).** The interest rate rises on impact (about 0.25 percentage points) and decays gradually, consistent with a contractionary shock that is partially reversed over time.
+Finally, in the bottom panel we see that interest rate rises on impact (about 0.25 percentage points) and decays gradually, consistent with a contractionary shock that is partially reversed over time.
 
-Compare these bands with the Cholesky IRFs above. The sign restriction bands are much wider, especially for output. This additional width is identification uncertainty: the data are consistent with many different structural decompositions, and sign restrictions honestly report this. The Cholesky bands are narrower because the three zero restrictions eliminate all but one decomposition. Whether that precision is real or artificial depends on whether you believe the zeros.
+Compare these bands with the Cholesky IRFs above. The sign restriction bands are much wider, especially for output. This additional width stems from the additional identification uncertainty - the data are consistent with many different structural decompositions, and sign restrictions honestly report this. The Cholesky bands are narrower because the three zero restrictions eliminate all but one decomposition. Whether that precision is real or artificial depends on whether you believe the zeros.
 
 ### Restriction horizon sensitivity
 
@@ -341,6 +358,8 @@ for h in [0, 6, 12]:
 ```
 
 ```{python}
+# | code-fold: true
+
 fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
 for i, resp in enumerate(response_vars):
@@ -362,13 +381,21 @@ axes[-1].set_xlabel("Months")
 fig.tight_layout()
 ```
 
-The three restriction horizons produce median responses that are qualitatively similar but quantitatively different.**Output (top).** All three horizons show output initially rising then falling, but the timing differs. With $h = 0$, the output decline is slowest to materialise, which makes sense: restricting only the impact period leaves the impulse response at all subsequent horizons completely unconstrained. With $h = 12$, the decline starts earlier and is slightly deeper, because the longer horizon forces the retained rotations to produce IRFs with more conventional-looking dynamics.**Prices (middle).** The CPI response is negative under all horizons (by construction), but more strongly negative under $h = 6$ and $h = 12$ than under $h = 0$. The longer the horizon over which prices must remain non-positive, the more aggressively the identified shock must push prices down.**Rate (bottom).** The interest rate responses are nearly identical across horizons. This makes sense: the rate is restricted to be positive at all horizons, and the dynamics of the rate shock are well-determined by the data regardless of the horizon.The acceptance rates printed above are all near 100%, which itself is informative. We are imposing only two sign restrictions on a three-variable system -- the rate must be positive and prices must be non-positive -- and these conditions are broadly consistent with the reduced-form dynamics. Even at $h = 12$, the restrictions barely constrain the space of admissible rotations. This tells us that the identified set is large: many very different structural decompositions all satisfy our qualitative beliefs. The wide credible bands on the output response above are the direct consequence.In a larger system (say 5-7 variables) with more restrictions, or with restrictions that cut against the grain of the reduced-form dynamics, acceptance rates would drop materially, and the computational cost of the rotation algorithm would become a real consideration. The acceptance rate is a diagnostic of how constraining your identification scheme is. Here, it is telling us: not very.
+The three restriction horizons produce median responses that are qualitatively similar but quantitatively different.
+
+In the upper panel we see that all three horizons show output initially rising then falling, but the timing differs. With $h = 0$, the output decline is slowest to materialise, which makes sense: restricting only the impact period leaves the impulse response at all subsequent horizons completely unconstrained. With $h = 12$, the decline starts earlier and is slightly deeper, because the longer horizon forces the retained rotations to produce IRFs with more conventional-looking dynamics.
+
+The CPI response is negative under all horizons (by construction), but more strongly negative under $h = 6$ and $h = 12$ than under $h = 0$. The longer the horizon over which prices must remain non-positive, the more aggressively the identified shock must push prices down.
+
+The interest rate responses are nearly identical across horizons. This makes sense: the rate is restricted to be positive at all horizons, and the dynamics of the rate shock are well-determined by the data regardless of the horizon.
 
 ## Comparative analysis
 
 We now place the Cholesky baseline (ordering A) and the sign restriction baseline ($h = 6$) side by side. This is the payoff of running both approaches on the same data: we can see directly how different identifying assumptions lead to different conclusions about the same economic question.
 
 ```{python}
+# | code-fold: true
+
 fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
 # Cholesky baseline (ordering A)
@@ -455,7 +482,8 @@ fig.tight_layout()
 ```
 
 ```{python}
-# Quantitative band width comparison: 68% HDI width for output response
+# | code-fold: true
+
 band_rows = []
 for horizon_month in [12, 24, 48]:
     chol_hdi = az.hdi(irf_chol_data.sel(response="output", shock="rate"), hdi_prob=0.68)["irf"]
@@ -473,78 +501,38 @@ for horizon_month in [12, 24, 48]:
         "Ratio (SR / Chol)": f"{sr_width / chol_width:.1f}x",
     })
 
-print("Band width comparison: output response to monetary policy shock")
 pd.DataFrame(band_rows)
 ```
 
-The table above makes the precision-versus-honesty tradeoff concrete. At every horizon, the sign restriction credible band for the output response is substantially wider than the Cholesky band — typically by a factor of 2–4x. This additional width is not noise or computational imprecision. It is identification uncertainty: the range of structural models that are all consistent with the data and the sign restrictions. The Cholesky bands are narrower because the three zero restrictions eliminate all but one decomposition per posterior draw. Whether that precision reflects genuine knowledge or false confidence depends entirely on whether the zero restrictions are correct.
+The table above makes the precision-versus-honesty tradeoff concrete. At every horizon, the sign restriction credible band for the output response is substantially wider than the Cholesky band. This additional width is not noise or computational imprecision. It is identification uncertainty: the range of structural models that are all consistent with the data and the sign restrictions. The Cholesky bands are narrower because the three zero restrictions eliminate all but one decomposition per posterior draw. Whether that precision reflects genuine knowledge or false confidence depends entirely on whether the zero restrictions are correct.
 
-Three things stand out.**The price puzzle disappears under sign restrictions, but not because it was resolved.** Under Cholesky (blue), prices rise persistently after a contractionary shock, reaching about +0.35 over 48 months. Under sign restrictions (red dashed), prices fall to about -0.20 and stay there. The sign restriction result matches the textbook prediction -- higher rates reduce demand, which should lower prices -- but remember: we *imposed* that prices cannot rise. The sign restriction model cannot produce a price puzzle because we forbade it. Whether this is appropriate depends on how confident you are in the restriction. If you believe prices should fall after a monetary contraction, sign restrictions enforce that belief. If you want to let the data tell you whether prices rise or fall, you need to leave prices unrestricted too, at which point the identification becomes very weak.**The output responses agree on the sign but disagree on the magnitude and timing.** Both approaches show output declining after a contractionary monetary shock. Under Cholesky, the decline is larger (about -0.7 at 48 months) and more persistent. Under sign restrictions, the decline is shallower (about -0.3) and preceded by a brief initial increase. The sign restriction credible band is much wider, spanning from +0.5 to -0.7 in the first year. The Cholesky band is tighter (roughly $\pm$ 0.2 around the median). The question for the researcher: is the tighter Cholesky band reflecting genuine precision, or is it false confidence from zero restrictions that may not hold?**The rate shock itself is calibrated differently.** The Cholesky monetary policy shock is about twice the size of the sign restriction shock on impact (roughly 0.6 vs 0.3 percentage points). This is a normalisation difference, not a substantive one: the two approaches extract different objects from the same residuals. A "one standard deviation monetary policy shock" means something different under each scheme because the structural decomposition $B_0$ is different -- and since the shocks are normalised to unit variance ($\varepsilon_t \sim N(0, I)$), the *scale* of a "one standard deviation" shock depends entirely on the columns of $B_0$. This matters for comparing magnitudes across identification strategies: the output decline looks larger under Cholesky, but part of that is because the shock itself is larger. Ideally, one would normalise both shocks to, say, a 1-percentage-point impact on the federal funds rate before comparing the output responses. We leave the standard one-standard-deviation normalisation here for consistency with the literature, but the reader should keep this caveat in mind when interpreting the side-by-side comparison above.
+Three things stand out:
 
-```{python}
-rows = []
-
-# Cholesky orderings
-for name, irf_result in [
-    ("Cholesky A (y,p,i)", irf_chol_a),
-    ("Cholesky B (p,y,i)", irf_chol_b),
-    ("Cholesky C (i,y,p)", irf_chol_c),
-]:
-    irf_data = irf_result.idata.posterior_predictive["irf"]
-    output_resp = irf_data.sel(response="output", shock="rate").median(dim=("chain", "draw")).values
-    prices_resp = irf_data.sel(response="prices", shock="rate").median(dim=("chain", "draw")).values
-
-    rows.append({
-        "Specification": name,
-        "Peak Output Response": f"{output_resp.min():.3f}",
-        "Month of Peak": int(output_resp.argmin()),
-        "Price Puzzle (months > 0)": int((prices_resp > 0).sum()),
-    })
-
-# Sign restriction horizons
-for h in [0, 6, 12]:
-    irf_data = results_sr[h]["irf"].idata.posterior_predictive["irf"]
-    output_resp = irf_data.sel(response="output", shock="monetary_policy").median(dim=("chain", "draw")).values
-    ar = results_sr[h]["acceptance_rate"]
-
-    rows.append({
-        "Specification": f"Sign Restr. h={h} (AR={ar:.0%})",
-        "Peak Output Response": f"{output_resp.min():.3f}",
-        "Month of Peak": int(output_resp.argmin()),
-        "Price Puzzle (months > 0)": "N/A (restricted)",
-    })
-
-pd.DataFrame(rows)
-```
+1. **The price puzzle disappears under sign restrictions, but not because it was resolved.** Under a Cholesky restriction, prices rise persistently after a contractionary shock, reaching about +0.35 over 48 months. Under sign restrictions (red dashed), prices fall to about -0.20 and stay there. However, we must remember that we *imposed* that prices cannot rise. The sign restriction model cannot produce a price puzzle because we forbade it. Whether this is appropriate depends on how confident you are in the restriction. If you believe prices should fall after a monetary contraction, sign restrictions enforce that belief. If you want to let the data tell you whether prices rise or fall, you need to leave prices unrestricted too, at which point the identification becomes very weak.
+2. **The output responses agree on the sign but disagree on the magnitude and timing.** Both approaches show output declining after a contractionary monetary shock. Under Cholesky, the decline is larger (about -0.7 at 48 months) and more persistent. Under sign restrictions, the decline is shallower (about -0.3) and preceded by a brief initial increase. The sign restriction credible band is much wider, spanning from +0.5 to -0.7 in the first year. The Cholesky band is tighter (roughly $\pm$ 0.2 around the median). The question for the researcher: is the tighter Cholesky band reflecting genuine precision, or is it false confidence from zero restrictions that may not hold?
+3. **The rate shock itself is calibrated differently.** The Cholesky monetary policy shock is about twice the size of the sign restriction shock on impact (roughly 0.6 vs 0.3 percentage points). This is a normalisation difference, not a substantive one: the two approaches extract different objects from the same residuals. A "one standard deviation monetary policy shock" means something different under each scheme because the structural decomposition $B_0$ is different -- and since the shocks are normalised to unit variance ($\varepsilon_t \sim N(0, I)$), the *scale* of a "one standard deviation" shock depends entirely on the columns of $B_0$. This matters for comparing magnitudes across identification strategies: the output decline looks larger under Cholesky, but part of that is because the shock itself is larger. Ideally, one would normalise both shocks to, say, a 1-percentage-point impact on the federal funds rate before comparing the output responses. We leave the standard one-standard-deviation normalisation here for consistency with the literature, but the reader should keep this caveat in mind when interpreting the side-by-side comparison above.
 
 ## Discussion
 
 ### When Cholesky works well
 
-Cholesky identification is appropriate when you have a credible economic argument for a recursive ordering. In the monetary policy application, the argument that output and prices are "sluggish" within the month while the Fed can respond to current conditions is reasonable for monthly data. The payoff is point identification and tight credible bands: you get a single structural decomposition per posterior draw, and the results are easy to interpret.The cost is that the zero restrictions are exact and strong. If the timing assumptions are wrong -- for instance, if rate changes move stock and bond prices immediately, and those asset price movements in turn affect real spending within the same month -- the identified shock is contaminated and the tight bands give false confidence.
+Cholesky identification is appropriate when you have a credible economic argument for a recursive ordering. In the monetary policy application, the argument that output and prices are "sluggish" within the month while the Fed can respond to current conditions is reasonable for monthly data. The payoff is point identification and tight credible bands as you get a single structural decomposition per posterior draw, and the results are easy to interpret. The cost is that the zero restrictions are exact and strong. If the timing assumptions are wrong -- for instance, if rate changes move stock and bond prices immediately, and those asset price movements in turn affect real spending within the same month -- the identified shock is contaminated and the tight bands give false confidence.
 
 ### When sign restrictions work well
 
-Sign restrictions are appropriate when zero restrictions are too strong but you have qualitative beliefs about the direction of responses. They are particularly useful when the economic question is about the *sign* of a response ("does output fall?") rather than its magnitude ("by how much?"). The wider bands are an honest reflection of the fact that many structural models are consistent with the same data and the same qualitative restrictions.The cost is that the identified set can be large, sometimes too large to be informative. Uhlig's original finding was essentially that sign restrictions on the price and rate responses alone could not resolve whether monetary contractions reduce output. The answer was: "the data, subject to these restrictions, are consistent with both."
+Sign restrictions are appropriate when zero restrictions are too strong but you have qualitative beliefs about the direction of responses. They are particularly useful when the economic question is about the *sign* of a response ("does output fall?") rather than its magnitude ("by how much?"). The wider bands are an honest reflection of the fact that many structural models are consistent with the same data and the same qualitative restrictions.The cost is that the identified set can be large, sometimes too large to be informative.
 
 ### Neither approach is assumption-free
 
-This is worth stressing. Cholesky imposes zero restrictions, which embed specific claims about contemporaneous causality. Sign restrictions impose inequality restrictions, which embed weaker but still substantive claims about the direction of effects. In addition, the uniform (Haar) prior over rotation matrices $Q$, which seems "uninformative," is itself informative about the structural parameters. Baumeister and Hamilton (2015) showed that drawing $Q$ uniformly places a non-uniform, potentially strong, prior over the columns of $B_0$. "Agnostic" identification is not as agnostic as it sounds.
+Cholesky imposes zero restrictions, which embed specific claims about contemporaneous causality. Sign restrictions impose inequality restrictions, which embed weaker but still substantive claims about the direction of effects.
 
 ### The price puzzle as a diagnostic
 
 The price puzzle is not just an embarrassment for the Cholesky model. It is a diagnostic. Its appearance signals that the identified monetary policy shock likely contains a predictable component of the Fed's forward-looking response to inflation. This can mean the VAR is too small (omitting variables the Fed watches), or that the timing assumptions are too rigid, or both. Under sign restrictions, the puzzle is absent by construction, which is not a resolution but a different set of assumptions.
 
-### Where to go from here
-
-This three-variable system is deliberately minimal. In practice:- Adding commodity prices helps resolve the price puzzle under Cholesky (Christiano, Eichenbaum, and Evans, 1999), because commodity prices capture forward-looking inflation signals the three-variable VAR misses.- Narrative restrictions (Antolin-Diaz and Rubio-Ramirez, 2018) combine sign restrictions with historical evidence about specific episodes (e.g., the Volcker disinflation), tightening the identified set without imposing zero restrictions.- Bayesian proxy SVARs use external instruments to achieve identification through a completely different channel. For example, one can measure the change in interest rate futures prices in a narrow window around a policy announcement. Because the window is so short (30 minutes), the futures price change is plausibly driven only by the policy surprise and not by other shocks, providing an instrument for the monetary policy shock.Each of these approaches makes different assumptions and delivers different conclusions. The identification problem does not have a single correct solution. It has a menu of assumptions, and the researcher's job is to be transparent about which ones they are making and why.
-
 ## References
 
-- Baumeister, C. and Hamilton, J. D. (2015). Sign restrictions, structural vector autoregressions, and useful prior information. *Econometrica*, 83(5), 1963-1999.
 - Christiano, L. J., Eichenbaum, M., and Evans, C. L. (1999). Monetary policy shocks: What have we learned and to what end? In *Handbook of Macroeconomics*, Vol. 1A, 65-148.
-- Doan, T., Litterman, R., and Sims, C. (1984). Forecasting and conditional projection using realistic prior distributions. *Econometric Reviews*, 3(1), 1-44.
-- Rubio-Ramirez, J. F., Waggoner, D. F., and Zha, T. (2010). Structural vector autoregressions: Theory of identification and algorithms for inference. *Review of Economic Studies*, 77(2), 665-696.
 - Sims, C. A. (1980). Macroeconomics and reality. *Econometrica*, 48(1), 1-48.
 - Sims, C. A., Stock, J. H., and Watson, M. W. (1990). Inference in linear time series models with some unit roots. *Econometrica*, 58(1), 113-144.
 - Uhlig, H. (2005). What are the effects of monetary policy on output? Results from an agnostic identification procedure. *Journal of Monetary Economics*, 52(2), 381-419.
