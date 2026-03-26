@@ -42,12 +42,16 @@ Whilst GDP is measured quarterly, industrial production (`output`) offers a more
 
 The sample we’ll be using here runs from January 1965 to December 2007. The start date captures the period when the Fed began actively setting short-term interest rates as its primary policy tool. The end date is deliberate: from December 2008 onward, the funds rate sat at the *zero lower bound* (effectively zero), thus leaving no room for conventional rate cuts and subsequently breaking the identification of monetary policy shocks via interest rate movements. You cannot identify a “surprise tightening” when the rate cannot move. Industrial production and CPI enter the VAR as $100 \times \log(\cdot)$, so a one-unit change is approximately a one-percent change. The federal funds rate enters in levels (percentage points).
 
-!!! note "Differencing"
-
-    We do not difference the data. [Sims, Stock, and Watson (1990)](https://www.princeton.edu/~mwatson/papers/Sims_Stock_Watson_Ecta_1990.pdf) showed that Bayesian inference in levels VARs is valid regardless of whether the series have unit roots, and differencing can distort impulse responses when variables are cointegrated.
-
-<details class="code-fold">
-<summary>Code</summary>
+|       | output | prices | rate   |
+|-------|--------|--------|--------|
+| count | 516.00 | 516.00 | 516.00 |
+| mean  | 406.30 | 454.34 | 6.44   |
+| std   | 33.31  | 60.45  | 3.27   |
+| min   | 341.18 | 344.30 | 0.98   |
+| 25%   | 381.15 | 400.41 | 4.60   |
+| 50%   | 401.33 | 469.73 | 5.56   |
+| 75%   | 437.08 | 507.41 | 8.23   |
+| max   | 462.87 | 535.40 | 19.10  |
 
 ``` python
 df = pd.read_csv("data/monetary_policy.csv", index_col="date", parse_dates=True)
