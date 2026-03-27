@@ -263,3 +263,39 @@ At short horizons digital and price dominate the sales panel. At longer horizons
 TV's share grows as the brand pathway accumulates. A marketer evaluating over
 different planning horizons would weight channels differently, and the FEVD gives
 them the object to reason about that with.
+
+```{python}
+#| echo: false
+#| output: asis
+if not ci:
+    print("""
+## 6. Historical decomposition --- what drove the Q4 spike?
+
+The DGP included a Q4 period where TV spend increased. Historical
+decomposition attributes each week's deviation from the baseline to
+specific structural shocks.
+""")
+```
+
+```{python}
+#| eval: !expr 'not ci'
+#| include: !expr 'not ci'
+hd_result = identified.historical_decomposition()
+```
+
+```{python}
+#| eval: !expr 'not ci'
+#| include: !expr 'not ci'
+hd_result.plot()
+plt.show()
+```
+
+```{python}
+#| echo: false
+#| output: asis
+if not ci:
+    print("""
+Historical decomposition turns the IRF insight from "what would happen in
+theory" to "what did happen in this data". It gives the marketer a
+retrospective accounting of which channels drove a specific observed outcome.
+""")
