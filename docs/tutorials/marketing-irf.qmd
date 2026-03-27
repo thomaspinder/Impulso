@@ -181,3 +181,65 @@ sampler = NUTSSampler(
 model = VAR(n_lags=n_lags, prior="minnesota")
 fitted = model.fit(data, sampler=sampler)
 ```
+
+## 4. Impulse response functions --- short-run vs long-run
+
+The Cholesky decomposition imposes a recursive ordering: variables listed earlier
+can affect later variables within the same week, but not vice versa. Our ordering
+(tv, digital, price, brand, sales) reflects the marketing planning process ---
+ad budgets are set in advance, price is determined by the trade team before
+observing current-week sales, brand awareness responds within-week to advertising,
+and sales is the most endogenous variable.
+
+```{python}
+identified = fitted.set_identification_strategy(Cholesky(ordering=var_names))
+```
+
+```{python}
+irf_result = identified.impulse_response(horizon=20)
+```
+
+```{python}
+irf_result.plot()
+plt.show()
+```
+
+### The digital spike
+
+The digital-to-sales panel shows a sharp spike at week 1 that decays rapidly
+toward zero by week 4. This is the direct, fast-acting channel: digital
+advertising drives immediate purchase behaviour, but the effect does not persist.
+
+### The TV slow burn
+
+The TV-to-sales panel tells a different story. The direct effect is small. But
+look at TV-to-brand: TV spend accumulates into brand awareness over several
+weeks, and brand-to-sales shows a persistent positive response. TV reaches sales
+indirectly, mediated through a brand channel that builds slowly but lasts.
+
+```{python}
+irf_da = irf_result.idata.posterior_predictive["irf"]
+horizons = irf_da.coords["horizon"].values
+
+fig, ax = plt.subplots(figsize=(8, 4))
+for shock, color, label in [("tv", "C0", "TV shock"), ("digital", "C1", "Digital shock")]:
+    series = irf_da.sel(shock=shock, response="sales")
+    med = series.median(dim=("chain", "draw")).values
+    hdi = az.hdi(series, hdi_prob=0.89)["irf"]
+    low = hdi.sel(hdi="lower").values
+    high = hdi.sel(hdi="higher").values
+    ax.plot(horizons, med, color=color, label=label)
+    ax.fill_between(horizons, low, high, alpha=0.2, color=color)
+
+ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
+ax.set_xlabel("Weeks after shock")
+ax.set_ylabel("Response of sales")
+ax.set_title("TV vs digital: effect on sales over time")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+If you measure at week 1, digital wins. If you measure at week 16, TV wins. The
+evaluation window determines the conclusion, and the IRF makes the trade-off
+between the two channels visible.
