@@ -1,0 +1,26 @@
+---
+title: 'Long-run and short-run effects of marketing spend: a structural VAR approach'
+execute:
+  warning: false
+  echo: true
+format:
+  gfm:
+    variant: -smart+pipe_tables+tex_math_dollars
+    wrap: none
+jupyter: python3
+---
+
+```{python}
+#| include: false
+import logging
+import warnings
+
+warnings.filterwarnings("ignore")
+logging.getLogger("pytensor").setLevel(logging.ERROR)
+```
+
+```{python}
+#| tags: [parameters]
+#| include: false
+ci = False
+```
