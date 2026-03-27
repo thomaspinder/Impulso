@@ -154,3 +154,30 @@ fig.suptitle("Simulated marketing data", fontsize=14)
 plt.tight_layout()
 plt.show()
 ```
+
+## 3. Fit the model
+
+We fit a Bayesian VAR with a Minnesota prior. The lag order is chosen by BIC
+from an OLS pre-screen, then the full posterior is sampled via NUTS.
+
+```{python}
+data = VARData.from_df(df, endog=var_names)
+```
+
+```{python}
+lag_result = select_lag_order(data, max_lags=6)
+n_lags = lag_result.bic
+print(f"BIC selects {n_lags} lags")
+```
+
+```{python}
+sampler = NUTSSampler(
+    draws=2000 if not ci else 100,
+    tune=1000 if not ci else 50,
+    chains=2 if not ci else 1,
+    cores=1,
+    random_seed=42,
+)
+model = VAR(n_lags=n_lags, prior="minnesota")
+fitted = model.fit(data, sampler=sampler)
+```
