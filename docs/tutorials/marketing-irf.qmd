@@ -24,3 +24,31 @@ logging.getLogger("pytensor").setLevel(logging.ERROR)
 #| include: false
 ci = False
 ```
+
+A CMO at a consumer goods firm reviews the past year of marketing performance.
+Digital campaigns drove measurable spikes in weekly sales --- the return was
+immediate and obvious. TV spend is harder to justify: the weekly numbers never
+show a clear lift. The CMO asks whether the firm should shift budget from TV to
+digital.
+
+The answer depends on the evaluation window. A structural VAR fitted to marketing
+data can separate fast-decaying direct effects from slow-building indirect effects
+that flow through brand awareness. This notebook builds that analysis step by
+step, using simulated data with known dynamics so we can verify the model recovers
+the truth.
+
+!!! note "Impulse Response Function"
+
+    An impulse response function (IRF) traces the dynamic path of each variable
+    following a one-time, one-unit structural shock over subsequent periods.
+
+```{python}
+import arviz as az
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from impulso import VAR, VARData, select_lag_order
+from impulso.identification import Cholesky
+from impulso.samplers import NUTSSampler
+```
