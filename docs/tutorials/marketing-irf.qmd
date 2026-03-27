@@ -52,3 +52,105 @@ from impulso import VAR, VARData, select_lag_order
 from impulso.identification import Cholesky
 from impulso.samplers import NUTSSampler
 ```
+
+## 2. The data
+
+The system has five weekly variables, ordered from most exogenous (set in advance
+by the marketing team) to most endogenous (observed as an outcome):
+
+| Variable | Description | Role |
+|----------|-------------|------|
+| `tv` | TV advertising spend (GRPs) | Planned weeks ahead, slow-acting |
+| `digital` | Digital advertising spend (impressions) | Adjusted weekly, fast-acting |
+| `price` | Average shelf price | Set by trade team, affects demand |
+| `brand` | Brand awareness index | Mediates long-run ad effects |
+| `sales` | Weekly unit sales | Outcome variable |
+
+These are simulated from a VAR(2) with coefficients calibrated to published
+marketing elasticities. The key dynamics are: TV builds brand awareness slowly
+across multiple weeks; digital drives an immediate sales spike that decays
+quickly; brand awareness lifts sales persistently; and price increases hurt sales
+contemporaneously.
+
+```{python}
+#| include: false
+# True coefficient matrices for the DGP
+# Variable order: [tv, digital, price, brand, sales]
+
+A1_true = np.zeros((5, 5))
+# Diagonal (autocorrelation)
+A1_true[0, 0] = 0.70  # tv
+A1_true[1, 1] = 0.60  # digital
+A1_true[2, 2] = 0.85  # price
+A1_true[3, 3] = 0.80  # brand
+A1_true[4, 4] = 0.40  # sales
+# Off-diagonal (cross-effects at lag 1)
+A1_true[1, 0] = 0.04  # tv -> digital (TV lifts search interest)
+A1_true[3, 0] = 0.08  # tv -> brand (small, cumulates over weeks)
+A1_true[4, 1] = 0.35  # digital -> sales (large, immediate)
+A1_true[4, 2] = -0.30  # price -> sales (negative, immediate)
+A1_true[4, 3] = 0.15  # brand -> sales (persistent)
+
+A2_true = np.zeros((5, 5))
+# Off-diagonal (cross-effects at lag 2)
+A2_true[3, 0] = 0.05  # tv -> brand (continued accumulation)
+A2_true[4, 1] = 0.05  # digital -> sales (fast decay)
+A2_true[4, 2] = -0.05  # price -> sales
+A2_true[4, 3] = 0.12  # brand -> sales (persistent)
+
+# Innovation covariance (diagonal: ad spend noisy, price stable, sales noisy)
+Sigma_true = np.diag([1.0, 1.2, 0.3, 0.5, 1.5])
+
+# Verify stationarity
+companion = np.zeros((10, 10))
+companion[:5, :5] = A1_true
+companion[:5, 5:] = A2_true
+companion[5:, :5] = np.eye(5)
+eigenvalues = np.linalg.eigvals(companion)
+assert np.all(np.abs(eigenvalues) < 1), f"Unstable DGP: max eigenvalue = {np.max(np.abs(eigenvalues)):.3f}"
+```
+
+```{python}
+rng = np.random.default_rng(42)
+T = 104 if not ci else 40
+burn = 50
+n_vars = 5
+total = T + burn + 2  # +2 for initial lags
+
+Y = np.zeros((total, n_vars))
+innovations = rng.multivariate_normal(np.zeros(n_vars), Sigma_true, size=total)
+
+# Inject Q4 TV campaign: weeks 78-90 (post-burn, only in full mode)
+if not ci:
+    campaign_start = burn + 2 + 78
+    campaign_end = burn + 2 + 90
+    innovations[campaign_start:campaign_end, 0] += 3.0
+
+for t in range(2, total):
+    Y[t] = A1_true @ Y[t - 1] + A2_true @ Y[t - 2] + innovations[t]
+
+# Discard burn-in
+Y = Y[burn + 2 :]
+
+var_names = ["tv", "digital", "price", "brand", "sales"]
+dates = pd.date_range("2024-01-08", periods=T, freq="W-MON")
+df = pd.DataFrame(Y, columns=var_names, index=dates)
+df.describe().round(2)
+```
+
+```{python}
+fig, axes = plt.subplots(5, 1, figsize=(12, 10), sharex=True)
+for i, col in enumerate(var_names):
+    axes[i].plot(df.index, df[col], linewidth=0.8)
+    axes[i].set_ylabel(col)
+    if not ci:
+        campaign_start_date = dates[78]
+        campaign_end_date = dates[min(90, T - 1)]
+        axes[i].axvspan(campaign_start_date, campaign_end_date, alpha=0.15, color="orange", label="Q4 TV campaign" if i == 0 else None)
+if not ci:
+    axes[0].legend(loc="upper left", fontsize=8)
+axes[-1].set_xlabel("Week")
+fig.suptitle("Simulated marketing data", fontsize=14)
+plt.tight_layout()
+plt.show()
+```
