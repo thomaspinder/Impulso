@@ -178,7 +178,7 @@ sampler = NUTSSampler(
     cores=1,
     random_seed=42,
 )
-model = VAR(n_lags=n_lags, prior="minnesota")
+model = VAR(lags=n_lags, prior="minnesota")
 fitted = model.fit(data, sampler=sampler)
 ```
 
@@ -268,6 +268,8 @@ them the object to reason about that with.
 #| echo: false
 #| output: asis
 if not ci:
+    hd_result = identified.historical_decomposition()
+
     print("""
 ## 6. Historical decomposition --- what drove the Q4 spike?
 
@@ -275,25 +277,12 @@ The DGP included a Q4 period where TV spend increased. Historical
 decomposition attributes each week's deviation from the baseline to
 specific structural shocks.
 """)
-```
 
-```{python}
-#| eval: !expr 'not ci'
-#| include: !expr 'not ci'
-hd_result = identified.historical_decomposition()
-```
+    hd_result.plot()
+    plt.savefig("_hd_plot.png", dpi=100, bbox_inches="tight")
+    plt.close()
+    print("![Historical decomposition](_hd_plot.png)")
 
-```{python}
-#| eval: !expr 'not ci'
-#| include: !expr 'not ci'
-hd_result.plot()
-plt.show()
-```
-
-```{python}
-#| echo: false
-#| output: asis
-if not ci:
     print("""
 Historical decomposition turns the IRF insight from "what would happen in
 theory" to "what did happen in this data". It gives the marketer a
