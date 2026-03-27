@@ -243,3 +243,23 @@ plt.show()
 If you measure at week 1, digital wins. If you measure at week 16, TV wins. The
 evaluation window determines the conclusion, and the IRF makes the trade-off
 between the two channels visible.
+
+## 5. Forecast error variance decomposition --- which channel matters most?
+
+We have seen that TV and digital have different *shapes* of effect on sales. FEVD
+answers the magnitude question: what fraction of sales forecast-error variance
+does each structural shock explain at each horizon?
+
+```{python}
+fevd_result = identified.fevd(horizon=20)
+```
+
+```{python}
+fevd_result.plot()
+plt.show()
+```
+
+At short horizons digital and price dominate the sales panel. At longer horizons
+TV's share grows as the brand pathway accumulates. A marketer evaluating over
+different planning horizons would weight channels differently, and the FEVD gives
+them the object to reason about that with.
