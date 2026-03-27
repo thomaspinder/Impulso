@@ -299,3 +299,21 @@ Historical decomposition turns the IRF insight from "what would happen in
 theory" to "what did happen in this data". It gives the marketer a
 retrospective accounting of which channels drove a specific observed outcome.
 """)
+```
+
+## 7. From IRFs to budget decisions
+
+Three analytical objects, each answering a different question. Impulse response
+functions revealed the *shape* of each channel's effect: digital acts fast and
+direct, while TV operates indirectly through brand awareness with a longer
+accumulation period. The forecast error variance decomposition quantified the
+*magnitude* of each channel's contribution and showed how the ranking shifts as
+the evaluation horizon extends. Historical decomposition applied these dynamics
+to a concrete episode, attributing observed sales movements to specific
+structural shocks.
+
+Return to the CMO's question: should the firm shift budget from TV to digital?
+The answer depends on the planning horizon and strategic objectives. A firm
+optimising for next-week sales sees one answer; a firm investing in long-run
+brand equity sees another. The structural VAR does not make the decision --- it
+makes the trade-off visible.
