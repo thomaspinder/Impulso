@@ -27,6 +27,7 @@ By running both identification strategies on the same data, we can see observe h
     A central analytical object in this notebook is the impulse response function (IRF): the dynamic path of each variable following a one-time, one-unit structural shock, traced out over subsequent periods. IRFs answer questions like “if the central bank unexpectedly raises rates today, what happens to output over the next four years?”
 
 
+
 ```{python}
 #| include: false
 import logging

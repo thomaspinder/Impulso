@@ -50,6 +50,7 @@ dev = [
     "zensical>=0.0.28",
     "tabulate>=0.10.0",
     "papermill>=2.7.0",
+    "marimo>=0.12",
 ]
 docs = [
     "statsmodels>=0.14.6",

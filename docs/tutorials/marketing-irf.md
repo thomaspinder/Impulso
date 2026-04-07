@@ -63,16 +63,16 @@ df = pd.DataFrame(Y, columns=var_names, index=dates)
 df.describe().round(2)
 ```
 
-|       | tv    | digital | price | brand | sales |
-|-------|-------|---------|-------|-------|-------|
-| count | 40.00 | 40.00   | 40.00 | 40.00 | 40.00 |
-| mean  | 0.62  | 0.06    | 0.44  | 0.13  | -0.42 |
-| std   | 1.14  | 1.02    | 0.91  | 1.23  | 1.52  |
-| min   | -2.57 | -2.25   | -0.91 | -2.66 | -4.30 |
-| 25%   | 0.07  | -0.46   | -0.22 | -0.51 | -1.22 |
-| 50%   | 0.55  | 0.12    | 0.31  | 0.16  | -0.19 |
-| 75%   | 1.28  | 0.78    | 0.97  | 1.17  | 0.50  |
-| max   | 3.37  | 1.97    | 2.48  | 2.40  | 2.46  |
+|       | tv     | digital | price  | brand  | sales  |
+|-------|--------|---------|--------|--------|--------|
+| count | 104.00 | 104.00  | 104.00 | 104.00 | 104.00 |
+| mean  | 1.55   | 0.34    | -0.02  | 0.14   | 0.14   |
+| std   | 3.01   | 1.16    | 0.97   | 1.51   | 1.90   |
+| min   | -2.57  | -2.25   | -2.24  | -2.66  | -4.30  |
+| 25%   | -0.00  | -0.39   | -0.70  | -0.98  | -1.15  |
+| 50%   | 0.69   | 0.28    | -0.14  | 0.01   | 0.11   |
+| 75%   | 1.66   | 1.12    | 0.57   | 1.13   | 1.30   |
+| max   | 12.25  | 3.28    | 2.48   | 4.42   | 4.08   |
 
 ``` python
 fig, axes = plt.subplots(5, 1, figsize=(12, 10), sharex=True)
@@ -91,7 +91,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-![](marketing-irf_files/figure-commonmark/cell-8-output-1.png)
+![](marketing-irf_files/figure-commonmark/cell-7-output-1.png)
 
 ## 3. Fit the model
 
@@ -111,11 +111,11 @@ print(f"BIC selects {n_lags} lags")
 
 ``` python
 sampler = NUTSSampler(
-    draws=2000 if not ci else 100,
-    tune=1000 if not ci else 50,
-    chains=2 if not ci else 1,
-    cores=1,
-    random_seed=42,
+    draws=3000 if not ci else 100,
+    tune=1500 if not ci else 50,
+    chains=4 if not ci else 1,
+    cores=4 if not ci else 1,
+    random_seed=123,
 )
 model = VAR(lags=n_lags, prior="minnesota")
 fitted = model.fit(data, sampler=sampler)
@@ -205,11 +205,11 @@ fitted = model.fit(data, sampler=sampler)
 
 <div class="nutpie">
     <p><strong>Sampler Progress</strong></p>
-    <p>Total Chains: <span id="total-chains">1</span></p>
+    <p>Total Chains: <span id="total-chains">4</span></p>
     <p>Active Chains: <span id="active-chains">0</span></p>
     <p>
         Finished Chains:
-        <span id="active-chains">1</span>
+        <span id="active-chains">4</span>
     </p>
     <p>Sampling for now</p>
     <p>
@@ -218,8 +218,8 @@ fitted = model.fit(data, sampler=sampler)
     </p>
 &#10;    <progress
         id="total-progress-bar"
-        max="150"
-        value="150">
+        max="18000"
+        value="18000">
     </progress>
     <table>
         <thead>
@@ -235,13 +235,49 @@ fitted = model.fit(data, sampler=sampler)
             &#10;                <tr>
                     <td class="progress-cell">
                         <progress
-                            max="150"
-                            value="150">
+                            max="4500"
+                            value="4500">
                         </progress>
                     </td>
-                    <td>150</td>
+                    <td>4500</td>
                     <td>0</td>
-                    <td>0.38</td>
+                    <td>0.61</td>
+                    <td>7</td>
+                </tr>
+            &#10;                <tr>
+                    <td class="progress-cell">
+                        <progress
+                            max="4500"
+                            value="4500">
+                        </progress>
+                    </td>
+                    <td>4500</td>
+                    <td>0</td>
+                    <td>0.55</td>
+                    <td>7</td>
+                </tr>
+            &#10;                <tr>
+                    <td class="progress-cell">
+                        <progress
+                            max="4500"
+                            value="4500">
+                        </progress>
+                    </td>
+                    <td>4500</td>
+                    <td>0</td>
+                    <td>0.59</td>
+                    <td>7</td>
+                </tr>
+            &#10;                <tr>
+                    <td class="progress-cell">
+                        <progress
+                            max="4500"
+                            value="4500">
+                        </progress>
+                    </td>
+                    <td>4500</td>
+                    <td>0</td>
+                    <td>0.58</td>
                     <td>7</td>
                 </tr>
             &#10;            </tr>
@@ -255,18 +291,13 @@ The Cholesky decomposition imposes a recursive ordering: variables listed earlie
 
 ``` python
 identified = fitted.set_identification_strategy(Cholesky(ordering=var_names))
-```
-
-``` python
 irf_result = identified.impulse_response(horizon=20)
-```
 
-``` python
 irf_result.plot()
 plt.show()
 ```
 
-![](marketing-irf_files/figure-commonmark/cell-14-output-1.png)
+![](marketing-irf_files/figure-commonmark/cell-11-output-1.png)
 
 ### The digital spike
 
@@ -299,7 +330,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-![](marketing-irf_files/figure-commonmark/cell-15-output-1.png)
+![](marketing-irf_files/figure-commonmark/cell-12-output-1.png)
 
 If you measure at week 1, digital wins. If you measure at week 16, TV wins. The evaluation window determines the conclusion, and the IRF makes the trade-off between the two channels visible.
 
@@ -316,9 +347,17 @@ fevd_result.plot()
 plt.show()
 ```
 
-![](marketing-irf_files/figure-commonmark/cell-17-output-1.png)
+![](marketing-irf_files/figure-commonmark/cell-14-output-1.png)
 
 At short horizons digital and price dominate the sales panel. At longer horizons TV’s share grows as the brand pathway accumulates. A marketer evaluating over different planning horizons would weight channels differently, and the FEVD gives them the object to reason about that with.
+
+## 6. Historical decomposition — what drove the Q4 spike?
+
+The DGP included a Q4 period where TV spend increased. Historical decomposition attributes each week’s deviation from the baseline to specific structural shocks.
+
+![Historical decomposition](_hd_plot.png)
+
+Historical decomposition turns the IRF insight from “what would happen in theory” to “what did happen in this data”. It gives the marketer a retrospective accounting of which channels drove a specific observed outcome.
 
 ## 7. From IRFs to budget decisions
 

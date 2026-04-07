@@ -172,10 +172,10 @@ print(f"BIC selects {n_lags} lags")
 
 ```{python}
 sampler = NUTSSampler(
-    draws=2000 if not ci else 100,
-    tune=1000 if not ci else 50,
-    chains=2 if not ci else 1,
-    cores=1,
+    draws=3000 if not ci else 100,
+    tune=1500 if not ci else 50,
+    chains=4 if not ci else 1,
+    cores=4 if not ci else 1,
     random_seed=42,
 )
 model = VAR(lags=n_lags, prior="minnesota")
@@ -193,13 +193,8 @@ and sales is the most endogenous variable.
 
 ```{python}
 identified = fitted.set_identification_strategy(Cholesky(ordering=var_names))
-```
-
-```{python}
 irf_result = identified.impulse_response(horizon=20)
-```
 
-```{python}
 irf_result.plot()
 plt.show()
 ```
