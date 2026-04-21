@@ -39,10 +39,13 @@ def test_sv_default_prior_is_svprior():
 
 
 def test_sv_default_prior_custom_scales():
-    prior = SVDefaultPrior(mu_scale=1.0, sigma_eta_scale=0.5)
+    custom = SVDefaultPrior(mu_scale=1.0, sigma_eta_scale=0.5)
+    default = SVDefaultPrior()
     y = np.array([1.0, 2.0, 3.0])
-    params = prior.build_priors(y)
+    params = custom.build_priors(y)
     assert params["sigma_eta_scale"] == 0.5
+    # mu_scale must actually drive mu_sigma, not just be stored on the model
+    assert params["mu_sigma"] < default.build_priors(y)["mu_sigma"]
 
 
 def test_sv_default_prior_frozen():
@@ -67,6 +70,7 @@ def test_sv_default_prior_mu_sigma_floor_when_near_constant():
         np.ones(30),  # exactly constant
         np.array([1.0] * 29 + [1.0 + 1e-16]),  # ulp-level perturbation
         np.full(30, 1e-300),  # underflow-scale values
+        np.array([5.0]),  # singleton - ddof=1 gives NaN std/var, floor must still activate
     ],
 )
 def test_sv_default_prior_mu_sigma_positive_finite_for_any_input(y):
@@ -75,3 +79,5 @@ def test_sv_default_prior_mu_sigma_positive_finite_for_any_input(y):
     params = prior.build_priors(y)
     assert params["mu_sigma"] > 0.0
     assert np.isfinite(params["mu_sigma"])
+    # Also: h0_mu must be finite for all inputs (log_var must not be NaN)
+    assert np.isfinite(params["h0_mu"])

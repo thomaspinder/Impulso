@@ -57,6 +57,12 @@ class SVDefaultPrior(ImpulsoModel):
         y_mean = float(np.mean(y))
         y_std = float(np.std(y, ddof=1))
         y_var = float(np.var(y, ddof=1))
+        # Sanitize ddof=1 NaN on singleton inputs; downstream `max(..., floor)` does
+        # not help because max(NaN, x) == NaN in Python.
+        if not np.isfinite(y_std):
+            y_std = 0.0
+        if not np.isfinite(y_var):
+            y_var = 0.0
         # Guard against log(0) when all observations are equal
         log_var = float(np.log(max(y_var, 1e-8)))
         # Guard mu_sigma: avoid 0 (constant y) or NaN (singleton y) reaching PyMC.
