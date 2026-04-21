@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING, Literal
 
+import numpy as np
+
 from impulso._base import ImpulsoBaseModel
 from impulso.sv.data import SVData
 from impulso.sv.priors import SVDefaultPrior, SVPrior
@@ -78,7 +80,7 @@ class StochasticVolatility(ImpulsoBaseModel):
             dynamics=self.dynamics,
         )
 
-    def _build_pymc_model(self, y, prior_params: dict):
+    def _build_pymc_model(self, y: np.ndarray, prior_params: dict):
         """Build the PyMC model for the chosen dynamics.
 
         Args:
@@ -112,7 +114,10 @@ class StochasticVolatility(ImpulsoBaseModel):
                 )
                 # Non-centered: zero-mean AR(1) g_t with innovation std 1 and autocorrelation phi,
                 # then h_t = alpha + sigma_eta * g_t. The stationary std of g is 1/sqrt(1 - phi^2).
-                g_init = pm.Normal.dist(mu=0.0, sigma=pm.math.sqrt(1.0 / (1.0 - pt.mul(phi, phi))))
+                # Floor the denominator: with Beta(20, 1.5) NUTS routinely explores phi > 0.99 and
+                # floating-point rounding can produce 1 - phi^2 = 0 exactly, yielding NaN log-prob.
+                stationary_var = 1.0 / pm.math.maximum(1.0 - pt.mul(phi, phi), 1e-6)
+                g_init = pm.Normal.dist(mu=0.0, sigma=pm.math.sqrt(stationary_var))
                 g = pm.AR(
                     "g",
                     rho=pt.stack([pt.as_tensor_variable(0.0), phi]),
