@@ -43,3 +43,68 @@ def test_fittedsv_forecast_shape_and_type(fitted_sv):
     assert result.steps == 12
     forecast = result.idata.posterior_predictive["forecast"].values
     assert forecast.shape == (2, 50, 12)
+
+
+def _build_ar1_fitted_sv():
+    """Build a FittedSV with synthetic AR(1) posterior, no MCMC."""
+    import arviz as az
+    import xarray as xr
+
+    rng = np.random.default_rng(0)
+    n_chains, n_draws, T = 2, 50, 50
+    h = 0.1 * rng.standard_normal((n_chains, n_draws, T))
+    mu = 0.01 * rng.standard_normal((n_chains, n_draws))
+    sigma_eta = 0.1 * np.ones((n_chains, n_draws))
+    phi = 0.9 + 0.05 * rng.standard_normal((n_chains, n_draws))
+    alpha = 0.0 + 0.01 * rng.standard_normal((n_chains, n_draws))
+
+    posterior = xr.Dataset({
+        "h": xr.DataArray(h, dims=["chain", "draw", "time"]),
+        "mu": xr.DataArray(mu, dims=["chain", "draw"]),
+        "sigma_eta": xr.DataArray(sigma_eta, dims=["chain", "draw"]),
+        "phi": xr.DataArray(phi, dims=["chain", "draw"]),
+        "alpha": xr.DataArray(alpha, dims=["chain", "draw"]),
+    })
+    idata = az.InferenceData(posterior=posterior)
+
+    y = rng.standard_normal(T)
+    index = pd.date_range("2000-01-01", periods=T, freq="MS")
+    data = SVData(y=y, name="sim", index=index)
+
+    return FittedSV.model_construct(idata=idata, data=data, dynamics="ar1")
+
+
+def test_fittedsv_forecast_ar1_shape_and_type():
+    from impulso.results import SVForecastResult
+
+    fitted = _build_ar1_fitted_sv()
+    result = fitted.forecast(steps=6, random_seed=42)
+    assert isinstance(result, SVForecastResult)
+    assert result.steps == 6
+    assert result.series_name == "sim"
+
+    forecast = result.idata.posterior_predictive["forecast"].values
+    assert forecast.shape == (2, 50, 6)
+
+    med = result.median()
+    assert med.shape[0] == 6
+    hdi = result.hdi()
+    assert hdi.lower.shape[0] == 6
+    assert hdi.upper.shape[0] == 6
+
+
+def test_fittedsv_forecast_rng_seeds_are_respected():
+    fitted = _build_ar1_fitted_sv()
+
+    r1 = fitted.forecast(steps=6, random_seed=42)
+    r2 = fitted.forecast(steps=6, random_seed=42)
+    r3 = fitted.forecast(steps=6, random_seed=7)
+
+    f1 = r1.idata.posterior_predictive["forecast"].values
+    f2 = r2.idata.posterior_predictive["forecast"].values
+    f3 = r3.idata.posterior_predictive["forecast"].values
+
+    # Same seed -> identical draws.
+    np.testing.assert_array_equal(f1, f2)
+    # Different seed -> different draws.
+    assert not np.array_equal(f1, f3)
