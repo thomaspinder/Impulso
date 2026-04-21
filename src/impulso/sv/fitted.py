@@ -41,7 +41,11 @@ class FittedSV(ImpulsoBaseModel):
             index=self.data.index,
         )
 
-    def forecast(self, steps: int) -> "SVForecastResult":
+    def forecast(
+        self,
+        steps: int,
+        random_seed: int | np.random.Generator | None = None,
+    ) -> "SVForecastResult":
         """Density forecast of y_{T+h} integrating over h_{T+h} uncertainty.
 
         For random-walk dynamics:
@@ -53,6 +57,10 @@ class FittedSV(ImpulsoBaseModel):
 
         Args:
             steps: Number of forecast steps.
+            random_seed: Controls the RNG used to draw forecast innovations.
+                Accepts an int seed, a ``numpy.random.Generator``, or ``None``
+                (default) for fresh non-deterministic draws. Pass an int or
+                ``Generator`` for reproducible forecasts.
 
         Returns:
             SVForecastResult wrapping posterior predictive draws.
@@ -61,7 +69,7 @@ class FittedSV(ImpulsoBaseModel):
 
         from impulso.results import SVForecastResult
 
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(random_seed)
         posterior = self.idata.posterior
 
         h_draws = posterior["h"].values  # (C, D, T)
