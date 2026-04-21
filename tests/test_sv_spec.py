@@ -62,3 +62,49 @@ def test_sv_spec_fit_random_walk_smoke():
     assert isinstance(fitted, FittedSV)
     assert fitted.log_volatility.shape == (1, 30, T)
     assert fitted.dynamics == "random_walk"
+
+
+def test_sv_spec_build_ar1_model():
+    """AR(1) branch builds a valid PyMC model without running MCMC."""
+    import numpy as np
+    import pandas as pd
+    import pymc as pm
+
+    from impulso.sv.data import SVData
+
+    rng = np.random.default_rng(0)
+    T = 30
+    y = rng.standard_normal(T)
+    index = pd.date_range("2000-01-01", periods=T, freq="MS")
+    data = SVData(y=y, name="sim", index=index)
+
+    sv = StochasticVolatility(dynamics="ar1")
+    prior_params = sv.resolved_prior.build_priors(data.y)
+    model = sv._build_pymc_model(data.y, prior_params)
+
+    assert isinstance(model, pm.Model)
+    assert "phi" in model.named_vars
+    assert "alpha" in model.named_vars
+
+
+@pytest.mark.slow
+def test_sv_spec_fit_ar1_smoke():
+    """Smoke test: AR(1) fit runs end-to-end."""
+    import numpy as np
+    import pandas as pd
+
+    from impulso.samplers import NUTSSampler
+    from impulso.sv.data import SVData
+
+    rng = np.random.default_rng(1)
+    T = 80
+    y = 0.1 * rng.standard_normal(T)
+    index = pd.date_range("2000-01-01", periods=T, freq="MS")
+    data = SVData(y=y, name="sim", index=index)
+
+    sampler = NUTSSampler(draws=30, tune=30, chains=1, cores=1, random_seed=2)
+    fitted = StochasticVolatility(dynamics="ar1").fit(data, sampler=sampler)
+
+    assert fitted.dynamics == "ar1"
+    assert "phi" in fitted.idata.posterior
+    assert "alpha" in fitted.idata.posterior

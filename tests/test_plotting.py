@@ -136,3 +136,37 @@ class TestPlotHistoricalDecomposition:
         result = _make_hd_result()
         fig = plot_historical_decomposition(result)
         assert fig._suptitle.get_text() == "Historical Decomposition"
+
+
+def test_plot_volatility_returns_figure(synthetic_sv_idata):
+    import pandas as pd
+    from matplotlib.figure import Figure
+
+    from impulso.results import VolatilityResult
+
+    result = VolatilityResult(
+        idata=synthetic_sv_idata,
+        series_name="sim",
+        index=pd.date_range("2000-01-01", periods=100, freq="MS"),
+    )
+    fig = result.plot()
+    assert isinstance(fig, Figure)
+
+
+def test_plot_sv_forecast_returns_figure():
+    import arviz as az
+    import numpy as np
+    import xarray as xr
+    from matplotlib.figure import Figure
+
+    from impulso.results import SVForecastResult
+
+    rng = np.random.default_rng(0)
+    steps = 12
+    forecast = rng.standard_normal((2, 50, steps))
+    idata = az.InferenceData(
+        posterior_predictive=xr.Dataset({"forecast": xr.DataArray(forecast, dims=["chain", "draw", "step"])})
+    )
+    result = SVForecastResult(idata=idata, series_name="sim", steps=steps)
+    fig = result.plot()
+    assert isinstance(fig, Figure)
