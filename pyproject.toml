@@ -77,6 +77,10 @@ not-subscriptable = "ignore"
 # pandas type stubs on 3.10 reject list[str]/list[int] for index/columns
 # params (expects Axes type), but this works fine at runtime.
 invalid-argument-type = "ignore"
+# PyMC timeseries distributions (GaussianRandomWalk, AR) are ABCMeta
+# subclasses whose (name, *dist_params) constructor signature ty cannot
+# match against the generic `type.__init__` overloads.
+no-matching-overload = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
