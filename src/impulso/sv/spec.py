@@ -110,9 +110,9 @@ class StochasticVolatility(ImpulsoBaseModel):
                     mu=prior_params["alpha_mu"],
                     sigma=prior_params["alpha_sigma"],
                 )
-                # Non-centered: zero-mean unit-sigma AR(1) g_t with autocorrelation phi,
-                # then h_t = alpha + sigma_eta * g_t. Decouples sigma_eta from the latent geometry.
-                g_init = pm.Normal.dist(mu=0.0, sigma=1.0)
+                # Non-centered: zero-mean AR(1) g_t with innovation std 1 and autocorrelation phi,
+                # then h_t = alpha + sigma_eta * g_t. The stationary std of g is 1/sqrt(1 - phi^2).
+                g_init = pm.Normal.dist(mu=0.0, sigma=pm.math.sqrt(1.0 / (1.0 - pt.mul(phi, phi))))
                 g = pm.AR(
                     "g",
                     rho=pt.stack([pt.as_tensor_variable(0.0), phi]),
