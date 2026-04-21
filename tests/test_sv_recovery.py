@@ -50,7 +50,7 @@ def sv_series_ar1():
     T = 500
     phi = 0.95
     alpha = 0.0
-    sigma_eta = 0.1
+    sigma_eta = 0.3
     mu = 0.0
     h = np.zeros(T)
     for t in range(1, T):
