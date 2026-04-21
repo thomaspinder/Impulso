@@ -21,7 +21,7 @@ from impulso.sv import SVData, StochasticVolatility
 
 ## Data
 
-We reuse the monthly macro dataset shipped with the monetary-policy tutorial. The file spans January 1965 to December 2007 and includes a CPI-like `prices` column expressed as $100 \times \log(\text{CPI})$. Month-on-month inflation, in percentage points, is the first difference of that column.
+We reuse the monthly macro dataset shipped with the monetary-policy tutorial. The file starts in January 1965 and runs to the latest available month, and includes a CPI-like `prices` column expressed as $100 \times \log(\text{CPI})$. Month-on-month inflation, in percentage points, is the first difference of that column.
 
 ``` python
 df = pd.read_csv("data/monetary_policy.csv", parse_dates=["date"], index_col="date")
@@ -35,8 +35,8 @@ print("\nLast five:")
 print(inflation.tail())
 ```
 
-    Observations: 515
-    Range: 1965-02 to 2007-12
+    Observations: 733
+    Range: 1965-02 to 2026-03
 
     First five:
     date
@@ -49,14 +49,14 @@ print(inflation.tail())
 
     Last five:
     date
-    2007-08-01    0.005777
-    2007-09-01    0.079216
-    2007-10-01    0.057631
-    2007-11-01    0.146399
-    2007-12-01    0.054065
+    2025-11-01    0.043571
+    2025-12-01    0.051395
+    2026-01-01    0.029492
+    2026-02-01    0.046053
+    2026-03-01    0.148632
     Name: inflation, dtype: float64
 
-The resulting series is monthly CPI inflation in percent. It starts in February 1965, one month after the raw CPI series begins, and ends in December 2007.
+The resulting series is monthly CPI inflation in percent. It starts in February 1965, one month after the raw CPI series begins, and runs through the most recent CPI release.
 
 <details class="code-fold">
 <summary>Code</summary>
@@ -69,7 +69,7 @@ fig, axes = plt.subplots(2, 1, figsize=(9, 5.5), sharex=True)
 axes[0].plot(inflation.index, inflation.values, linewidth=0.9, color="0.3")
 axes[0].axhline(0.0, color="grey", linewidth=0.5, linestyle="--")
 axes[0].set_ylabel("Inflation (% m/m)")
-axes[0].set_title("US CPI inflation, 1965-2007")
+axes[0].set_title("US CPI inflation since 1965")
 axes[0].grid(alpha=0.3)
 
 axes[1].plot(
@@ -97,25 +97,15 @@ The rolling standard deviation makes the regime shift obvious. Volatility is ele
 
 The random-walk stochastic volatility model is a two-equation state-space system. For the observed series $y_t$,
 
-$$y_t = \mu + u_t, \qquad u_t \sim N\!\left(0,\, \exp(h_t)\right),
+$$y_t = \mu + u_t, \qquad u_t \sim N\!\left(0,\, \exp(h_t)\right),$$
 
-$$
+ and for the latent log-volatility $h_t$,
 
-and for the latent log-volatility $h_t$,
+$$h_t = h_{t-1} + \sigma_\eta\, \eta_t, \qquad \eta_t \sim N(0, 1).$$
 
-$$
-
-h_t = h_{t-1} + \sigma_\eta\, \eta_t, \qquad \eta_t \sim N(0, 1).
-
-$$
-
-Here $\mu$ is the unconditional mean of the series, $h_t$ is the log of the conditional variance at date $t$, and $\sigma_\eta$ controls how fast log-volatility can move from one period to the next. The conditional standard deviation at $t$ is $\exp(h_t / 2)$, so a one-unit increase in $h_t$ multiplies the conditional SD by $e^{1/2} \approx 1.65$.
+ Here $\mu$ is the unconditional mean of the series, $h_t$ is the log of the conditional variance at date $t$, and $\sigma_\eta$ controls how fast log-volatility can move from one period to the next. The conditional standard deviation at $t$ is $\exp(h_t / 2)$, so a one-unit increase in $h_t$ multiplies the conditional SD by $e^{1/2} \approx 1.65$.
 
 Modelling log-volatility rather than the variance or the SD directly has two practical advantages. First, $\exp(h_t)$ is strictly positive for any real-valued $h_t$, so the parameterisation cannot wander into infeasible regions. Second, movements in $h_t$ are symmetric: a change of $+0.5$ and a change of $-0.5$ correspond to multiplicative moves of the same magnitude in the SD, which makes the random-walk innovation assumption more plausible.
-
-!!! note "Log-volatility parameterisation"
-
-    We model the log of the conditional variance, $h_t$, rather than the SD or the variance itself. The conditional SD at date $t$ is $\exp(h_t / 2)$. Working on the log scale keeps the implied variance strictly positive for any real-valued $h_t$ and makes increments symmetric: equal-magnitude moves up and down in $h_t$ correspond to multiplicative moves of the same size in the conditional SD.
 
 !!! note "NUTS on the SV likelihood"
 
@@ -233,7 +223,7 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
         Finished Chains:
         <span id="active-chains">4</span>
     </p>
-    <p>Sampling for now</p>
+    <p>Sampling for 19 seconds</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>
@@ -263,8 +253,8 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
                     </td>
                     <td>4500</td>
                     <td>0</td>
-                    <td>0.03</td>
-                    <td>255</td>
+                    <td>0.02</td>
+                    <td>511</td>
                 </tr>
             &#10;                <tr>
                     <td class="progress-cell">
@@ -275,8 +265,8 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
                     </td>
                     <td>4500</td>
                     <td>0</td>
-                    <td>0.03</td>
-                    <td>255</td>
+                    <td>0.02</td>
+                    <td>511</td>
                 </tr>
             &#10;                <tr>
                     <td class="progress-cell">
@@ -287,8 +277,8 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
                     </td>
                     <td>4500</td>
                     <td>0</td>
-                    <td>0.03</td>
-                    <td>255</td>
+                    <td>0.02</td>
+                    <td>511</td>
                 </tr>
             &#10;                <tr>
                     <td class="progress-cell">
@@ -299,8 +289,8 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
                     </td>
                     <td>4500</td>
                     <td>0</td>
-                    <td>0.03</td>
-                    <td>255</td>
+                    <td>0.02</td>
+                    <td>511</td>
                 </tr>
             &#10;            </tr>
         </tbody>
@@ -318,7 +308,7 @@ fig.tight_layout()
 
 ![Posterior conditional SD of US CPI inflation from the random-walk SV fit.](stochastic-volatility_files/figure-commonmark/vol-path-output-1.png)
 
-To see how the volatility path lines up with the macroeconomic narrative we overlay NBER recession dates that fall within the sample. These are the recessions dated by the NBER Business Cycle Dating Committee that start on or after 1965 and end on or before December 2007.
+To see how the volatility path lines up with the macroeconomic narrative we overlay NBER recession dates that fall within the sample. These are the recessions dated by the NBER Business Cycle Dating Committee from 1965 onward.
 
 ``` python
 fig = fitted.volatility().plot()
@@ -330,6 +320,8 @@ nber_recessions = [
     ("1981-07", "1982-11"),
     ("1990-07", "1991-03"),
     ("2001-03", "2001-11"),
+    ("2007-12", "2009-06"),
+    ("2020-02", "2020-04"),
 ]
 for start, end in nber_recessions:
     ax.axvspan(pd.to_datetime(start), pd.to_datetime(end), alpha=0.15, color="gray")
@@ -338,7 +330,7 @@ fig.tight_layout()
 
 ![Posterior conditional SD with NBER recessions shaded.](stochastic-volatility_files/figure-commonmark/vol-path-nber-output-1.png)
 
-The posterior volatility is elevated throughout the 1970s and peaks during the 1973-75 and 1980-82 recessions. From the mid-1980s onward the conditional SD drops to roughly a third of its 1970s level and stays there, with only mild bumps around the 1990-91 and 2001 recessions. This is the Great Moderation signature that a constant-variance model could not capture.
+The posterior volatility is elevated throughout the 1970s and peaks during the 1973-75 and 1980-82 recessions. From the mid-1980s onward the conditional SD drops to roughly a third of its 1970s level — the Great Moderation signature that a constant-variance model could not capture — with only mild bumps around the 1990-91 and 2001 recessions. The 2007-09 financial crisis produces a visible uptick, and the 2020 COVID shock and the post-2021 inflation surge push the conditional SD back toward levels not seen since the early 1980s.
 
 ## Posterior SD versus rolling SD
 
@@ -372,17 +364,15 @@ fig.tight_layout()
 
 ![Posterior median conditional SD from the SV model (blue) versus a 12-month rolling SD (grey).](stochastic-volatility_files/figure-commonmark/vol-vs-rolling-output-1.png)
 
-Both estimators agree on the big picture: high in the 1970s and early 1980s, low from the mid-1980s onward. The SV posterior is visibly smoother and avoids the sharp step changes the rolling estimator produces when a single unusual month enters or leaves the window. The posterior also pools information across the full sample through the random-walk prior on $h_t$, whereas the rolling SD uses only the most recent 12 observations.
+Both estimators agree on the overall shape: high in the 1970s and early 1980s, low from the mid-1980s onward. The SV posterior is visibly smoother and avoids the sharp step changes the rolling estimator produces when a single unusual month enters or leaves the window. The posterior also pools information across the full sample through the random-walk prior on $h_t$, whereas the rolling SD uses only the most recent 12 observations.
 
 ## AR(1) dynamics for log-volatility
 
 The random-walk specification places no anchor on the level of log-volatility: if $\sigma_\eta$ is small the path drifts slowly, if it is large the path wanders. An AR(1) alternative adds explicit mean reversion,
 
-$$
+$$h_t = \alpha + \phi\,(h_{t-1} - \alpha) + \sigma_\eta\, \eta_t,$$
 
-h_t = \alpha + \phi\,(h_{t-1} - \alpha) + \sigma_\eta\, \eta_t,$$
-
-with $|\phi| < 1$. This lets the data speak to whether log-volatility tends to return to a long-run level $\alpha$ and, if so, how fast. A persistence parameter $\phi$ posterior concentrated near 1 is consistent with the random-walk approximation being adequate; values meaningfully below 1 indicate stronger mean reversion than a pure random walk allows.
+ with $|\phi| < 1$. This lets the data speak to whether log-volatility tends to return to a long-run level $\alpha$ and, if so, how fast. A persistence parameter $\phi$ posterior concentrated near 1 is consistent with the random-walk approximation being adequate; values meaningfully below 1 indicate stronger mean reversion than a pure random walk allows.
 
 ``` python
 if ci:
@@ -523,18 +513,6 @@ fig_ar1.tight_layout()
                     <td>4500</td>
                     <td>0</td>
                     <td>0.08</td>
-                    <td>767</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.11</td>
                     <td>127</td>
                 </tr>
             &#10;                <tr>
@@ -546,8 +524,20 @@ fig_ar1.tight_layout()
                     </td>
                     <td>4500</td>
                     <td>0</td>
-                    <td>0.09</td>
+                    <td>0.10</td>
                     <td>255</td>
+                </tr>
+            &#10;                <tr>
+                    <td class="progress-cell">
+                        <progress
+                            max="4500"
+                            value="4500">
+                        </progress>
+                    </td>
+                    <td>4500</td>
+                    <td>0</td>
+                    <td>0.10</td>
+                    <td>127</td>
                 </tr>
             &#10;                <tr>
                     <td class="progress-cell">
@@ -568,7 +558,7 @@ fig_ar1.tight_layout()
 
 ![](stochastic-volatility_files/figure-commonmark/cell-11-output-3.png)
 
-The AR(1) volatility path should look qualitatively similar to the random-walk version on the bulk of the sample — the two disagree mostly at the tails, where the AR(1) prior pulls the path toward $\alpha$ while the random walk lets it drift. Inspecting the posterior of $\phi$ is the quickest way to decide whether that mean reversion is informative: if the mass sits very close to 1, the two specifications are almost indistinguishable.
+The AR(1) volatility path should look qualitatively similar to the random-walk version on the bulk of the sample. The two disagree mostly at the tails, where the AR(1) prior pulls the path toward $\alpha$ while the random walk lets it drift. Inspecting the posterior of $\phi$ is the quickest way to decide whether that mean reversion is informative: if the mass sits very close to 1, the two specifications are almost indistinguishable.
 
 ## Density forecasts
 
@@ -582,11 +572,7 @@ fig_fcst.tight_layout()
 
 ![12-step density forecast from the random-walk SV model.](stochastic-volatility_files/figure-commonmark/sv-forecast-output-1.png)
 
-The fan widens with horizon because log-volatility under the random walk disperses geometrically: the variance of $h_{T+h}$ grows linearly in $h$, so the spread of plausible conditional SDs and therefore the spread of plausible $y_{T+h}$ values grows with the forecast step.
-
-## Where this fits in Impulso
-
-This notebook exercises the univariate SV functionality shipped in Layer 1 of Impulso’s stochastic-volatility roadmap. Layer 1 is deliberately standalone: `SVData`, `StochasticVolatility`, and `FittedSV` live in `impulso.sv` and are usable on any univariate series without touching the VAR pipeline. Layer 2 will introduce multivariate SV primitives, and Layer 3 will integrate SV residual dynamics into `impulso.VAR` so that reduced-form and structural analyses can share the time-varying-variance machinery. These layers connect the library to the applied literature on time-varying-parameter VARs with stochastic volatility — Primiceri (2005), Cogley and Sargent (2005), Clark (2011), and Carriero, Clark, and Marcellino (2016) — where SV residual dynamics are the workhorse for separating persistent changes in macroeconomic uncertainty from shifts in conditional means.
+In principle the fan should widen with horizon: $\mathrm{Var}(h_{T+h}\mid h_T,\sigma_\eta) = h\,\sigma_\eta^2$ grows linearly in $h$, and $\mathrm{Var}(y_{T+h})$ inherits an $\exp(0.5\, h\, \sigma_\eta^2)$ factor on top of $\exp(h_T)$. In practice the visible widening here is modest: the posterior $\sigma_\eta$ for monthly CPI inflation is small, so over twelve steps the forward-dispersion factor on the conditional SD is only a few percent, and the bulk of the fan width comes from posterior uncertainty in $h_T$ itself rather than from forward dispersion. Pushing the horizon out further, or using a series with a larger $\sigma_\eta$, makes the geometric growth easier to see.
 
 ## References
 

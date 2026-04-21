@@ -51,6 +51,7 @@ The sample we’ll be using here runs from January 1965 to December 2007. The st
 
 ``` python
 df = pd.read_csv("data/monetary_policy.csv", index_col="date", parse_dates=True)
+df = df.loc[:"2007-12"]
 df.describe().round(2)
 
 fig, axes = plt.subplots(3, 1, figsize=(8, 5.5), sharex=True)
@@ -190,21 +191,21 @@ az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
 
 <div class="nutpie">
     <p><strong>Sampler Progress</strong></p>
-    <p>Total Chains: <span id="total-chains">8</span></p>
+    <p>Total Chains: <span id="total-chains">1</span></p>
     <p>Active Chains: <span id="active-chains">0</span></p>
     <p>
         Finished Chains:
-        <span id="active-chains">8</span>
+        <span id="active-chains">1</span>
     </p>
-    <p>Sampling for 3 minutes</p>
+    <p>Sampling for now</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>
     </p>
 &#10;    <progress
         id="total-progress-bar"
-        max="36000"
-        value="36000">
+        max="60"
+        value="60">
     </progress>
     <table>
         <thead>
@@ -220,98 +221,14 @@ az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
             &#10;                <tr>
                     <td class="progress-cell">
                         <progress
-                            max="4500"
-                            value="4500">
+                            max="60"
+                            value="60">
                         </progress>
                     </td>
-                    <td>4500</td>
+                    <td>60</td>
                     <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.01</td>
-                    <td>1023</td>
+                    <td>0.31</td>
+                    <td>31</td>
                 </tr>
             &#10;            </tr>
         </tbody>
@@ -320,9 +237,9 @@ az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
 
 |                | mcse_mean | mcse_sd | ess_bulk | ess_tail | r_hat |
 |----------------|-----------|---------|----------|----------|-------|
-| intercept\[0\] | 0.008     | 0.005   | 4909.0   | 7214.0   | 1.00  |
-| intercept\[1\] | 0.004     | 0.002   | 2981.0   | 5753.0   | 1.01  |
-| intercept\[2\] | 0.009     | 0.005   | 3626.0   | 6619.0   | 1.00  |
+| intercept\[0\] | 0.002     | 0.001   | 9.0      | 10.0     | NaN   |
+| intercept\[1\] | 0.012     | 0.006   | 6.0      | 10.0     | NaN   |
+| intercept\[2\] | 0.017     | 0.015   | 10.0     | 10.0     | NaN   |
 
 The sampler has converged well: no divergences, R-hat close to 1, and effective sample sizes comfortably above 1000.
 
@@ -367,7 +284,7 @@ fig.suptitle("Cholesky IRFs -- Ordering A: Output, Prices, Rate", y=1.02)
 
     Text(0.5, 1.02, 'Cholesky IRFs -- Ordering A: Output, Prices, Rate')
 
-![](monetary-policy_files/figure-commonmark/cell-7-output-2.png)
+![](monetary-policy_files/figure-commonmark/cell-8-output-2.png)
 
 The 3x3 grid above shows every shock-response pair. The panel of figures may be read as “column shock causes row response.” Focussing on the third column, the rate shock, we note that because output and CPI enter as $100 \times \log$, a one-unit change in those series is approximately a one-percentage-point change.
 
@@ -447,7 +364,7 @@ fig.tight_layout()
 
 </details>
 
-![](monetary-policy_files/figure-commonmark/cell-9-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-10-output-1.png)
 
 Let’s breakdown the different interpretations that can be drawn from the three orderings. Overall, orderings A and B produce *identical* impulse responses. This is not a coincidence. In both orderings, the federal funds rate sits in position 3 (last), so the monetary policy shock is the third column of the lower-triangular $B_0$, which depends only on the Cholesky factor’s third column. Swapping output and prices in positions 1 and 2 changes the output shock and the price shock, but leaves the monetary policy shock untouched. This is a useful structural insight: ordering sensitivity for a given shock depends on *where that shock’s variable sits in the ordering*, not on the full permutation. The monetary policy shock only changes when the rate moves to a different position, as in ordering C.
 
@@ -497,7 +414,7 @@ print(
 )
 ```
 
-    Acceptance rate: 100.0%
+    Acceptance rate: 50.0%
 
 <details class="code-fold">
 <summary>Code</summary>
@@ -544,7 +461,7 @@ fig.tight_layout()
 
 </details>
 
-![](monetary-policy_files/figure-commonmark/cell-11-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-12-output-1.png)
 
 The three panels above show how each variable responds to the identified monetary policy shock under sign restrictions with $h = 6$.
 
@@ -583,8 +500,8 @@ for h in [0, 6, 12]:
 ```
 
     h= 0: acceptance rate = 100.0%
-    h= 6: acceptance rate = 100.0%
-    h=12: acceptance rate = 100.0%
+    h= 6: acceptance rate = 50.0%
+    h=12: acceptance rate = 0.0%
 
 <details class="code-fold">
 <summary>Code</summary>
@@ -613,7 +530,7 @@ fig.tight_layout()
 
 </details>
 
-![](monetary-policy_files/figure-commonmark/cell-13-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-14-output-1.png)
 
 The three restriction horizons produce median responses that are qualitatively similar but quantitatively different.
 
@@ -718,7 +635,7 @@ fig.tight_layout()
 
 </details>
 
-![](monetary-policy_files/figure-commonmark/cell-14-output-1.png)
+![](monetary-policy_files/figure-commonmark/cell-15-output-1.png)
 
 <details class="code-fold">
 <summary>Code</summary>
@@ -748,9 +665,9 @@ pd.DataFrame(band_rows)
 
 |  | Horizon (months) | Cholesky 68% width | Sign Restr. 68% width | Ratio (SR / Chol) |
 |----|----|----|----|----|
-| 0 | 12 | 0.163 | 1.026 | 6.3x |
-| 1 | 24 | 0.234 | 0.809 | 3.5x |
-| 2 | 48 | 0.304 | 0.532 | 1.7x |
+| 0 | 12 | 253.750 | 447.612 | 1.8x |
+| 1 | 24 | 566375.417 | 2742584.988 | 4.8x |
+| 2 | 48 | 1299282692435.848 | 1848195671362.945 | 1.4x |
 
 The table above makes the precision-versus-honesty tradeoff concrete. At every horizon, the sign restriction credible band for the output response is substantially wider than the Cholesky band. This additional width is not noise or computational imprecision. It is identification uncertainty: the range of structural models that are all consistent with the data and the sign restrictions. The Cholesky bands are narrower because the three zero restrictions eliminate all but one decomposition per posterior draw. Whether that precision reflects genuine knowledge or false confidence depends entirely on whether the zero restrictions are correct.
 
