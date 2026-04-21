@@ -296,6 +296,11 @@ class SVForecastResult(VARResultBase):
     steps: int
 
     def median(self) -> pd.DataFrame:
+        """Posterior median of the density forecast.
+
+        Returns:
+            DataFrame of median forecasts indexed by step.
+        """
         forecast = self.idata.posterior_predictive["forecast"]
         med = forecast.median(dim=("chain", "draw")).values
         df = pd.DataFrame({self.series_name: med})
@@ -303,15 +308,33 @@ class SVForecastResult(VARResultBase):
         return df
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
+        """Highest-density interval for the density forecast.
+
+        Args:
+            prob: Probability mass for the HDI. Default 0.89.
+
+        Returns:
+            HDIResult with lower/upper DataFrames for each forecast step.
+        """
         hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["forecast"]
         lower = pd.DataFrame({self.series_name: hdi_data.sel(hdi="lower").values})
         upper = pd.DataFrame({self.series_name: hdi_data.sel(hdi="higher").values})
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
+        """Density forecast posterior median as a DataFrame.
+
+        Returns:
+            DataFrame of median forecasts indexed by step.
+        """
         return self.median()
 
     def plot(self) -> Figure:
+        """Plot the density forecast with HDI bands.
+
+        Returns:
+            Matplotlib Figure of the density forecast.
+        """
         from impulso.plotting import plot_sv_forecast
 
         return plot_sv_forecast(self)
