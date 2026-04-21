@@ -54,9 +54,9 @@ class SVData(ImpulsoBaseModel):
             raise ValueError("y is constant; SV requires non-zero variance")
 
     def _make_readonly(self) -> None:
-        y_copy = np.ascontiguousarray(self.y, dtype=np.float64)
-        y_copy.flags.writeable = False
-        object.__setattr__(self, "y", y_copy)
+        y_readonly = self.y.astype(np.float64, copy=True)
+        y_readonly.flags.writeable = False
+        object.__setattr__(self, "y", y_readonly)
 
     @classmethod
     def from_series(cls, series: pd.Series, name: str | None = None) -> Self:
@@ -71,7 +71,7 @@ class SVData(ImpulsoBaseModel):
         """
         if not isinstance(series.index, pd.DatetimeIndex):
             raise TypeError(f"series must have a DatetimeIndex, got {type(series.index).__name__}")
-        resolved_name = name or series.name
+        resolved_name = name if name is not None else series.name
         if resolved_name is None:
             raise ValueError("name is required when series has no .name attribute")
         return cls(

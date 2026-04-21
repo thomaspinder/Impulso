@@ -92,3 +92,15 @@ def test_svdata_from_series_requires_name_when_unnamed():
     )
     with pytest.raises(ValueError, match="name is required"):
         SVData.from_series(s)
+
+
+def test_svdata_from_series_empty_string_override_is_respected():
+    """An explicit name='' should not silently fall back to the series name."""
+    rng = np.random.default_rng(0)
+    s = pd.Series(
+        rng.standard_normal(30),
+        index=pd.date_range("2000-01-01", periods=30, freq="MS"),
+        name="series_name",
+    )
+    data = SVData.from_series(s, name="")
+    assert data.name == ""  # explicit override respected, not silently swapped
