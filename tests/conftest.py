@@ -130,3 +130,66 @@ def synthetic_identified_idata_2v(synthetic_idata_2v):
     )
     new_posterior = synthetic_idata_2v.posterior.assign(structural_shock_matrix=P_da)
     return az.InferenceData(posterior=new_posterior)
+
+
+# --------------- SV fixtures ---------------
+
+
+@pytest.fixture
+def sv_series_rw():
+    """1-D series simulated from RW log-volatility SV DGP.
+
+    T=500, sigma_eta=0.1. Used by slow recovery tests. Returns a
+    dict with 'y', 'h_true', 'mu_true', 'sigma_eta_true' so
+    recovery tests can compare to the truth.
+    """
+    rng = np.random.default_rng(42)
+    T = 500
+    sigma_eta_true = 0.1
+    mu_true = 0.0
+    h_true = np.zeros(T)
+    h_true[0] = 0.0
+    for t in range(1, T):
+        h_true[t] = h_true[t - 1] + sigma_eta_true * rng.standard_normal()
+    y = mu_true + np.exp(0.5 * h_true) * rng.standard_normal(T)
+    return {
+        "y": y,
+        "h_true": h_true,
+        "mu_true": mu_true,
+        "sigma_eta_true": sigma_eta_true,
+    }
+
+
+@pytest.fixture
+def sv_data_rw(sv_series_rw):
+    """SVData wrapping the RW SV DGP series."""
+    from impulso.sv.data import SVData
+
+    index = pd.date_range("1980-01-01", periods=len(sv_series_rw["y"]), freq="MS")
+    return SVData(y=sv_series_rw["y"], name="sim", index=index)
+
+
+@pytest.fixture
+def synthetic_sv_idata():
+    """Synthetic InferenceData mimicking a fitted random-walk SV posterior.
+
+    No MCMC required. 2 chains, 50 draws, T=100.
+    posterior["h"] shape: (2, 50, 100)
+    posterior["mu"] shape: (2, 50)
+    posterior["sigma_eta"] shape: (2, 50)
+    """
+    rng = np.random.default_rng(123)
+    n_chains, n_draws, T = 2, 50, 100
+
+    # Simulate a plausible posterior around a mild vol path
+    h_mean = np.linspace(-0.5, 0.5, T)
+    h = h_mean[None, None, :] + 0.1 * rng.standard_normal((n_chains, n_draws, T))
+    mu = 0.01 * rng.standard_normal((n_chains, n_draws))
+    sigma_eta = 0.1 + 0.02 * np.abs(rng.standard_normal((n_chains, n_draws)))
+
+    posterior = xr.Dataset({
+        "h": xr.DataArray(h, dims=["chain", "draw", "time"]),
+        "mu": xr.DataArray(mu, dims=["chain", "draw"]),
+        "sigma_eta": xr.DataArray(sigma_eta, dims=["chain", "draw"]),
+    })
+    return az.InferenceData(posterior=posterior)
