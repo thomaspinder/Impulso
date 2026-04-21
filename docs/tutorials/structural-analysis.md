@@ -405,3 +405,12 @@ This tutorial demonstrated the full structural VAR workflow on real atmospheric 
 6.  **Analyse** causal dynamics with `.impulse_response()`, `.fevd()`, and `.historical_decomposition()`
 
 The atmospheric setting is particularly well-suited to structural VAR analysis because the physics provides an unambiguous causal ordering — something rarely available in economics or finance. The same workflow applies to any domain where you can defend a contemporaneous causal ordering. For identification schemes that do not rely on a recursive ordering, Impulso also supports sign restrictions via `SignRestriction`.
+
+<section class="consulting-cta">
+
+<p>
+
+We currently have some <strong>availability for consulting</strong> on how Bayesian modelling, vector autoregressions, and impulso can be integrated into your team’s macroeconomic and financial forecasting work. If this sounds relevant, <a href="https://calendly.com/hello-1761-izqw/15-minute-meeting-clone-1">book an introductory call</a>. These calls are for consulting inquiries only. For technical usage questions and free community support, please use GitHub Discussions and the documentation.
+</p>
+
+</section>
