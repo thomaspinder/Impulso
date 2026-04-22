@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 from impulso.samplers import NUTSSampler
-from impulso.sv import SVData, StochasticVolatility
+from impulso.sv import AR1, SVData, StochasticVolatility
 ```
 
 ## Data
@@ -106,6 +106,28 @@ $$h_t = h_{t-1} + \sigma_\eta\, \eta_t, \qquad \eta_t \sim N(0, 1).$$
  Here $\mu$ is the unconditional mean of the series, $h_t$ is the log of the conditional variance at date $t$, and $\sigma_\eta$ controls how fast log-volatility can move from one period to the next. The conditional standard deviation at $t$ is $\exp(h_t / 2)$, so a one-unit increase in $h_t$ multiplies the conditional SD by $e^{1/2} \approx 1.65$.
 
 Modelling log-volatility rather than the variance or the SD directly has two practical advantages. First, $\exp(h_t)$ is strictly positive for any real-valued $h_t$, so the parameterisation cannot wander into infeasible regions. Second, movements in $h_t$ are symmetric: a change of $+0.5$ and a change of $-0.5$ correspond to multiplicative moves of the same magnitude in the SD, which makes the random-walk innovation assumption more plausible.
+
+### State-space structure and what it implies
+
+The two equations define a **linear Gaussian state-space system** in which the latent state controls the observation *variance* rather than the *mean*. Conditional on the full path $h_{1:T}$ the likelihood factorises,
+
+$$p(y_{1:T} \mid h_{1:T}, \mu) \;=\; \prod_{t=1}^{T} N\!\left(y_t;\, \mu,\, \exp(h_t)\right),$$
+
+ and each factor is cheap. The likelihood of the parameters $(\mu, \sigma_\eta)$ *alone* requires integrating the latent path out,
+
+$$p(y_{1:T} \mid \mu, \sigma_\eta) \;=\; \int p(y_{1:T} \mid h_{1:T}, \mu)\, p(h_{1:T} \mid \sigma_\eta)\, dh_{1:T}.$$
+
+ This $T$-dimensional integral has no closed form, which is why SV models are fit with MCMC or particle methods rather than direct maximum likelihood. MCMC sidesteps the integral by sampling the joint posterior $p(\mu, \sigma_\eta, h_{1:T} \mid y_{1:T})$ and reading off any marginal we need from the draws.
+
+Marginally over $h_t$, the observation is a **scale mixture of normals**: $y_t = \mu + \exp(h_t / 2)\,\varepsilon_t$ with $\varepsilon_t \sim N(0, 1)$ independent of $h_t$. Three consequences follow that a fixed-variance model cannot reproduce. The marginal distribution of $y_t$ has heavier tails than a Gaussian. Squared residuals $(y_t - \mu)^2$ are positively autocorrelated — volatility clustering. And a realised large $|y_t|$ is evidence of a large $h_t$, which raises the posterior probability that $|y_{t+1}|$ is also large. These are exactly the stylised facts that motivate the model for macro and financial series.
+
+It is worth contrasting this setup with the GARCH family, which targets the same stylised facts by a different route. In GARCH, the conditional variance is a deterministic function of past observations, $h_t = \omega + \alpha\,(y_{t-1} - \mu)^2 + \beta\,h_{t-1}$, so given $(y_{1:t-1}, \omega, \alpha, \beta)$ the variance at $t$ is a known number and the likelihood factorises without an integral. The SV variance has its *own* innovation $\eta_t$ that is not observed, which makes it a random variable even after conditioning on the full history. That extra source of randomness is what lets SV allow volatility surprises — moments when the conditional variance jumps in a way not foreseeable from past squared returns — and it is also the reason the SV likelihood is intractable in closed form.
+
+The random-walk specification for $h_t$ is non-stationary. Conditional on $h_0$,
+
+$$h_t \mid h_0, \sigma_\eta \;\sim\; N\!\left(h_0,\, t\,\sigma_\eta^2\right),$$
+
+ so the unconditional variance of log-volatility grows linearly in $t$. That is the appropriate prior when there is no reason to anchor volatility to a particular level and we want the data to decide how far it drifts. The AR(1) variant introduced later replaces this with a mean-reverting state equation and restores stationarity.
 
 !!! note "NUTS on the SV likelihood"
 
@@ -223,7 +245,7 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
         Finished Chains:
         <span id="active-chains">4</span>
     </p>
-    <p>Sampling for 19 seconds</p>
+    <p>Sampling for 25 seconds</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>
@@ -366,6 +388,8 @@ fig.tight_layout()
 
 Both estimators agree on the overall shape: high in the 1970s and early 1980s, low from the mid-1980s onward. The SV posterior is visibly smoother and avoids the sharp step changes the rolling estimator produces when a single unusual month enters or leaves the window. The posterior also pools information across the full sample through the random-walk prior on $h_t$, whereas the rolling SD uses only the most recent 12 observations.
 
+The gap between the two estimators is most striking in the 1970s and early 1980s, and it almost vanishes in 2008 and 2020. That asymmetry is not about volatility at all — it is about how each estimator treats the *mean*. The rolling SD subtracts a *local* 12-month average before squaring, so slow drift in the level of inflation is absorbed into the mean and never shows up as variance. The SV model has a single *global* $\mu$, so every observation is residualised against one constant over the whole sample. When inflation ran at roughly 1% a month for years at a stretch, those deviations from the full-sample mean were enormous, and $\exp(h_t/2)$ had to stretch to accommodate them. The spikes in 2008 and 2020 were short and the level around them was close to the long-run mean, so a local window and a global constant see almost the same residuals and the two lines coincide.
+
 ## AR(1) dynamics for log-volatility
 
 The random-walk specification places no anchor on the level of log-volatility: if $\sigma_\eta$ is small the path drifts slowly, if it is large the path wanders. An AR(1) alternative adds explicit mean reversion,
@@ -373,6 +397,8 @@ The random-walk specification places no anchor on the level of log-volatility: i
 $$h_t = \alpha + \phi\,(h_{t-1} - \alpha) + \sigma_\eta\, \eta_t,$$
 
  with $|\phi| < 1$. This lets the data speak to whether log-volatility tends to return to a long-run level $\alpha$ and, if so, how fast. A persistence parameter $\phi$ posterior concentrated near 1 is consistent with the random-walk approximation being adequate; values meaningfully below 1 indicate stronger mean reversion than a pure random walk allows.
+
+Instead of the `"ar1"` shorthand used above, we pass an explicit `AR1()` dynamics object. Both forms are equivalent; the object form is the extension point if you want to add a new dynamics (e.g. SVt or SV with leverage) without editing the library — implement the `SVDynamics` protocol and pass an instance here.
 
 ``` python
 if ci:
@@ -387,7 +413,7 @@ else:
         random_seed=321,
     )
 
-fitted_ar1 = StochasticVolatility(dynamics="ar1").fit(data, sampler=sampler_ar1)
+fitted_ar1 = StochasticVolatility(dynamics=AR1()).fit(data, sampler=sampler_ar1)
 fig_ar1 = fitted_ar1.volatility().plot()
 fig_ar1.tight_layout()
 ```
@@ -512,7 +538,7 @@ fig_ar1.tight_layout()
                     </td>
                     <td>4500</td>
                     <td>0</td>
-                    <td>0.08</td>
+                    <td>0.09</td>
                     <td>127</td>
                 </tr>
             &#10;                <tr>
@@ -524,8 +550,8 @@ fig_ar1.tight_layout()
                     </td>
                     <td>4500</td>
                     <td>0</td>
-                    <td>0.10</td>
-                    <td>255</td>
+                    <td>0.09</td>
+                    <td>127</td>
                 </tr>
             &#10;                <tr>
                     <td class="progress-cell">
@@ -536,7 +562,7 @@ fig_ar1.tight_layout()
                     </td>
                     <td>4500</td>
                     <td>0</td>
-                    <td>0.10</td>
+                    <td>0.08</td>
                     <td>127</td>
                 </tr>
             &#10;                <tr>
