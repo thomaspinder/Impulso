@@ -196,7 +196,7 @@ az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
         Finished Chains:
         <span id="active-chains">8</span>
     </p>
-    <p>Sampling for 4 minutes</p>
+    <p>Sampling for 3 minutes</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>
