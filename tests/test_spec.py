@@ -69,3 +69,17 @@ class TestVARSpec:
                 VAR._default_sampler.assert_called_once()
                 # sample must have been called on the default sampler
                 mock_sample.assert_called_once()
+
+    def test_default_sampler_is_callable_without_instance(self):
+        """_default_sampler() works as a static method (callable on class)."""
+        sampler = VAR._default_sampler()
+        assert hasattr(sampler, "sample")
+        assert callable(sampler.sample)
+
+    def test_default_sampler_returns_fresh_instance_each_call(self):
+        """Each call to _default_sampler() returns a new instance."""
+        s1 = VAR._default_sampler()
+        s2 = VAR._default_sampler()
+        assert s1 is not s2
+        assert s1.cores == s2.cores == 1
+        assert s1.chains == s2.chains == 4
