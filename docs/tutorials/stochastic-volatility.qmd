@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 from impulso.samplers import NUTSSampler
-from impulso.sv import SVData, StochasticVolatility
+from impulso.sv import AR1, SVData, StochasticVolatility
 ```
 
 ## Data
@@ -209,6 +209,8 @@ The gap between the two estimators is most striking in the 1970s and early 1980s
 
 The random-walk specification places no anchor on the level of log-volatility: if $\sigma_\eta$ is small the path drifts slowly, if it is large the path wanders. An AR(1) alternative adds explicit mean reversion, $$h_t = \alpha + \phi\,(h_{t-1} - \alpha) + \sigma_\eta\, \eta_t,$$ with $|\phi| < 1$. This lets the data speak to whether log-volatility tends to return to a long-run level $\alpha$ and, if so, how fast. A persistence parameter $\phi$ posterior concentrated near 1 is consistent with the random-walk approximation being adequate; values meaningfully below 1 indicate stronger mean reversion than a pure random walk allows.
 
+Instead of the `"ar1"` shorthand used above, we pass an explicit `AR1()` dynamics object. Both forms are equivalent; the object form is the extension point if you want to add a new dynamics (e.g. SVt or SV with leverage) without editing the library — implement the `SVDynamics` protocol and pass an instance here.
+
 ```{python}
 if ci:
     sampler_ar1 = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=321)
@@ -222,7 +224,7 @@ else:
         random_seed=321,
     )
 
-fitted_ar1 = StochasticVolatility(dynamics="ar1").fit(data, sampler=sampler_ar1)
+fitted_ar1 = StochasticVolatility(dynamics=AR1()).fit(data, sampler=sampler_ar1)
 fig_ar1 = fitted_ar1.volatility().plot()
 fig_ar1.tight_layout()
 ```

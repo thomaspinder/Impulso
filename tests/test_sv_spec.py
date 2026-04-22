@@ -30,6 +30,21 @@ def test_sv_spec_invalid_dynamics_rejected():
         StochasticVolatility(dynamics="invalid")
 
 
+def test_sv_spec_resolved_dynamics_from_string():
+    from impulso.sv.dynamics import AR1, RandomWalk
+
+    assert isinstance(StochasticVolatility(dynamics="random_walk").resolved_dynamics, RandomWalk)
+    assert isinstance(StochasticVolatility(dynamics="ar1").resolved_dynamics, AR1)
+
+
+def test_sv_spec_resolved_dynamics_passes_through_object():
+    from impulso.sv.dynamics import AR1
+
+    custom = AR1()
+    sv = StochasticVolatility(dynamics=custom)
+    assert sv.resolved_dynamics is custom
+
+
 def test_sv_default_sampler_is_safe():
     """Default sampler must pin cores=1 and use a conservative target_accept."""
     from impulso.samplers import NUTSSampler
@@ -61,7 +76,7 @@ def test_sv_spec_fit_random_walk_smoke():
 
     assert isinstance(fitted, FittedSV)
     assert fitted.log_volatility.shape == (1, 30, T)
-    assert fitted.dynamics == "random_walk"
+    assert fitted.dynamics.name == "random_walk"
 
 
 def test_sv_spec_build_ar1_model():
@@ -80,7 +95,7 @@ def test_sv_spec_build_ar1_model():
 
     sv = StochasticVolatility(dynamics="ar1")
     prior_params = sv.resolved_prior.build_priors(data.y)
-    model = sv._build_pymc_model(data.y, prior_params)
+    model = sv._build_pymc_model(data.y, prior_params, sv.resolved_dynamics)
 
     assert isinstance(model, pm.Model)
     assert "phi" in model.named_vars
@@ -105,6 +120,6 @@ def test_sv_spec_fit_ar1_smoke():
     sampler = NUTSSampler(draws=30, tune=30, chains=1, cores=1, random_seed=2)
     fitted = StochasticVolatility(dynamics="ar1").fit(data, sampler=sampler)
 
-    assert fitted.dynamics == "ar1"
+    assert fitted.dynamics.name == "ar1"
     assert "phi" in fitted.idata.posterior
     assert "alpha" in fitted.idata.posterior

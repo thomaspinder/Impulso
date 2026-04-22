@@ -6,6 +6,7 @@ import pytest
 
 from impulso.results import VolatilityResult
 from impulso.sv.data import SVData
+from impulso.sv.dynamics import AR1, RandomWalk
 from impulso.sv.fitted import FittedSV
 
 
@@ -20,7 +21,7 @@ def fitted_sv(synthetic_sv_idata):
     return FittedSV(
         idata=synthetic_sv_idata,
         data=data,
-        dynamics="random_walk",
+        dynamics=RandomWalk(),
     )
 
 
@@ -71,7 +72,7 @@ def _build_ar1_fitted_sv():
     index = pd.date_range("2000-01-01", periods=T, freq="MS")
     data = SVData(y=y, name="sim", index=index)
 
-    return FittedSV.model_construct(idata=idata, data=data, dynamics="ar1")
+    return FittedSV.model_construct(idata=idata, data=data, dynamics=AR1())
 
 
 def test_fittedsv_forecast_ar1_shape_and_type():

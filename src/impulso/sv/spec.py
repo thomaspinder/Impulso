@@ -6,6 +6,7 @@ import numpy as np
 
 from impulso._base import ImpulsoBaseModel
 from impulso.sv.data import SVData
+from impulso.sv.dynamics import SV_DYNAMICS_REGISTRY, SVDynamics
 from impulso.sv.priors import SVDefaultPrior, SVPrior
 
 if TYPE_CHECKING:
@@ -21,13 +22,21 @@ class StochasticVolatility(ImpulsoBaseModel):
     """Univariate stochastic volatility model.
 
     Attributes:
-        dynamics: Log-volatility dynamics. "random_walk" (Primiceri 2005)
-            or "ar1" (Kim-Shephard-Chib 1998).
+        dynamics: Log-volatility dynamics. String shorthand (``"random_walk"``
+            or ``"ar1"``) or an explicit ``SVDynamics`` instance (e.g.
+            ``RandomWalk()``, ``AR1()``).
         prior: Prior shorthand string or SVPrior instance.
     """
 
-    dynamics: Literal["random_walk", "ar1"] = "random_walk"
+    dynamics: Literal["random_walk", "ar1"] | SVDynamics = "random_walk"
     prior: Literal["default"] | SVPrior = "default"
+
+    @property
+    def resolved_dynamics(self) -> SVDynamics:
+        """Resolve string shorthand to a concrete SVDynamics instance."""
+        if isinstance(self.dynamics, str):
+            return SV_DYNAMICS_REGISTRY[self.dynamics]()
+        return self.dynamics
 
     @property
     def resolved_prior(self) -> SVPrior:
@@ -38,14 +47,7 @@ class StochasticVolatility(ImpulsoBaseModel):
 
     @staticmethod
     def _default_sampler() -> "Sampler":
-        """Return the default sampler for SV fits.
-
-        SV posteriors have heavier tails than linear VARs, so we bump
-        `target_accept` to 0.9. We also pin `cores=1` because the
-        multiprocessing backend segfaults on macOS for PyMC+PyTensor
-        (see `CLAUDE.md`); users who want parallel chains should pass
-        a custom `NUTSSampler(cores=n, ...)` explicitly.
-        """
+        """Default sampler for SV: cores=1 (macOS PyMC segfault), target_accept=0.9."""
         from impulso.samplers import NUTSSampler
 
         return NUTSSampler(cores=1, chains=4, target_accept=0.9)
@@ -70,26 +72,19 @@ class StochasticVolatility(ImpulsoBaseModel):
         if sampler is None:
             sampler = self._default_sampler()
 
+        dynamics = self.resolved_dynamics
         prior_params = self.resolved_prior.build_priors(data.y)
-        model = self._build_pymc_model(data.y, prior_params)
+        model = self._build_pymc_model(data.y, prior_params, dynamics)
         idata = sampler.sample(model)
 
         return FittedSV.model_construct(
             idata=idata,
             data=data,
-            dynamics=self.dynamics,
+            dynamics=dynamics,
         )
 
-    def _build_pymc_model(self, y: np.ndarray, prior_params: dict):
-        """Build the PyMC model for the chosen dynamics.
-
-        Args:
-            y: 1-D observed array.
-            prior_params: Dict from SVPrior.build_priors().
-
-        Returns:
-            pm.Model with observed likelihood.
-        """
+    def _build_pymc_model(self, y: np.ndarray, prior_params: dict, dynamics: SVDynamics):
+        """Build the PyMC model with the given log-vol dynamics."""
         import pymc as pm
         import pytensor.tensor as pt
 
@@ -97,37 +92,7 @@ class StochasticVolatility(ImpulsoBaseModel):
         with pm.Model() as model:
             mu = pm.Normal("mu", mu=prior_params["mu_mu"], sigma=prior_params["mu_sigma"])
             sigma_eta = pm.HalfNormal("sigma_eta", sigma=prior_params["sigma_eta_scale"])
-
-            if self.dynamics == "random_walk":
-                # Non-centered parameterisation to avoid Neal's funnel between
-                # sigma_eta and the latent path. h_1 = h0; h_t = h0 + sigma_eta * sum(z_1..z_{t-1}).
-                h0 = pm.Normal("h0", mu=prior_params["h0_mu"], sigma=prior_params["h0_sigma"])
-                z = pm.Normal("z", mu=0.0, sigma=1.0, shape=T - 1)
-                h_path = pt.concatenate([pt.as_tensor_variable([h0]), h0 + sigma_eta * pt.cumsum(z)])
-                h = pm.Deterministic("h", h_path)
-            else:  # ar1
-                phi = pm.Beta("phi", alpha=prior_params["phi_a"], beta=prior_params["phi_b"])
-                alpha = pm.Normal(
-                    "alpha",
-                    mu=prior_params["alpha_mu"],
-                    sigma=prior_params["alpha_sigma"],
-                )
-                # Non-centered: zero-mean AR(1) g_t with innovation std 1 and autocorrelation phi,
-                # then h_t = alpha + sigma_eta * g_t. The stationary std of g is 1/sqrt(1 - phi^2).
-                # Floor the denominator: with Beta(20, 1.5) NUTS routinely explores phi > 0.99 and
-                # floating-point rounding can produce 1 - phi^2 = 0 exactly, yielding NaN log-prob.
-                stationary_var = 1.0 / pm.math.maximum(1.0 - pt.mul(phi, phi), 1e-6)
-                g_init = pm.Normal.dist(mu=0.0, sigma=pm.math.sqrt(stationary_var))
-                g = pm.AR(
-                    "g",
-                    rho=pt.stack([pt.as_tensor_variable(0.0), phi]),
-                    sigma=1.0,
-                    constant=True,
-                    init_dist=g_init,
-                    shape=T,
-                )
-                h = pm.Deterministic("h", alpha + pt.mul(sigma_eta, g))
-
+            h = dynamics.build_latent_path(prior_params, T, sigma_eta)
             pm.Normal("y", mu=mu, sigma=pm.math.exp(pt.mul(0.5, h)), observed=y)
 
         return model
