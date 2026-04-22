@@ -51,6 +51,7 @@ The sample we’ll be using here runs from January 1965 to December 2007. The st
 
 ``` python
 df = pd.read_csv("data/monetary_policy.csv", index_col="date", parse_dates=True)
+df = df.loc[:"2007-12"]
 df.describe().round(2)
 
 fig, axes = plt.subplots(3, 1, figsize=(8, 5.5), sharex=True)

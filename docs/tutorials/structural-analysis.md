@@ -252,7 +252,7 @@ fitted
         Finished Chains:
         <span id="active-chains">4</span>
     </p>
-    <p>Sampling for 12 seconds</p>
+    <p>Sampling for 15 seconds</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>

@@ -8,6 +8,7 @@ __all__ = [
     "VAR",
     "Cholesky",
     "FEVDResult",
+    "FittedSV",
     "FittedVAR",
     "ForecastResult",
     "HDIResult",
@@ -17,8 +18,13 @@ __all__ = [
     "LagOrderResult",
     "MinnesotaPrior",
     "NUTSSampler",
+    "SVData",
+    "SVDefaultPrior",
+    "SVForecastResult",
     "SignRestriction",
+    "StochasticVolatility",
     "VARData",
+    "VolatilityResult",
     "enable_runtime_checks",
     "select_lag_order",
 ]
@@ -39,6 +45,12 @@ def __getattr__(name: str):
         "HistoricalDecompositionResult": "impulso.results",
         "HDIResult": "impulso.results",
         "LagOrderResult": "impulso.results",
+        "SVData": "impulso.sv.data",
+        "StochasticVolatility": "impulso.sv.spec",
+        "FittedSV": "impulso.sv.fitted",
+        "SVDefaultPrior": "impulso.sv.priors",
+        "VolatilityResult": "impulso.results",
+        "SVForecastResult": "impulso.results",
     }
     if name in _lazy_imports:
         import importlib
@@ -63,8 +75,21 @@ def enable_runtime_checks() -> None:
     import impulso.fitted
     import impulso.identified
     import impulso.spec
+    import impulso.sv.data
+    import impulso.sv.fitted
+    import impulso.sv.priors
+    import impulso.sv.spec
 
-    for mod in [impulso.data, impulso.spec, impulso.fitted, impulso.identified]:
+    for mod in [
+        impulso.data,
+        impulso.spec,
+        impulso.fitted,
+        impulso.identified,
+        impulso.sv.data,
+        impulso.sv.spec,
+        impulso.sv.fitted,
+        impulso.sv.priors,
+    ]:
         for name in dir(mod):
             obj = getattr(mod, name)
             if isinstance(obj, type):

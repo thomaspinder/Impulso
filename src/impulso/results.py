@@ -3,6 +3,7 @@
 from abc import abstractmethod
 
 import arviz as az
+import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 from pydantic import Field
@@ -226,3 +227,114 @@ class LagOrderResult(ImpulsoBaseModel):
             DataFrame with information criteria for each lag order.
         """
         return self.criteria_table
+
+
+class VolatilityResult(VARResultBase):
+    """Result from univariate SV fit — posterior of conditional SD.
+
+    Conditional SD is sigma_t = exp(h_t / 2), where h_t is the
+    posterior log-volatility path.
+
+    Attributes:
+        idata: InferenceData with 'h' in posterior.
+        series_name: Name of the fitted series.
+        index: DatetimeIndex aligned with the fitted series.
+    """
+
+    series_name: str
+    index: pd.DatetimeIndex = Field(repr=False)
+
+    def _sigma_da(self):
+        """exp(h/2) DataArray over chains, draws, time."""
+        return np.exp(0.5 * self.idata.posterior["h"])
+
+    def median(self) -> pd.DataFrame:
+        """Posterior median of the conditional SD path."""
+        sigma = self._sigma_da()
+        med = sigma.median(dim=("chain", "draw")).values
+        return pd.DataFrame({self.series_name: med}, index=self.index)
+
+    def hdi(self, prob: float = 0.89) -> HDIResult:
+        """Highest-density interval for the conditional SD path."""
+        import xarray as xr
+
+        sigma = self._sigma_da()
+        # az.hdi expects a Dataset
+        ds = xr.Dataset({"sigma": sigma})
+        hdi_data = az.hdi(ds, hdi_prob=prob)["sigma"]
+        lower = pd.DataFrame(
+            {self.series_name: hdi_data.sel(hdi="lower").values},
+            index=self.index,
+        )
+        upper = pd.DataFrame(
+            {self.series_name: hdi_data.sel(hdi="higher").values},
+            index=self.index,
+        )
+        return HDIResult(lower=lower, upper=upper, prob=prob)
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Conditional SD posterior median as a DataFrame."""
+        return self.median()
+
+    def plot(self) -> Figure:
+        """Plot the posterior volatility path with HDI bands."""
+        from impulso.plotting import plot_volatility
+
+        return plot_volatility(self)
+
+
+class SVForecastResult(VARResultBase):
+    """Density forecast from a univariate SV model.
+
+    Attributes:
+        idata: InferenceData with 'forecast' in posterior_predictive.
+        series_name: Name of the forecast series.
+        steps: Number of forecast steps.
+    """
+
+    series_name: str
+    steps: int
+
+    def median(self) -> pd.DataFrame:
+        """Posterior median of the density forecast.
+
+        Returns:
+            DataFrame of median forecasts indexed by step.
+        """
+        forecast = self.idata.posterior_predictive["forecast"]
+        med = forecast.median(dim=("chain", "draw")).values
+        df = pd.DataFrame({self.series_name: med})
+        df.index.name = "step"
+        return df
+
+    def hdi(self, prob: float = 0.89) -> HDIResult:
+        """Highest-density interval for the density forecast.
+
+        Args:
+            prob: Probability mass for the HDI. Default 0.89.
+
+        Returns:
+            HDIResult with lower/upper DataFrames for each forecast step.
+        """
+        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["forecast"]
+        lower = pd.DataFrame({self.series_name: hdi_data.sel(hdi="lower").values})
+        upper = pd.DataFrame({self.series_name: hdi_data.sel(hdi="higher").values})
+        return HDIResult(lower=lower, upper=upper, prob=prob)
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Density forecast posterior median as a DataFrame.
+
+        Returns:
+            DataFrame of median forecasts indexed by step.
+        """
+        return self.median()
+
+    def plot(self) -> Figure:
+        """Plot the density forecast with HDI bands.
+
+        Returns:
+            Matplotlib Figure of the density forecast.
+        """
+        from impulso.plotting import plot_sv_forecast
+
+        return plot_sv_forecast(self)
