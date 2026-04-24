@@ -140,7 +140,7 @@ jobs:
         run: |
           ARGS=""
           if [ "${{ matrix.ci_param }}" = "true" ]; then
-            ARGS="-P ci:true"
+            ARGS="--profile ci -P ci:true"
           fi
           quarto render docs/tutorials/${{ matrix.notebook }}.qmd $ARGS
         env:
@@ -156,6 +156,15 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+
+      - name: Guard against CI-rendered notebooks
+        run: |
+          if find docs/tutorials -maxdepth 1 -name '*.md' -print0 \
+             | xargs -0 -r grep -l 'impulso:ci-render' 2>/dev/null \
+             | grep -q .; then
+            echo "::error::CI-mode rendered notebook committed. Run 'make docs-render' (not 'make docs-render-ci') and recommit."
+            exit 1
+          fi
 
       - name: Build documentation
         run: uv run zensical build
