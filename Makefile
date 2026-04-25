@@ -43,7 +43,7 @@ docs-render: ## Render Quarto notebooks to markdown
 
 .PHONY: docs-render-ci
 docs-render-ci: ## Render notebooks in CI mode (fast, minimal sampling)
-	@QUARTO_PYTHON=.venv/bin/python quarto render -P ci:true
+	@QUARTO_PYTHON=.venv/bin/python quarto render --profile ci -P ci:true
 	@uv run python scripts/postprocess_qmd.py docs/tutorials/*.md
 
 .PHONY: docs-test

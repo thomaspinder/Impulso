@@ -43,6 +43,13 @@ ci = False
 ```
 
 ```{python}
+#| echo: false
+#| output: asis
+if ci:
+    print("<!-- impulso:ci-render -->")
+```
+
+```{python}
 import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
