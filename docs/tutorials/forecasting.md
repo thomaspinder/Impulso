@@ -1,7 +1,7 @@
 # Probabilistic Forecasts
 
 
-Conventional VARs produce point forecasts. A Bayesian VAR produces a full posterior predictive distribution over future paths. This means every forecast comes with calibrated uncertainty — wide bands when the model is unsure, narrow when the data are informative.
+Conventional VARs produce point forecasts. A Bayesian VAR propagates posterior parameter uncertainty through future paths, and can optionally simulate future shocks for a full posterior predictive forecast. This means forecasts come with calibrated uncertainty — wide bands when the model is unsure, narrow when the data are informative.
 
 ``` python
 import numpy as np
@@ -182,7 +182,7 @@ fitted
 
 ## Point forecasts
 
-Call `.forecast(steps=8)` to produce an 8-step-ahead forecast. The result is a `ForecastResult` object that holds the full posterior predictive draws. The `.median()` method extracts the central tendency — the posterior median at each horizon.
+Call `.forecast(steps=8)` to produce an 8-step-ahead conditional-mean forecast. By default, Impulso propagates posterior parameter uncertainty through the VAR recursion but does not simulate future reduced-form innovations. The `.median()` method extracts the central tendency — the posterior median at each horizon.
 
 ``` python
 fcast = fitted.forecast(steps=8)
@@ -204,7 +204,7 @@ Each row is a forecast horizon (1 through 8 quarters ahead). The values converge
 
 ## Credible intervals
 
-The `.hdi()` method computes the highest density interval at a given probability level. An 89% HDI means 89% of the posterior forecast mass falls within these bounds. We use 89% rather than 95% following the ArviZ convention — it avoids the false precision of round numbers.
+The `.hdi()` method computes the highest density interval at a given probability level. For the default forecast this is an interval over conditional mean paths induced by parameter uncertainty. Use `.forecast(..., simulate_innovations=True, random_seed=...)` when you want posterior predictive paths that also include future VAR shocks. We use 89% rather than 95% following the ArviZ convention — it avoids the false precision of round numbers.
 
 ``` python
 hdi = fcast.hdi(prob=0.89)
@@ -249,7 +249,7 @@ fig = fcast.plot()
 
 ![](forecasting_files/figure-commonmark/cell-7-output-1.png)
 
-The fan chart shows the posterior median (line) and 89% HDI (shaded region) for each variable. The bands widen at longer horizons, reflecting compounding uncertainty. GDP growth and the interest rate show the widest bands, consistent with their stronger cross-variable dependencies in the DGP.
+The fan chart shows the posterior median (line) and 89% HDI (shaded region) for each variable. With the default conditional-mean forecast, the bands reflect parameter uncertainty; with `simulate_innovations=True`, they also reflect future shock uncertainty. GDP growth and the interest rate show the widest bands, consistent with their stronger cross-variable dependencies in the DGP.
 
 ## Tidy export
 
@@ -273,7 +273,7 @@ fcast.to_dataframe()
 
 ## Summary
 
-Bayesian VAR forecasts provide more than point predictions. The full posterior predictive distribution lets you quantify and communicate forecast uncertainty honestly. For structural questions — what happens to inflation when the central bank raises rates? — see the [Structural Analysis tutorial](structural-analysis.md).
+Bayesian VAR forecasts provide more than point predictions. Conditional-mean forecasts quantify parameter uncertainty, and innovation-simulated forecasts add future shock uncertainty. For structural questions — what happens to inflation when the central bank raises rates? — see the [Structural Analysis tutorial](structural-analysis.md).
 
 <section class="consulting-cta">
 

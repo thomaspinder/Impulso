@@ -17,7 +17,7 @@ fitted = VAR(lags="bic", prior="minnesota").fit(data)
 # Forecast
 forecast = fitted.forecast(steps=8)
 forecast.median()  # point forecasts
-forecast.hdi()  # credible intervals
+forecast.hdi()  # conditional-mean credible intervals
 
 # Structural analysis
 identified = fitted.set_identification_strategy(Cholesky(ordering=["gdp", "inflation", "rate"]))

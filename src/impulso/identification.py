@@ -32,18 +32,22 @@ class Cholesky(ImpulsoModel):
             InferenceData with 'structural_shock_matrix' added to posterior.
         """
         sigma = idata.posterior["Sigma"].values  # (chains, draws, n, n)
+        if len(self.ordering) != len(var_names) or set(self.ordering) != set(var_names):
+            raise ValueError("Cholesky ordering must be a permutation of var_names")
 
         # Reorder if needed
         perm = [var_names.index(v) for v in self.ordering]
         sigma_ordered = sigma[:, :, np.ix_(perm, perm)[0], np.ix_(perm, perm)[1]]
 
         # Cholesky decompose each draw (broadcasts over leading dims)
-        P = np.linalg.cholesky(sigma_ordered)
+        p_ordered = np.linalg.cholesky(sigma_ordered)
+        P = np.empty_like(p_ordered)
+        P[:, :, perm, :] = p_ordered
 
         P_da = xr.DataArray(
             P,
-            dims=["chain", "draw", "shock", "response"],
-            coords={"shock": self.ordering, "response": self.ordering},
+            dims=["chain", "draw", "response", "shock"],
+            coords={"response": var_names, "shock": self.ordering},
         )
 
         new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)

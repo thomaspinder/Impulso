@@ -55,12 +55,18 @@ class FittedVAR(ImpulsoBaseModel):
         self,
         steps: int,
         exog_future: np.ndarray | None = None,
+        *,
+        simulate_innovations: bool = False,
+        random_seed: int | None = None,
     ) -> "ForecastResult":
         """Produce h-step-ahead forecasts from the reduced-form posterior.
 
         Args:
             steps: Number of forecast steps.
             exog_future: Future exogenous values, shape (steps, k). Required if model has exog.
+            simulate_innovations: If True, recursively simulate reduced-form innovations from each posterior
+                covariance draw. If False, return the conditional mean path for each draw.
+            random_seed: Seed for reproducible innovation simulation.
 
         Returns:
             ForecastResult with posterior forecast draws.
@@ -77,6 +83,8 @@ class FittedVAR(ImpulsoBaseModel):
         B_draws = self.coefficients  # (C, D, n_vars, n_vars*n_lags)
         intercept_draws = self.intercepts  # (C, D, n_vars)
         n_chains, n_draws, n_vars, _ = B_draws.shape
+        rng = np.random.default_rng(random_seed) if simulate_innovations else None
+        chol_draws = np.linalg.cholesky(self.sigma) if simulate_innovations else None
 
         # Last n_lags observations — broadcast to (C, D, n_lags, n)
         y_hist = self.data.endog[-self.n_lags :]  # (p, n)
@@ -95,6 +103,11 @@ class FittedVAR(ImpulsoBaseModel):
             if self.has_exog and exog_future is not None:
                 B_exog = self.idata.posterior["B_exog"].values  # (C, D, n, k)
                 y_new = y_new + np.einsum("cdij,j->cdi", B_exog, exog_future[h])
+
+            if simulate_innovations and rng is not None and chol_draws is not None:
+                standard_normal = rng.standard_normal((n_chains, n_draws, n_vars))
+                innovations = np.einsum("cdij,cdj->cdi", chol_draws, standard_normal)
+                y_new = y_new + innovations
 
             forecasts[:, :, h, :] = y_new
             # Roll buffer forward

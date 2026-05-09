@@ -1256,6 +1256,18 @@ wheels = [
 ]
 
 [[package]]
+name = "importlib-metadata"
+version = "9.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "zipp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a9/01/15bb152d77b21318514a96f43af312635eb2500c96b55398d020c93d86ea/importlib_metadata-9.0.0.tar.gz", hash = "sha256:a4f57ab599e6a2e3016d7595cfd72eb4661a5106e787a95bcc90c7105b831efc", size = 56405, upload-time = "2026-03-20T06:42:56.999Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/3d/2d244233ac4f76e38533cfcb2991c9eb4c7bf688ae0a036d30725b8faafe/importlib_metadata-9.0.0-py3-none-any.whl", hash = "sha256:2d21d1cc5a017bd0559e36150c21c830ab1dc304dedd1b7ea85d20f45ef3edd7", size = 27789, upload-time = "2026-03-20T06:42:55.665Z" },
+]
+
+[[package]]
 name = "impulso"
 version = "0.0.5"
 source = { editable = "." }
@@ -1289,6 +1301,7 @@ dev = [
     { name = "tabulate" },
     { name = "tox-uv" },
     { name = "ty" },
+    { name = "watermark" },
     { name = "zensical" },
 ]
 docs = [
@@ -1323,6 +1336,7 @@ dev = [
     { name = "tabulate", specifier = ">=0.10.0" },
     { name = "tox-uv", specifier = ">=1.29.0" },
     { name = "ty", specifier = ">=0.0.14" },
+    { name = "watermark", specifier = ">=2.6.0" },
     { name = "zensical", specifier = ">=0.0.28" },
 ]
 docs = [{ name = "statsmodels", specifier = ">=0.14.6" }]
@@ -4178,6 +4192,20 @@ wheels = [
 ]
 
 [[package]]
+name = "watermark"
+version = "2.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "importlib-metadata" },
+    { name = "ipython" },
+    { name = "setuptools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d2/f4/a1e4c497be237e19eb2da3417e7e48973e0f59413d262d1440e769fe0e2b/watermark-2.6.0.tar.gz", hash = "sha256:ee4fadccbebe855a23ae48bb8a20c1da6ddb9d81f53b6c30c77de767c7161930", size = 17144, upload-time = "2025-12-21T23:42:14.73Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/bd/5e98be0ff12e580985ad647f2c33be97abde81fccbfd1655fc7536043c0f/watermark-2.6.0-py3-none-any.whl", hash = "sha256:c925daf1c3f7db9aa5fe25aff3a5fd07df0619ff0bd271bf809bfd6b0c628332", size = 13569, upload-time = "2025-12-21T23:42:13.46Z" },
+]
+
+[[package]]
 name = "wcwidth"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4442,4 +4470,13 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/61/70/1b3f319ac2c05bdcd27ae73ae315a893683eb286a42a746e7e572e2675f6/zensical-0.0.28-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:93e1bc47981b50bcd9c4098edc66fb86fd881c5b52b355db92dcef626cc0b468", size = 12864434, upload-time = "2026-03-19T14:28:00.443Z" },
     { url = "https://files.pythonhosted.org/packages/8b/21/be7c94b25e0f4281a6b5fbd471236e33c44b832a830fedad40a6c119f290/zensical-0.0.28-cp310-abi3-win32.whl", hash = "sha256:eee014ca1290463cf8471e3e1b05b7c627ac7afa0881635024d23d4794675980", size = 11888008, upload-time = "2026-03-19T14:28:03.565Z" },
     { url = "https://files.pythonhosted.org/packages/de/88/5ce79445489edae6c1a3ff9e06b4885bea5d8e8bb8e26e1aa1b24395c337/zensical-0.0.28-cp310-abi3-win_amd64.whl", hash = "sha256:6077a85ee1f0154dbfe542db36789322fe8625d716235a000d4e0a8969b14175", size = 12094496, upload-time = "2026-03-19T14:28:06.311Z" },
+]
+
+[[package]]
+name = "zipp"
+version = "3.23.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/21/093488dfc7cc8964ded15ab726fad40f25fd3d788fd741cc1c5a17d78ee8/zipp-3.23.1.tar.gz", hash = "sha256:32120e378d32cd9714ad503c1d024619063ec28aad2248dc6672ad13edfa5110", size = 25965, upload-time = "2026-04-13T23:21:46.6Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/8a/0861bec20485572fbddf3dfba2910e38fe249796cb73ecdeb74e07eeb8d3/zipp-3.23.1-py3-none-any.whl", hash = "sha256:0b3596c50a5c700c9cb40ba8d86d9f2cc4807e9bedb06bcdf7fac85633e444dc", size = 10378, upload-time = "2026-04-13T23:21:45.386Z" },
 ]

@@ -78,6 +78,44 @@ class TestCholesky:
                 reconstructed = P[c, d] @ P[c, d].T
                 np.testing.assert_allclose(reconstructed, sigma_draws[c, d], atol=1e-10)
 
+    def test_cholesky_swapped_ordering_maps_responses_back_to_var_order(self):
+        """Non-default Cholesky ordering should keep response rows in model order."""
+        sigma_draws = np.array([[[[4.0, 2.0], [2.0, 9.0]]]])
+        sigma_da = xr.DataArray(
+            sigma_draws,
+            dims=["chain", "draw", "var1", "var2"],
+            coords={"var1": ["a", "b"], "var2": ["a", "b"]},
+        )
+        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+
+        result = Cholesky(ordering=["b", "a"]).identify(idata, var_names=["a", "b"])
+        p_da = result.posterior["structural_shock_matrix"]
+        p = p_da.values[0, 0]
+
+        assert p_da.dims == ("chain", "draw", "response", "shock")
+        assert list(p_da.coords["response"].values) == ["a", "b"]
+        assert list(p_da.coords["shock"].values) == ["b", "a"]
+        np.testing.assert_allclose(p @ p.T, sigma_draws[0, 0], atol=1e-10)
+
+    @pytest.mark.parametrize(
+        "ordering",
+        [
+            ["a", "a"],
+            ["a"],
+            ["a", "c"],
+        ],
+    )
+    def test_cholesky_rejects_ordering_that_is_not_var_name_permutation(self, ordering):
+        sigma_da = xr.DataArray(
+            np.eye(2)[np.newaxis, np.newaxis, :, :],
+            dims=["chain", "draw", "var1", "var2"],
+            coords={"var1": ["a", "b"], "var2": ["a", "b"]},
+        )
+        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+
+        with pytest.raises(ValueError, match="permutation"):
+            Cholesky(ordering=ordering).identify(idata, var_names=["a", "b"])
+
 
 class TestSignRestriction:
     def test_construction(self):

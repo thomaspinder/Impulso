@@ -1,8 +1,10 @@
 """Tests for FittedVAR."""
 
+import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 
 from impulso.data import VARData
 from impulso.fitted import FittedVAR
@@ -154,3 +156,104 @@ class TestFittedVARFast:
         assert isinstance(hdi, HDIResult)
         assert hdi.lower.shape == (4, 2)
         assert hdi.upper.shape == (4, 2)
+
+    def test_default_forecast_matches_conditional_mean_when_simulation_disabled(self, synthetic_idata_2v, var_data_2v):
+        fitted = FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+
+        default = fitted.forecast(steps=4).idata.posterior_predictive["forecast"]
+        explicit = fitted.forecast(steps=4, simulate_innovations=False).idata.posterior_predictive["forecast"]
+
+        np.testing.assert_allclose(default.values, explicit.values)
+
+    def test_forecast_innovation_simulation_is_reproducible(self, synthetic_idata_2v, var_data_2v):
+        fitted = FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+
+        first = fitted.forecast(steps=4, simulate_innovations=True, random_seed=123).idata.posterior_predictive[
+            "forecast"
+        ]
+        second = fitted.forecast(steps=4, simulate_innovations=True, random_seed=123).idata.posterior_predictive[
+            "forecast"
+        ]
+        third = fitted.forecast(steps=4, simulate_innovations=True, random_seed=456).idata.posterior_predictive[
+            "forecast"
+        ]
+
+        np.testing.assert_allclose(first.values, second.values)
+        assert not np.allclose(first.values, third.values)
+
+    def test_forecast_innovation_simulation_adds_forecast_dispersion(self):
+        n_draws = 100
+        posterior = xr.Dataset({
+            "B": xr.DataArray(np.zeros((1, n_draws, 2, 2)), dims=["chain", "draw", "var", "coeff"]),
+            "intercept": xr.DataArray(np.zeros((1, n_draws, 2)), dims=["chain", "draw", "var"]),
+            "Sigma": xr.DataArray(
+                np.broadcast_to(np.eye(2), (1, n_draws, 2, 2)).copy(),
+                dims=["chain", "draw", "var1", "var2"],
+            ),
+        })
+        data = VARData(
+            endog=np.zeros((3, 2)),
+            endog_names=["y1", "y2"],
+            index=pd.date_range("2000-01-01", periods=3, freq="MS"),
+        )
+        fitted = FittedVAR.model_construct(
+            idata=az.InferenceData(posterior=posterior),
+            n_lags=1,
+            data=data,
+            var_names=["y1", "y2"],
+        )
+
+        deterministic = fitted.forecast(steps=3).idata.posterior_predictive["forecast"].values
+        simulated = (
+            fitted
+            .forecast(steps=3, simulate_innovations=True, random_seed=123)
+            .idata.posterior_predictive["forecast"]
+            .values
+        )
+
+        assert float(deterministic.std()) == 0.0
+        assert float(simulated.std()) > 0.0
+
+    def test_forecast_innovation_simulation_supports_exog_future(self):
+        n_draws = 10
+        posterior = xr.Dataset({
+            "B": xr.DataArray(np.zeros((1, n_draws, 2, 2)), dims=["chain", "draw", "var", "coeff"]),
+            "B_exog": xr.DataArray(np.zeros((1, n_draws, 2, 1)), dims=["chain", "draw", "var", "exog"]),
+            "intercept": xr.DataArray(np.zeros((1, n_draws, 2)), dims=["chain", "draw", "var"]),
+            "Sigma": xr.DataArray(
+                np.broadcast_to(np.eye(2), (1, n_draws, 2, 2)).copy(),
+                dims=["chain", "draw", "var1", "var2"],
+            ),
+        })
+        data = VARData(
+            endog=np.zeros((3, 2)),
+            endog_names=["y1", "y2"],
+            exog=np.zeros((3, 1)),
+            exog_names=["x1"],
+            index=pd.date_range("2000-01-01", periods=3, freq="MS"),
+        )
+        fitted = FittedVAR.model_construct(
+            idata=az.InferenceData(posterior=posterior),
+            n_lags=1,
+            data=data,
+            var_names=["y1", "y2"],
+        )
+
+        result = fitted.forecast(
+            steps=3,
+            exog_future=np.zeros((3, 1)),
+            simulate_innovations=True,
+            random_seed=123,
+        )
+
+        assert result.idata.posterior_predictive["forecast"].shape == (1, n_draws, 3, 2)

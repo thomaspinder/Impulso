@@ -29,6 +29,7 @@ def plot_historical_decomposition(
     med = hd_da.median(dim=("chain", "draw"))
     n_vars = len(result.var_names)
     T = med.sizes["time"]
+    shock_names = list(med.coords["shock"].values)
 
     if figsize is None:
         figsize = (12, 3 * n_vars)
@@ -43,7 +44,7 @@ def plot_historical_decomposition(
         panel = med.sel(response=resp).values  # (T, n_shocks)
         bottom_pos = None
         bottom_neg = None
-        for j, shock in enumerate(result.var_names):
+        for j, shock in enumerate(shock_names):
             vals = panel[:, j]
             pos = vals.clip(min=0)
             neg = vals.clip(max=0)

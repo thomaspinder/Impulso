@@ -111,4 +111,82 @@ class TestIRFResultMethods:
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": da}))
         result = IRFResult.model_construct(idata=idata, horizon=10, var_names=["y1", "y2"])
         med = result.median()
-        assert med.shape == (11, 4)  # (horizon+1) x (n_vars * n_vars)
+        assert isinstance(med, xr.DataArray)
+        assert med.dims == ("horizon", "response", "shock")
+        assert med.shape == (11, 2, 2)
+
+    def test_hdi_preserves_structural_coordinates(self):
+        rng = np.random.default_rng(42)
+        data = rng.standard_normal((2, 50, 11, 2, 2))
+        da = xr.DataArray(
+            data,
+            dims=["chain", "draw", "horizon", "response", "shock"],
+            coords={"response": ["y1", "y2"], "shock": ["supply", "demand"], "horizon": np.arange(11)},
+            name="irf",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": da}))
+        result = IRFResult.model_construct(idata=idata, horizon=10, var_names=["y1", "y2"])
+
+        hdi = result.hdi(prob=0.89)
+
+        assert isinstance(hdi, xr.DataArray)
+        assert hdi.dims == ("horizon", "response", "shock", "hdi")
+        assert list(hdi.coords["shock"].values) == ["supply", "demand"]
+        assert list(hdi.coords["hdi"].values) == ["lower", "higher"]
+
+    def test_structural_to_dataframe_is_tidy(self):
+        data = np.ones((1, 2, 3, 2, 2))
+        da = xr.DataArray(
+            data,
+            dims=["chain", "draw", "horizon", "response", "shock"],
+            coords={"response": ["y1", "y2"], "shock": ["supply", "demand"], "horizon": np.arange(3)},
+            name="irf",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": da}))
+        result = IRFResult.model_construct(idata=idata, horizon=2, var_names=["y1", "y2"])
+
+        df = result.to_dataframe()
+
+        assert list(df.columns) == ["horizon", "response", "shock", "value"]
+        assert len(df) == 12
+
+
+class TestFEVDResultMethods:
+    def test_median_preserves_coordinates(self):
+        raw = np.full((1, 2, 3, 2, 2), 0.5)
+        da = xr.DataArray(
+            raw,
+            dims=["chain", "draw", "horizon", "response", "shock"],
+            coords={"response": ["y1", "y2"], "shock": ["supply", "demand"], "horizon": np.arange(3)},
+            name="fevd",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": da}))
+        result = FEVDResult.model_construct(idata=idata, horizon=2, var_names=["y1", "y2"])
+
+        med = result.median()
+
+        assert isinstance(med, xr.DataArray)
+        assert med.dims == ("horizon", "response", "shock")
+        assert list(med.coords["shock"].values) == ["supply", "demand"]
+
+
+class TestHistoricalDecompositionResultMethods:
+    def test_to_dataframe_is_tidy_with_time(self):
+        data = np.ones((1, 2, 3, 2, 2))
+        da = xr.DataArray(
+            data,
+            dims=["chain", "draw", "time", "response", "shock"],
+            coords={
+                "time": pd.date_range("2000-01-01", periods=3, freq="MS"),
+                "response": ["y1", "y2"],
+                "shock": ["supply", "demand"],
+            },
+            name="hd",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": da}))
+        result = HistoricalDecompositionResult.model_construct(idata=idata, var_names=["y1", "y2"])
+
+        df = result.to_dataframe()
+
+        assert list(df.columns) == ["time", "response", "shock", "value"]
+        assert len(df) == 12

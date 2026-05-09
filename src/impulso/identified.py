@@ -105,7 +105,11 @@ class IdentifiedVAR(ImpulsoBaseModel):
         fevd_da = xr.DataArray(
             fevd,
             dims=["chain", "draw", "horizon", "response", "shock"],
-            coords={"response": self.var_names, "shock": self.shock_names},
+            coords={
+                "response": self.var_names,
+                "shock": self.shock_names,
+                "horizon": np.arange(horizon + 1),
+            },
             name="fevd",
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
@@ -160,8 +164,16 @@ class IdentifiedVAR(ImpulsoBaseModel):
         P_inv = np.linalg.inv(P_draws)  # (C, D, n, n)
         structural_resid = np.einsum("cdij,cdtj->cdti", P_inv, resid)  # (C, D, T-p, n)
 
-        # hd[..., resp, shock] = P[resp, shock] * structural_resid[shock]
-        hd = P_draws[:, :, np.newaxis, :, :] * structural_resid[:, :, :, np.newaxis, :]
+        n_obs = T - n_lags
+        Phi_arr = self._ma_coefficients(B_draws, n_vars=y.shape[1], n_lags=n_lags, horizon=n_obs - 1)
+        # Theta_h maps structural shocks at t-h into response variables at t.
+        Theta = Phi_arr @ P_draws[:, :, np.newaxis, :, :]
+
+        hd = np.zeros((*structural_resid.shape[:3], y.shape[1], len(self.shock_names)))
+        for h in range(n_obs):
+            hd[:, :, h:, :, :] += (
+                Theta[:, :, h, :, :][:, :, np.newaxis, :, :] * structural_resid[:, :, : n_obs - h, np.newaxis, :]
+            )
 
         if cumulative:
             hd = np.cumsum(hd, axis=2)
@@ -176,10 +188,11 @@ class IdentifiedVAR(ImpulsoBaseModel):
             t_end = idx.searchsorted(end, side="right")
         hd = hd[:, :, t_start:t_end]
 
+        time_coord = idx[t_start:t_end].to_numpy()
         hd_da = xr.DataArray(
             hd,
             dims=["chain", "draw", "time", "response", "shock"],
-            coords={"response": self.var_names, "shock": self.shock_names},
+            coords={"time": time_coord, "response": self.var_names, "shock": self.shock_names},
             name="hd",
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da}))

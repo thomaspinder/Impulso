@@ -5,6 +5,7 @@ from abc import abstractmethod
 import arviz as az
 import numpy as np
 import pandas as pd
+import xarray as xr
 from matplotlib.figure import Figure
 from pydantic import Field
 
@@ -35,12 +36,12 @@ class VARResultBase(ImpulsoBaseModel):
     idata: az.InferenceData = Field(repr=False)
 
     @abstractmethod
-    def median(self) -> pd.DataFrame:
+    def median(self) -> pd.DataFrame | xr.DataArray:
         """Compute posterior median of the result."""
         raise NotImplementedError
 
     @abstractmethod
-    def hdi(self, prob: float = 0.89) -> HDIResult:
+    def hdi(self, prob: float = 0.89) -> HDIResult | xr.DataArray:
         """Compute highest density interval.
 
         Args:
@@ -114,21 +115,18 @@ class IRFResult(VARResultBase):
     horizon: int
     var_names: list[str]
 
-    def median(self) -> pd.DataFrame:
+    def median(self) -> xr.DataArray:
         """Posterior median IRF."""
         irf = self.idata.posterior_predictive["irf"]
-        return pd.DataFrame(irf.median(dim=("chain", "draw")).values.reshape(self.horizon + 1, -1))
+        return irf.median(dim=("chain", "draw"))
 
-    def hdi(self, prob: float = 0.89) -> HDIResult:
+    def hdi(self, prob: float = 0.89) -> xr.DataArray:
         """HDI for IRF."""
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["irf"]
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values.reshape(self.horizon + 1, -1))
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values.reshape(self.horizon + 1, -1))
-        return HDIResult(lower=lower, upper=upper, prob=prob)
+        return az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["irf"]
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert IRF to DataFrame."""
-        return self.median()
+        return self.median().to_dataframe(name="value").reset_index()
 
     def plot(self) -> Figure:
         """Plot impulse response functions."""
@@ -149,21 +147,18 @@ class FEVDResult(VARResultBase):
     horizon: int
     var_names: list[str]
 
-    def median(self) -> pd.DataFrame:
+    def median(self) -> xr.DataArray:
         """Posterior median FEVD."""
         fevd = self.idata.posterior_predictive["fevd"]
-        return pd.DataFrame(fevd.median(dim=("chain", "draw")).values.reshape(self.horizon + 1, -1))
+        return fevd.median(dim=("chain", "draw"))
 
-    def hdi(self, prob: float = 0.89) -> HDIResult:
+    def hdi(self, prob: float = 0.89) -> xr.DataArray:
         """HDI for FEVD."""
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["fevd"]
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values.reshape(self.horizon + 1, -1))
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values.reshape(self.horizon + 1, -1))
-        return HDIResult(lower=lower, upper=upper, prob=prob)
+        return az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["fevd"]
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert FEVD to DataFrame."""
-        return self.median()
+        return self.median().to_dataframe(name="value").reset_index()
 
     def plot(self) -> Figure:
         """Plot FEVD."""
@@ -182,21 +177,18 @@ class HistoricalDecompositionResult(VARResultBase):
 
     var_names: list[str]
 
-    def median(self) -> pd.DataFrame:
+    def median(self) -> xr.DataArray:
         """Posterior median historical decomposition."""
         hd = self.idata.posterior_predictive["hd"]
-        return pd.DataFrame(hd.median(dim=("chain", "draw")).values.reshape(-1, len(self.var_names)))
+        return hd.median(dim=("chain", "draw"))
 
-    def hdi(self, prob: float = 0.89) -> HDIResult:
+    def hdi(self, prob: float = 0.89) -> xr.DataArray:
         """HDI for historical decomposition."""
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["hd"]
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values.reshape(-1, len(self.var_names)))
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values.reshape(-1, len(self.var_names)))
-        return HDIResult(lower=lower, upper=upper, prob=prob)
+        return az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["hd"]
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert historical decomposition to DataFrame."""
-        return self.median()
+        return self.median().to_dataframe(name="value").reset_index()
 
     def plot(self) -> Figure:
         """Plot historical decomposition."""

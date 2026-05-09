@@ -28,7 +28,8 @@ def plot_fevd(
     fevd_da = result.idata.posterior_predictive["fevd"]
     med = fevd_da.median(dim=("chain", "draw"))
     n_vars = len(result.var_names)
-    horizons = range(result.horizon + 1)
+    horizons = med.coords["horizon"].values
+    shock_names = list(med.coords["shock"].values)
 
     if figsize is None:
         figsize = (7, 2 * n_vars)
@@ -40,7 +41,7 @@ def plot_fevd(
 
     for i, resp in enumerate(result.var_names):
         shares = med.sel(response=resp).values  # (horizon+1, n_shocks)
-        axes[i].stackplot(horizons, shares.T, labels=result.var_names, alpha=0.8)
+        axes[i].stackplot(horizons, shares.T, labels=shock_names, alpha=0.8)
         axes[i].set_ylabel(resp)
         axes[i].set_ylim(0, 1)
         if i == 0:

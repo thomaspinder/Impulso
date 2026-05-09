@@ -26,44 +26,47 @@ def _make_forecast_result(n_vars=2, steps=8) -> ForecastResult:
     return ForecastResult.model_construct(idata=idata, steps=steps, var_names=names)
 
 
-def _make_irf_result(n_vars=2, horizon=10) -> IRFResult:
+def _make_irf_result(n_vars=2, horizon=10, shock_names=None) -> IRFResult:
     rng = np.random.default_rng(42)
     names = [f"y{i + 1}" for i in range(n_vars)]
+    shock_names = shock_names or names
     data = rng.standard_normal((2, 50, horizon + 1, n_vars, n_vars))
     da = xr.DataArray(
         data,
         dims=["chain", "draw", "horizon", "response", "shock"],
-        coords={"response": names, "shock": names, "horizon": np.arange(horizon + 1)},
+        coords={"response": names, "shock": shock_names, "horizon": np.arange(horizon + 1)},
         name="irf",
     )
     idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": da}))
     return IRFResult.model_construct(idata=idata, horizon=horizon, var_names=names)
 
 
-def _make_fevd_result(n_vars=2, horizon=10) -> FEVDResult:
+def _make_fevd_result(n_vars=2, horizon=10, shock_names=None) -> FEVDResult:
     rng = np.random.default_rng(42)
     names = [f"y{i + 1}" for i in range(n_vars)]
+    shock_names = shock_names or names
     # FEVD shares should sum to 1 across shocks
     raw = np.abs(rng.standard_normal((2, 50, horizon + 1, n_vars, n_vars)))
     raw = raw / raw.sum(axis=-1, keepdims=True)
     da = xr.DataArray(
         raw,
         dims=["chain", "draw", "horizon", "response", "shock"],
-        coords={"response": names, "shock": names},
+        coords={"response": names, "shock": shock_names, "horizon": np.arange(horizon + 1)},
         name="fevd",
     )
     idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": da}))
     return FEVDResult.model_construct(idata=idata, horizon=horizon, var_names=names)
 
 
-def _make_hd_result(n_vars=2, T=20) -> HistoricalDecompositionResult:
+def _make_hd_result(n_vars=2, T=20, shock_names=None) -> HistoricalDecompositionResult:
     rng = np.random.default_rng(42)
     names = [f"y{i + 1}" for i in range(n_vars)]
+    shock_names = shock_names or names
     data = rng.standard_normal((2, 50, T, n_vars, n_vars))
     da = xr.DataArray(
         data,
         dims=["chain", "draw", "time", "response", "shock"],
-        coords={"response": names, "shock": names},
+        coords={"response": names, "shock": shock_names, "time": np.arange(T)},
         name="hd",
     )
     idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": da}))
@@ -103,6 +106,13 @@ class TestPlotIRF:
         fig = plot_irf(result)
         assert fig._suptitle.get_text() == "Impulse Response Functions"
 
+    def test_uses_actual_shock_coordinates(self):
+        result = _make_irf_result(shock_names=["supply", "demand"])
+
+        fig = plot_irf(result)
+
+        assert fig.axes[0].get_title() == "supply -> y1"
+
 
 class TestPlotFEVD:
     def test_returns_figure(self):
@@ -120,6 +130,14 @@ class TestPlotFEVD:
         fig = plot_fevd(result)
         assert fig._suptitle.get_text() == "Forecast Error Variance Decomposition"
 
+    def test_legend_uses_actual_shock_coordinates(self):
+        result = _make_fevd_result(shock_names=["supply", "demand"])
+
+        fig = plot_fevd(result)
+        legend_labels = [text.get_text() for text in fig.axes[0].get_legend().texts]
+
+        assert legend_labels == ["supply", "demand"]
+
 
 class TestPlotHistoricalDecomposition:
     def test_returns_figure(self):
@@ -136,6 +154,14 @@ class TestPlotHistoricalDecomposition:
         result = _make_hd_result()
         fig = plot_historical_decomposition(result)
         assert fig._suptitle.get_text() == "Historical Decomposition"
+
+    def test_legend_uses_actual_shock_coordinates(self):
+        result = _make_hd_result(shock_names=["supply", "demand"])
+
+        fig = plot_historical_decomposition(result)
+        legend_labels = [text.get_text() for text in fig.axes[0].get_legend().texts]
+
+        assert legend_labels == ["supply", "demand"]
 
 
 def test_plot_volatility_returns_figure(synthetic_sv_idata):

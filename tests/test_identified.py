@@ -2,6 +2,7 @@
 
 import arviz as az
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 
@@ -61,7 +62,8 @@ class TestIdentifiedVARFast:
         assert isinstance(irf, IRFResult)
         assert irf.horizon == 10
         med = irf.median()
-        assert med.shape == (11, 4)  # (horizon+1, n_vars*n_vars)
+        assert med.dims == ("horizon", "response", "shock")
+        assert med.shape == (11, 2, 2)
 
     def test_fevd_shape(self, synthetic_identified_idata_2v, var_data_2v):
         identified = IdentifiedVAR.model_construct(
@@ -73,7 +75,8 @@ class TestIdentifiedVARFast:
         fevd = identified.fevd(horizon=10)
         assert isinstance(fevd, FEVDResult)
         med = fevd.median()
-        assert med.shape == (11, 4)
+        assert med.dims == ("horizon", "response", "shock")
+        assert med.shape == (11, 2, 2)
 
     def test_fevd_sums_to_one(self, synthetic_identified_idata_2v, var_data_2v):
         """FEVD shares should sum to ~1 for each response at each horizon."""
@@ -101,6 +104,93 @@ class TestIdentifiedVARFast:
         )
         hd = identified.historical_decomposition()
         assert isinstance(hd, HistoricalDecompositionResult)
+
+    def test_historical_decomposition_propagates_shocks_dynamically(self):
+        """A one-time shock should keep contributing through the VAR lag structure."""
+        dates = pd.date_range("2000-01-01", periods=4, freq="MS")
+        data = xr.Dataset({
+            "B": xr.DataArray(
+                np.array([[[[0.5, 0.0], [0.0, 0.0]]]]),
+                dims=["chain", "draw", "var", "coeff"],
+            ),
+            "intercept": xr.DataArray(np.zeros((1, 1, 2)), dims=["chain", "draw", "var"]),
+            "Sigma": xr.DataArray(np.eye(2)[np.newaxis, np.newaxis, :, :], dims=["chain", "draw", "var1", "var2"]),
+            "structural_shock_matrix": xr.DataArray(
+                np.eye(2)[np.newaxis, np.newaxis, :, :],
+                dims=["chain", "draw", "response", "shock"],
+                coords={"response": ["y1", "y2"], "shock": ["y1", "y2"]},
+            ),
+        })
+        from impulso.data import VARData
+
+        var_data = VARData(
+            endog=np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 0.0], [0.25, 0.0]]),
+            endog_names=["y1", "y2"],
+            index=dates,
+        )
+        identified = IdentifiedVAR.model_construct(
+            idata=az.InferenceData(posterior=data),
+            n_lags=1,
+            data=var_data,
+            var_names=["y1", "y2"],
+        )
+
+        hd = identified.historical_decomposition()
+        hd_da = hd.idata.posterior_predictive["hd"]
+
+        np.testing.assert_allclose(hd_da.sel(response="y1", shock="y1").values[0, 0], [1.0, 0.5, 0.25])
+        np.testing.assert_allclose(hd_da.sum(dim="shock").sel(response="y1").values[0, 0], [1.0, 0.5, 0.25])
+        assert list(hd_da.coords["time"].values) == list(dates[1:].values)
+
+    def test_historical_decomposition_start_end_preserves_time_coordinates(
+        self, synthetic_identified_idata_2v, var_data_2v
+    ):
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+        )
+
+        hd = identified.historical_decomposition(start=var_data_2v.index[5], end=var_data_2v.index[7])
+        times = hd.idata.posterior_predictive["hd"].coords["time"].values
+
+        assert list(times) == list(var_data_2v.index[5:8].values)
+
+    def test_historical_decomposition_accepts_named_datetime_index(self):
+        dates = pd.date_range("2000-01-01", periods=4, freq="MS", name="date")
+        posterior = xr.Dataset({
+            "B": xr.DataArray(
+                np.array([[[[0.5, 0.0], [0.0, 0.0]]]]),
+                dims=["chain", "draw", "var", "coeff"],
+            ),
+            "intercept": xr.DataArray(np.zeros((1, 1, 2)), dims=["chain", "draw", "var"]),
+            "Sigma": xr.DataArray(np.eye(2)[np.newaxis, np.newaxis, :, :], dims=["chain", "draw", "var1", "var2"]),
+            "structural_shock_matrix": xr.DataArray(
+                np.eye(2)[np.newaxis, np.newaxis, :, :],
+                dims=["chain", "draw", "response", "shock"],
+                coords={"response": ["y1", "y2"], "shock": ["y1", "y2"]},
+            ),
+        })
+        from impulso.data import VARData
+
+        var_data = VARData(
+            endog=np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 0.0], [0.25, 0.0]]),
+            endog_names=["y1", "y2"],
+            index=dates,
+        )
+        identified = IdentifiedVAR.model_construct(
+            idata=az.InferenceData(posterior=posterior),
+            n_lags=1,
+            data=var_data,
+            var_names=["y1", "y2"],
+        )
+
+        hd = identified.historical_decomposition()
+        hd_da = hd.idata.posterior_predictive["hd"]
+
+        assert hd_da.dims == ("chain", "draw", "time", "response", "shock")
+        assert list(hd_da.coords["time"].values) == list(dates[1:].values)
 
     def test_irf_deterministic_values(self, synthetic_identified_idata_2v, var_data_2v):
         """IRF at horizon 0 should equal the structural shock matrix."""

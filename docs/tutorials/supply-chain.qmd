@@ -1,0 +1,754 @@
+---
+title: 'Supply-chain shocks and US inflation: a structural VAR'
+execute:
+  warning: false
+  echo: true
+format:
+  gfm:
+    variant: -smart+pipe_tables+tex_math_dollars
+    wrap: none
+jupyter: python3
+---
+
+```{python}
+#| include: false
+import logging
+import warnings
+
+warnings.filterwarnings("ignore")
+logging.getLogger("pytensor").setLevel(logging.ERROR)
+```
+
+```{python}
+#| tags: [parameters]
+#| include: false
+ci = False
+```
+
+
+```{python}
+import arviz as az
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from impulso import VAR, VARData, select_lag_order
+from impulso.identification import Cholesky
+from impulso.samplers import NUTSSampler
+```
+
+## A once-in-a-generation inflation episode
+
+Between the spring of 2021 and the summer of 2022, the headline consumer price index (CPI) in the United States (US) climbed from a pre-pandemic norm of around 2% YoY to a peak of roughly 9% in June 2022 - the highest reading in four decades. The economy that produced this number looked unusual on almost every dimension. Container ships sat anchored off the ports of Los Angeles and Long Beach. Semiconductor lead times stretched from weeks to the better part of a year. Oil prices rose sharply from pandemic lows and spiked again around Russia's invasion of Ukraine. By the time the Federal Reserve (Fed) began its tightening cycle in March 2022, the transitory debate was over. The question for policymakers had become how much of the inflation was coming from aggregate demand and how much from a tangled global supply chain.
+
+This notebook takes on that attribution problem wherein we ask two questions. First, how many percentage points of peak inflation can be traced to supply-chain shocks, as opposed to monetary policy, aggregate demand, or energy pressures? And second, what would the post-pandemic macroeconomy have looked like if the supply-chain disruption had never happened, or had resolved sooner, or had lingered longer?
+
+To achieve this, we fit a six-variable Bayesian structural vector autoregression (VAR) with a Cholesky identification scheme, then put it to work with two tools: historical decomposition, which attributes each observed movement in each variable to the full sequence of past structural shocks, and forward scenario analysis, which asks how the inflation path would have evolved under different supply-chain futures. By virtue of taking a Bayesian approach to this analysis, every impulse response function (IRF), decomposition, and scenario carries a posterior distribution that reflects the parameter uncertainty in a finite sample.
+
+The six variables span the transmission mechanism from global supply pressure through to domestic prices and the policy response. `gscpi` is the New York Federal Reserve's Global Supply Chain Pressure Index (GSCPI), a standardised composite of shipping costs and manufacturing delivery times that summarises stress in world supply networks. `oil` is the West Texas Intermediate (WTI) crude price, a major energy benchmark and a direct input to US production costs. `output` is US industrial production and will serve as our monthly proxy for real economic activity. `ppi` is the producer price index (PPI) for all commodities - prices at the factory gate, upstream of the consumer. `prices` is the headline CPI i.e., the inflation number that households and policymakers actually see. Finally, `rate` is the two-year Treasury yield, which tracks the market's expectation of the federal funds rate path and so captures the monetary policy stance more smoothly than the funds rate itself. For a deeper look at how SVAR models can be used for monetary policy analysis, see our [U.S. Monetary Policy Analysis](https://thomaspinder.github.io/Impulso/tutorials/monetary-policy/).
+
+```{python}
+#| code-fold: true
+#| label: data-series
+#| fig-cap: "Monthly series, 1998-present. Shaded band marks the 2020-2023 supply-chain episode."
+df = pd.read_csv("data/supply_chain.csv", index_col="date", parse_dates=True)
+
+fig, axes = plt.subplots(6, 1, figsize=(8, 9), sharex=True)
+labels = {
+    "gscpi": "GSCPI (std. units)",
+    "oil": "WTI oil ($/bbl)",
+    "output": "Industrial production",
+    "ppi": "PPI (all commodities)",
+    "prices": "CPI (all urban)",
+    "rate": "2Y Treasury yield (%)",
+}
+for ax, col in zip(axes, df.columns, strict=True):
+    ax.plot(df.index, df[col], linewidth=1, color="0.3")
+    ax.axvspan(
+        pd.Timestamp("2020-03-01"), pd.Timestamp("2023-12-31"), color="C3", alpha=0.08
+    )
+    ax.set_ylabel(labels[col], fontsize=9)
+    ax.grid(alpha=0.3)
+fig.tight_layout()
+```
+
+### Data provenance
+
+| Variable | Source | Code | Transformation | Frequency | Sample | Pull date |
+|----------|--------|------|----------------|-----------|--------|-----------|
+| `gscpi`  | New York Fed (direct xlsx) | [GSCPI](https://www.newyorkfed.org/research/policy/gscpi) | none (already z-scored) | monthly | 1998-01 - 2026-03 | 2026-04-23 |
+| `oil`    | FRED | `WTISPLC` | $100 \times \log$ | monthly | 1998-01 - 2026-03 | 2026-04-23 |
+| `output` | FRED | `INDPRO`  | $100 \times \log$ | monthly | 1998-01 - 2026-03 | 2026-04-23 |
+| `ppi`    | FRED | `PPIACO`  | $100 \times \log$ | monthly | 1998-01 - 2026-03 | 2026-04-23 |
+| `prices` | FRED | `CPIAUCSL` | $100 \times \log$ | monthly | 1998-01 - 2026-03 | 2026-04-23 |
+| `rate`   | FRED | `DGS2`    | none; daily averaged to monthly | daily→monthly | 1998-01 - 2026-03 | 2026-04-23 |
+
+Reproducibility: [`scripts/build_supply_chain_data.py`](https://github.com/thomaspinder/Impulso/blob/main/scripts/build_supply_chain_data.py) rebuilds the data using the Federal Reserve Economic Data (FRED) API and the New York Fed's public GSCPI spreadsheet.
+
+## Transformations
+
+Four of the six series enter the VAR in log-levels scaled by 100. `oil`, `output`, `ppi`, and `prices` all live on strictly positive, trending scales where proportional changes are the natural unit of analysis. Taking $100 \times \log(\cdot)$ means a one-unit change in the transformed series corresponds to approximately a one-percent change in the original level, which lines up with how practitioners and policymakers talk about oil prices, industrial production, producer prices, and CPI.
+
+The remaining two variables are left untouched. The New York Fed publishes `gscpi` as a zero-mean, unit-variance index and so it is already standardised by construction. Meanwhile `rate` is a short-term interest rate measured in percentage points, and keeping it in levels means a unit impulse has a direct monetary-policy interpretation (a one-percentage-point move in the two-year yield).
+
+```{python}
+df_model = df.copy()
+for col in ("oil", "output", "ppi", "prices"):
+    df_model[col] = 100 * np.log(df_model[col])
+df_model = df_model[["gscpi", "oil", "output", "ppi", "prices", "rate"]]
+df_model.describe().round(2)
+```
+
+With the transformations applied and the columns ordered, we hand the frame to `VARData.from_df`. This validates that the endogenous and (implicit) exogenous shapes agree, checks that the index is a `DatetimeIndex`, freezes the underlying arrays so downstream consumers cannot accidentally mutate them, and records the column ordering - the same ordering that a Cholesky identification scheme will later interpret as the causal recursive structure.
+
+```{python}
+data = VARData.from_df(df_model, endog=["gscpi", "oil", "output", "ppi", "prices", "rate"])
+data
+```
+
+## Reduced-form VAR estimation
+
+The reduced-form VAR($p$) model is: $$y_t = c + A_1 y_{t-1} + A_2 y_{t-2} + \cdots + A_p y_{t-p} + u_t, \qquad u_t \sim N(0, \Sigma_u)$$where $y_t = (\text{gscpi}_t, \text{oil}_t, \text{output}_t, \text{ppi}_t, \text{prices}_t, \text{rate}_t)'$ is the $6 \times 1$ vector of endogenous variables, $c$ is the vector of intercepts, and $A_1, \ldots, A_p$ are $6 \times 6$ coefficient matrices. Each $A_j$ captures how the variables at lag $j$ feed back into the current period. The innovation $u_t$ is the reduced-form residual - what is left once the linear dependence on the recent past has been accounted for - and its covariance $\Sigma_u$ records how those residuals co-move across equations. The off-diagonal elements of $\Sigma_u$ summarise contemporaneous correlation but, on their own, say nothing about which variable caused which; resolving that ambiguity is the identification problem and is taken up in the next section.
+
+We set the lag length to 12 so the model can trace up to a full year of own- and cross-variable dynamics. An information criteria criterion will typically prefer a much shorter lag order on this sample, because they penalise each extra parameter without knowing that the Minnesota prior already disciplines the 12-lag parameter space. We report the diagnostic for transparency but adopt the 12-lag convention for comparability with the published monetary-VAR literature.
+
+```{python}
+ic = select_lag_order(data, max_lags=12)
+print(f"AIC: {ic.aic}   BIC: {ic.bic}   HQ: {ic.hq}")
+```
+
+We estimate this system with a Minnesota prior. The idea is simple: most macroeconomic time series look roughly like random walks, so a sensible default is to shrink each variable's own first lag toward 1 and every other coefficient toward 0. The prior is governed by three hyperparameters - the *overall tightness* $\lambda_1$, which controls how strongly all coefficients are pulled toward the prior mean (larger values let the data speak more loudly); the *cross-variable shrinkage* $\lambda_2$, which shrinks coefficients on other variables' lags harder than own lags; and the *lag decay* $\lambda_3$, which tightens the prior progressively at higher lag orders. With six endogenous variables and twelve lags, the $A$ matrices alone contain $6 \times 6 \times 12 = 432$ free coefficients, so this regularisation is what makes estimation well-behaved at monthly frequency.
+
+
+```{python}
+if ci:
+    sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=123)
+else:
+    sampler = NUTSSampler(
+        draws=1500,
+        tune=3000,
+        chains=8,
+        cores=8,
+        target_accept=0.9,
+        random_seed=123,
+        nuts_sampler="nutpie",
+    )
+
+fitted = VAR(lags=12, prior="minnesota").fit(data, sampler=sampler)
+fitted
+```
+
+## Structural identification
+
+The reduced-form residuals $u_t$ that we just estimated are not economic shocks. Each $u_t$ is a correlated mixture of the underlying structural disturbances - a supply-chain shock, an oil shock, a monetary shock, and so on - bundled together by the contemporaneous feedback between variables. Identification is the step that imposes enough restrictions on this mixture to rotate it into something interpretable. A Cholesky scheme achieves this by assuming a recursive causal ordering of the variables: within any single month, each variable responds only to the variables listed before it and to its own shock, never to the ones listed after it. Change the ordering and you change the structural shocks, which is why the ordering is a modelling assumption that has to be defended, not a detail.
+
+_The order of variables is to some extent subjective and fundamentally a choice of the practitioner. Whilst we'll now explain our rationale for variable ordering, it is important to stress that other orderings are practically valid and may lead to alternative outcomes. It is the responsibility of the practitioner to (in)validate this choice through a sensitivity analysis._
+
+We order the variables `gscpi` $\to$ `oil` $\to$ `output` $\to$ `ppi` $\to$ `prices` $\to$ `rate`. GSCPI goes first because it is built from quantities set by global logistics events (waves of the coronavirus pandemic - henceforth COVID-19, the Suez Canal grounding, Shanghai lockdowns, the Red Sea disruption) that are exogenous to US domestic macro within a month e.g., shipping costs, supplier delivery times, and inventory backlogs. Oil goes second - a global commodity that can plausibly react to logistics pressure within the month but is not driven by US activity or prices at monthly frequency. Output third - real activity responds quickly to commodity and logistics shocks, whereas prices, rates, and margins take longer to feed back into physical production. The fourth variable in our system is PPI, as producer prices absorb upstream cost and output conditions within the month, but their pass-through to the consumer is not instantaneous. The penultimate variable is CPI, the standard Sims-style placement, with consumer prices absorbing everything upstream within the month. Finally, rate whereby as bond markets react to supply, price, and output news within the month, and the 2Y yield does not plausibly move these macro quantities inside a single month.
+
+The weakest link in this ordering is the GSCPI/oil step. The shipping-cost component of GSCPI is itself partly driven by oil prices, so the assumption that oil does not affect GSCPI contemporaneously is not perfectly clean. The sensitivity section at the end of the notebook revisits exactly this by swapping the two variables and re-running the analysis.
+
+In structural-VAR (SVAR) notation we will denote the structural impact matrix `P`. The mapping is `P` = $A_0^{-1}$ = $B$.
+
+!!! note "Alternative identification schemes"
+
+    Sign-restriction identification (and proxy-SVAR with GSCPI as an external instrument) would be the natural way to disentangle supply-driven from demand-driven GSCPI variation. We deliberately defer that comparison here to keep this notebook focused on attribution machinery (historical decomposition, counterfactuals, scenarios) rather than re-running an identification comparison. For a side-by-side Cholesky-vs-sign-restriction treatment on the standard three-variable monetary VAR, see the [sign restrictions tutorial](monetary-policy.qmd); a proxy-SVAR companion notebook for the supply-chain question is flagged in the *threats not addressed* paragraph at the end of the sensitivity section.
+
+```{python}
+identified = fitted.set_identification_strategy(Cholesky(ordering=["gscpi", "oil", "output", "ppi", "prices", "rate"]))
+identified
+```
+
+## Impulse responses
+
+An impulse response function traces out the dynamic path of each variable following a one-standard-deviation (SD) structural shock, period by period into the future. Because we have six structural shocks and six responding variables, the natural display is a $6 \times 6$ grid: rows index the responder and columns index the shock, so the cell at row $i$, column $j$ shows how variable $i$ evolves after a one-SD shock to variable $j$. The shaded band around each response is the 89% posterior credible interval, so the chart summarises both the point estimate of the dynamic and the uncertainty around it.
+
+Two cells of this grid carry most of the content we care about. The first column depicts the responses to a GSCPI innovation and is the closest the model has to a supply-chain-shock fingerprint, showing how a sudden tightening in global logistics propagates through oil, output, producer prices, consumer prices, and the policy rate. Additionally, the fifth row depicts the responses of CPI to each of the six shocks and presents the inflation story from the perspective of *"which shock types matter most for consumer prices?"*. The two sub-sections below take each in turn.
+
+### The full response grid
+
+```{python}
+#| label: irf-grid
+#| fig-cap: "Impulse responses to a one-SD structural shock in each variable. Rows = responder, columns = shock."
+irf = identified.impulse_response(horizon=48)
+fig = irf.plot()
+```
+
+### The fingerprint of a supply-chain shock
+
+Isolating the first column of the grid gives a cleaner view of what a GSCPI innovation does to the rest of the system. Reading the response as a *supply-chain* shock requires the further assumption that within-month GSCPI movement is dominated by supply-side variation rather than demand-side variation - an assumption we revisit in the labelling note above and in the sensitivity section. Subject to that caveat, the expectation is that industrial production falls as inputs become harder to source, producer prices rise almost immediately as factory-gate costs spike, consumer prices follow more slowly as the cost pressure travels down the supply chain, and the policy rate drifts up as bond markets price in a tighter monetary response to the inflationary pressure. The panels below show the posterior median and an 89% credible band for each responder, with a red dot marking the horizon at which the absolute response peaks. In continuous-integration (CI) mode renders the posterior is drawn from a tiny sampler, so the bands here are very noisy - the full weekly render produces calibrated bands.
+
+```{python}
+#| label: fingerprint
+#| fig-cap: "Posterior median response to a 1-SD GSCPI shock, 89% credible bands, peak response marked."
+irf_da = irf.idata.posterior_predictive["irf"]
+gscpi_col = irf_da.sel(shock="gscpi")
+
+median = gscpi_col.median(dim=("chain", "draw"))
+lo = gscpi_col.quantile(0.055, dim=("chain", "draw"))
+hi = gscpi_col.quantile(0.945, dim=("chain", "draw"))
+
+responders = ["gscpi", "oil", "output", "ppi", "prices", "rate"]
+fig, axes = plt.subplots(2, 3, figsize=(10, 5), sharex=True)
+for ax, name in zip(axes.flat, responders, strict=True):
+    m = median.sel(response=name).values
+    lo_v = lo.sel(response=name).values
+    hi_v = hi.sel(response=name).values
+    h = np.arange(len(m))
+    ax.fill_between(h, lo_v, hi_v, alpha=0.25, color="C0")
+    ax.plot(h, m, color="C0", linewidth=1.5)
+    ax.axhline(0, color="0.5", linewidth=0.5, linestyle="--")
+    peak_idx = int(np.argmax(np.abs(m)))
+    ax.scatter([peak_idx], [m[peak_idx]], color="C3", s=18, zorder=5)
+    ax.set_title(name, fontsize=10)
+    ax.set_xlabel("months")
+fig.tight_layout()
+```
+
+### What moves inflation?
+
+The previous figure tells us how GSCPI innovations move CPI; the next question is whether they are the dominant driver, or just one of several. The chart below overlays the CPI response to each of the six structural shocks on a single axis, with the GSCPI response emphasised. As you read it, ask which shocks account for most of the CPI response at the 6- and 12-month horizons - those are the inflation drivers the VAR is picking up.
+
+```{python}
+#| label: cpi-by-shock
+#| fig-cap: "CPI response to each structural shock. GSCPI response emphasised."
+cpi_responses = irf_da.sel(response="prices").median(dim=("chain", "draw"))
+shocks = ["gscpi", "oil", "output", "ppi", "prices", "rate"]
+colors = {s: f"C{i}" for i, s in enumerate(shocks)}
+fig, ax = plt.subplots(figsize=(8, 4.2))
+for s in shocks:
+    line = cpi_responses.sel(shock=s).values
+    lw = 2.2 if s == "gscpi" else 1.0
+    alpha = 1.0 if s == "gscpi" else 0.55
+    ax.plot(np.arange(len(line)), line, color=colors[s], linewidth=lw, alpha=alpha, label=s)
+ax.axhline(0, color="0.5", linewidth=0.5, linestyle="--")
+ax.set_xlabel("months")
+ax.set_ylabel("CPI response (100 × log points ≈ percent)")
+ax.legend(fontsize=8, ncols=3)
+fig.tight_layout()
+```
+
+### Peak response and half-life
+
+Two summary numbers capture the shape of each response to a GSCPI shock: the *peak month* - the horizon at which the absolute response is largest - and the *half-life* - the number of months it takes, starting from the peak, for the response to fall below half its peak magnitude. The table below reports both for the four variables of greatest interest.
+
+```{python}
+#| label: half-lives
+rows = []
+for name in ["output", "ppi", "prices", "rate"]:
+    m = gscpi_col.sel(response=name).median(dim=("chain", "draw")).values
+    peak_idx = int(np.argmax(np.abs(m)))
+    peak_val = float(m[peak_idx])
+    half = None
+    for h in range(peak_idx, len(m)):
+        if abs(m[h]) < abs(peak_val) / 2:
+            half = h - peak_idx
+            break
+    rows.append({
+        "variable": name,
+        "peak_month": peak_idx,
+        "peak_value": round(peak_val, 3),
+        "half_life_months": half if half is not None else f">{len(m) - peak_idx - 1}",
+    })
+pd.DataFrame(rows)
+```
+
+The pattern worth flagging is the ordering of the peaks: PPI typically peaks earlier than CPI, consistent with pass-through from producer prices to consumer prices as cost pressure travels down the supply chain. The horizon for these IRFs has been extended to 48 months. The shape of the response in the first ~24 months is data-driven; the tail beyond that is increasingly shaped by the Minnesota prior rather than by the finite-sample evidence, so late-horizon decay rates should be read as a model object rather than as a strong empirical claim about persistence.
+
+## Historical decomposition
+
+Impulse responses tell us about *average* dynamics: what the system would do, in expectation, after a single one-SD shock in isolation. They do not tell us what actually happened. Historical decomposition (HD) fills that gap. It attributes the model-implied deviation of every observed series — for our purposes, $100 \times \log$ CPI — from its deterministic path, conditional on the initial $p$ lags, to the realised sequence of structural shocks. Concretely, the algorithm takes the reduced-form residuals $u_t$, rotates them through the same matrix $P$ used for identification to recover the structural shocks, and propagates them through the moving-average representation of the VAR. Where an IRF answers "what does a GSCPI shock do to CPI on average?", an HD answers "on this particular month, how much of the observed deviation from the deterministic path of CPI came from GSCPI shocks, how much from oil, how much from monetary?".
+
+The focal period is the shaded 2020-2023 window from the first figure. During the post-pandemic inflation surge, CPI year-on-year climbed from 1.4% in January 2021 to 9.1% in June 2022 before retracing. The question is which of the six structural shocks drove that path, and how the attribution shifted as the episode moved from supply-side disruption into a broader inflationary regime with an aggressive monetary response.
+
+The figure below plots the decomposition for CPI only. We come back to the other variables - especially industrial production - through a counterfactual lens in the sub-sections that follow, which reads more cleanly than comparing six stacked-bar charts side by side.
+
+### Inflation, decomposed month by month
+
+```{python}
+hd = identified.historical_decomposition()
+hd_da = hd.idata.posterior_predictive["hd"]
+hd_prices_df = (
+    hd_da.sel(response="prices").median(dim=("chain", "draw")).to_pandas()
+)
+hd_prices_df.index = data.index[12:]
+```
+
+```{python}
+#| code-fold: true
+B_draws_hd = fitted.coefficients
+c_draws_hd = fitted.intercepts
+n_lags_hd = fitted.n_lags
+y_full_hd = data.endog
+B0, c0 = B_draws_hd[0, 0], c_draws_hd[0, 0]
+x_lag_first = np.concatenate([y_full_hd[n_lags_hd - 1 - lag] for lag in range(n_lags_hd)])
+one_step_pred = c0 + B0 @ x_lag_first
+hd_sum_t0 = hd_da.values[0, 0, 0].sum(axis=-1)
+recon_residual = float(np.abs(y_full_hd[n_lags_hd] - one_step_pred - hd_sum_t0).max())
+print(f"HD consistency check at t=0 (chain 0, draw 0): max |obs - pred - sum_shocks| = {recon_residual:.2e}")
+assert recon_residual < 1e-6, "HD identity does not match observed minus one-step prediction"
+```
+
+```{python}
+#| label: hd-cpi
+#| fig-cap: "Historical decomposition of CPI anomalies, 2019-2024. Each month's bar sums the contributions of the six structural shocks."
+window = hd_prices_df.loc["2019-01":"2024-12"]
+pos = window.clip(lower=0)
+neg = window.clip(upper=0)
+shocks = ["gscpi", "oil", "output", "ppi", "prices", "rate"]
+colors = plt.get_cmap("tab10")(np.arange(len(shocks)))
+
+fig, ax = plt.subplots(figsize=(10, 4.5))
+bottom_pos = np.zeros(len(window))
+bottom_neg = np.zeros(len(window))
+for s, c in zip(shocks, colors, strict=True):
+    ax.bar(window.index, pos[s], bottom=bottom_pos, color=c, width=25, label=s)
+    bottom_pos += pos[s].values
+    ax.bar(window.index, neg[s], bottom=bottom_neg, color=c, width=25)
+    bottom_neg += neg[s].values
+ax.axhline(0, color="0.3", linewidth=0.5)
+ax.set_ylabel("CPI contribution (100 × log points)")
+ax.legend(fontsize=8, ncols=6, loc="upper left")
+fig.tight_layout()
+```
+
+Reading the chart left to right, the GSCPI-innovation contribution to CPI is most pronounced during the 2021-2022 window, when the GSCPI segment of each monthly bar sits well away from zero. As 2023 progresses and global logistics normalise, that contribution fades and other shocks take over the bar.
+
+### Counterfactual: CPI without the GSCPI innovations
+
+The decomposition sets up a natural counterfactual. For each month from January 2020 onwards, the GSCPI-innovation contribution to CPI is one additive piece of the observed move. Zeroing out that contribution - subtracting it from the observed CPI series from Jan 2020 onwards, and leaving every other shock untouched - gives a mechanical estimate of what CPI would have looked like in a world where the GSCPI innovations we identify were absent. To the extent the labelling assumption above holds, that maps onto a world where the supply-chain disruption never occurred.
+
+The usual caveat applies. This is a *linear-model* counterfactual: it holds the other structural shocks fixed at their realised values and does not re-equilibrate the rest of the system. In particular, the monetary-policy response would plausibly have been milder in a world without the inflation surge, and some of the second-round wage and inflation-expectations dynamics would have followed a different path. The counterfactual is therefore best read as a first-order attribution of the observed CPI path, not as a simulation of an alternative history in general equilibrium.
+
+To bracket that, we add a second counterfactual that also zeroes the realised monetary-policy (MP) structural shocks from 2021Q2 onwards (the Fed's liftoff and tightening cycle). The two counterfactuals span the range of within-model supply-chain attribution. The GSCPI-only path holds the contractionary monetary response in place and reads as a *lower bound* on the within-model supply-chain contribution, in the sense that some of the inflation that GSCPI would otherwise be credited with has already been bled off by the realised policy tightening. The GSCPI-plus-MP path removes that tightening entirely and brackets the attribution from the other side - in a true general-equilibrium (GE) world without supply-chain pressure the Fed would still have tightened, but less, so the truth lies between the two paths.
+
+```{python}
+#| label: cpi-counterfactual
+#| fig-cap: "Observed vs. counterfactual CPI YoY inflation, with GSCPI innovations zeroed from Jan 2020 and (dashed blue) additionally with monetary-policy shocks zeroed from 2021Q2."
+gscpi_contrib_to_prices = hd_prices_df["gscpi"]
+counterfactual_shift = gscpi_contrib_to_prices.copy()
+counterfactual_shift.loc[:"2020-01-01"] = 0.0
+
+mp_contrib_to_prices = hd_prices_df["rate"]
+mp_shift = mp_contrib_to_prices.copy()
+mp_shift.loc[:"2021-04-01"] = 0.0
+
+observed_cpi = df_model["prices"].loc[data.index[12]:]
+cpi_counterfactual = observed_cpi - counterfactual_shift
+cpi_counterfactual_no_mp = observed_cpi - counterfactual_shift - mp_shift
+
+yoy_obs = observed_cpi.diff(12)
+yoy_ctf = cpi_counterfactual.diff(12)
+yoy_ctf_no_mp = cpi_counterfactual_no_mp.diff(12)
+
+fig, ax = plt.subplots(figsize=(9, 4))
+ax.plot(yoy_obs.loc["2018":], color="0.25", linewidth=1.6, label="observed")
+ax.plot(yoy_ctf.loc["2018":], color="C3", linewidth=1.6, label="no GSCPI innovations post-2020")
+ax.plot(
+    yoy_ctf_no_mp.loc["2018":],
+    color="C0",
+    linewidth=1.6,
+    linestyle="--",
+    label="no GSCPI + no MP shocks post-2021Q2",
+)
+ax.axhline(0, color="0.5", linewidth=0.4, linestyle="--")
+ax.set_ylabel("CPI YoY (pp)")
+ax.legend(fontsize=9)
+fig.tight_layout()
+
+peak_obs = yoy_obs.loc["2020":].max()
+peak_ctf = yoy_ctf.loc["2020":].max()
+peak_ctf_no_mp = yoy_ctf_no_mp.loc["2020":].max()
+print(f"Peak YoY inflation (observed):                 {peak_obs:.2f}")
+print(f"Peak YoY inflation (no GSCPI only):            {peak_ctf:.2f}")
+print(f"Peak YoY inflation (no GSCPI + no MP post-Q2): {peak_ctf_no_mp:.2f}")
+print(
+    f"Supply-chain attribution bracket:              "
+    f"{peak_obs - peak_ctf_no_mp:.2f} to {peak_obs - peak_ctf:.2f} pp"
+)
+```
+
+The two counterfactual paths track the observed series before 2020 and diverge from 2021 onwards. The vertical gap between *observed* and *no-GSCPI* quantifies the GSCPI-innovation contribution to year-on-year inflation month by month, holding the realised monetary-policy response in place. The dashed *no-GSCPI + no-MP* line typically sits above the *no-GSCPI* path during 2022-23 (removing the contractionary monetary shocks raises the counterfactual inflation). The printed bracket reports the range of peak supply-chain attribution that survives this bracketing: holding MP fixed gives the wider attribution, removing MP gives the narrower one, and the true GE attribution lies between. One mechanical detail worth noting: after January 2021 the counterfactual YoY series subtracts GSCPI (and, for the dashed line, MP) contributions at *both* endpoints of the 12-month log-CPI difference, so the vertical gap should be read as the difference between two YoY *rates* rather than as a single-month attribution to shocks landing at month $t$.
+
+### Counterfactual: industrial production
+
+Supply-chain disruption hit prices, but it also hit real activity. The same zero-out exercise applied to industrial production asks what US manufacturing output would have looked like had the 2020-2022 logistics shock never occurred. For a reader exposed to manufacturing - a procurement team facing allocation from suppliers, a plant manager rescheduling production around missing inputs - this is the counterpart question to the CPI attribution: how much output did the supply-chain disruption cost, cumulatively, over the episode?
+
+```{python}
+#| label: output-counterfactual
+#| fig-cap: "Observed vs. counterfactual industrial production (100 × log), with GSCPI innovations zeroed from Jan 2020."
+hd_output_df = (
+    hd_da.sel(response="output").median(dim=("chain", "draw")).to_pandas()
+)
+hd_output_df.index = data.index[12:]
+gscpi_contrib_to_output = hd_output_df["gscpi"]
+ctf_shift = gscpi_contrib_to_output.copy()
+ctf_shift.loc[:"2020-01-01"] = 0.0
+
+observed_ip = df_model["output"].loc[data.index[12]:]
+ip_counterfactual = observed_ip - ctf_shift
+
+fig, ax = plt.subplots(figsize=(9, 4))
+ax.plot(observed_ip.loc["2018":], color="0.25", linewidth=1.6, label="observed")
+ax.plot(ip_counterfactual.loc["2018":], color="C3", linewidth=1.6, label="no GSCPI innovations post-2020")
+ax.set_ylabel("Industrial production (100 × log)")
+ax.legend(fontsize=9)
+fig.tight_layout()
+
+ip_gap = (ip_counterfactual - observed_ip).loc["2020":"2023"]
+max_gap = ip_gap.max()
+cumulative_gap = ip_gap.sum()
+print(f"Peak monthly output gap attributed to GSCPI innovations: {max_gap:.2f} (100 × log)")
+print(f"Cumulative output gap over 2020-2023:                   {cumulative_gap:.2f} log-percent-months")
+```
+
+The peak number is the worst single month; the cumulative number is the integral of monthly shortfalls over the 2020-2023 episode, expressed in log-percent-months. Read the peak as "in the worst month, industrial production was X log-percent below where it would have been without supply-chain pressure" and the cumulative as "total foregone output, summed month by month, over the supply-chain episode".
+
+## Forward scenarios
+
+Until this point the notebook has been backward-looking. The impulse responses describe how a shock propagates in the abstract, the historical decomposition attributes each observed movement in CPI to its driving shocks, and the counterfactuals rewrite the past. All three rest on data we already have. The natural next question for a client is forward-looking: starting from today's conditions, how would alternative supply-chain paths shape CPI inflation over the next two years?
+
+To answer it we need a small piece of bespoke machinery. The function `scenario_forecast` defined below iterates the VAR forward using posterior draws of the coefficients and the structural-shock matrix P. Structural shocks are specified in standardised units — one entry per shock per step, in SD of the shock — and zero means "no shock, just baseline dynamics". Because we are rolling the VAR forward by hand rather than relying on `fitted.forecast`, we need to be certain the two agree when shocks are zero; the next cell asserts exactly that against `fitted.forecast()` to machine precision.
+
+With the function in place we run four scenarios: a baseline with no shocks, an intermediate "+1σ × 3m" path that injects mild positive GSCPI shocks for the first three months, a "pressure returns" path that injects +2σ GSCPI shocks for the first six months, and a "benign disinflation" path that injects −1σ GSCPI shocks for the first six months. These are stress scenarios calibrated to bracket the realistic range, not central forecasts under alternative paths — under the posterior shock distribution, six consecutive +2σ GSCPI shocks is itself an extreme tail event, and the −1σ × 6m and +1σ × 3m paths are best read as plausibly mild and plausibly modest, respectively.
+
+```{python}
+def scenario_forecast(
+    fitted,
+    identified,
+    steps,
+    structural_shocks=None,
+    *,
+    simulate_innovations=False,
+    rng=None,
+):
+    """Forward forecast with optional per-step structural-shock injection.
+
+    Mirrors the deterministic mean-path iteration used internally by
+    FittedVAR.forecast, with the addition that each step's forecast can be
+    bumped by a user-specified structural shock vector (in SD units),
+    multiplied into the reduced form via the identified P matrix.
+
+    When ``simulate_innovations=True``, an additional reduced-form innovation
+    drawn from N(0, Sigma_u) is added at every step, where Sigma_u is the
+    per-(chain, draw) sample covariance of the historical residuals. This
+    folds future-month innovation risk into the band on top of parameter
+    uncertainty. The default is ``False`` so the zero-shock contract against
+    ``FittedVAR.forecast`` (deterministic mean-path iteration) is preserved.
+    """
+    B = fitted.coefficients
+    c_draws = fitted.intercepts
+    P = identified.idata.posterior["structural_shock_matrix"].values
+    n_chains, n_draws, n_vars, _ = B.shape
+    n_lags = fitted.n_lags
+
+    if structural_shocks is None:
+        structural_shocks = np.zeros((steps, n_vars))
+
+    chol_Sigma = None
+    if simulate_innovations:
+        if rng is None:
+            rng = np.random.default_rng(0)
+        y_full = fitted.data.endog
+        T = y_full.shape[0]
+        x_lag_hist = np.concatenate(
+            [y_full[n_lags - lag : T - lag] for lag in range(1, n_lags + 1)], axis=1
+        )
+        y_hat = c_draws[:, :, np.newaxis, :] + np.einsum(
+            "cdij,tj->cdti", B, x_lag_hist
+        )
+        resid = y_full[n_lags:][np.newaxis, np.newaxis, :, :] - y_hat
+        T_eff = resid.shape[2]
+        Sigma_u = np.einsum("cdti,cdtj->cdij", resid, resid) / T_eff
+        chol_Sigma = np.linalg.cholesky(Sigma_u)
+
+    y_hist = fitted.data.endog[-n_lags:]
+    y_buffer = np.broadcast_to(y_hist, (n_chains, n_draws, n_lags, n_vars)).copy()
+    out = np.zeros((n_chains, n_draws, steps, n_vars))
+
+    for h in range(steps):
+        x_lag = np.concatenate(
+            [y_buffer[:, :, -(lag + 1), :] for lag in range(n_lags)], axis=-1
+        )
+        y_new = c_draws + np.einsum("cdij,cdj->cdi", B, x_lag)
+        if np.any(structural_shocks[h] != 0):
+            innov = np.einsum("cdij,j->cdi", P, structural_shocks[h])
+            y_new = y_new + innov
+        if simulate_innovations:
+            z = rng.standard_normal(size=(n_chains, n_draws, n_vars))
+            y_new = y_new + np.einsum("cdij,cdj->cdi", chol_Sigma, z)
+        out[:, :, h, :] = y_new
+        y_buffer = np.concatenate([y_buffer[:, :, 1:, :], y_new[:, :, np.newaxis, :]], axis=2)
+
+    import xarray as xr
+    return xr.DataArray(
+        out,
+        dims=["chain", "draw", "step", "variable"],
+        coords={"variable": fitted.var_names},
+    )
+```
+
+```{python}
+sanity_ours = scenario_forecast(fitted, identified, steps=6).values
+sanity_theirs = fitted.forecast(steps=6).idata.posterior_predictive["forecast"].values
+diff = float(np.abs(sanity_ours - sanity_theirs).max())
+print(f"Max abs diff vs fitted.forecast when shocks are zero: {diff:.2e}")
+assert diff < 1e-8, "scenario_forecast diverges from fitted.forecast at zero shocks"
+```
+
+The assertion above is the contract on `scenario_forecast`: with zero structural shocks and `simulate_innovations=False`, it must reproduce the deterministic mean-path iteration that `FittedVAR.forecast` performs internally. A printed max absolute difference below 1e-8 confirms we are simply bolting shock injection onto the same recursion, not defining a new model.
+
+On the figure below we show **two** bands around the baseline path. The narrow *parameter-only* band reflects posterior uncertainty about the coefficients and the impact matrix `P` while holding the future innovation sequence at zero. The wider *predictive* band additionally simulates monthly reduced-form innovations from $N(0, \Sigma_u)$ at every step, where $\Sigma_u$ is the per-draw residual covariance, and so folds future-month innovation risk into the fan on top of parameter uncertainty. The gap between the two grows with horizon and gives a sense of how much of the forecast uncertainty is parameter-driven versus innovation-driven under the model.
+
+```{python}
+#| label: forward-scenarios
+#| fig-cap: "24-month forecast of CPI YoY under four supply-chain stress scenarios."
+STEPS = 24
+n_vars = len(data.endog_names)
+gscpi_idx = data.endog_names.index("gscpi")
+cpi_idx = data.endog_names.index("prices")
+
+pressure_shocks = np.zeros((STEPS, n_vars))
+pressure_shocks[:6, gscpi_idx] = 2.0
+mild_shocks = np.zeros((STEPS, n_vars))
+mild_shocks[:3, gscpi_idx] = 1.0
+benign_shocks = np.zeros((STEPS, n_vars))
+benign_shocks[:6, gscpi_idx] = -1.0
+
+fc_base = scenario_forecast(fitted, identified, STEPS, None)
+fc_base_pred = scenario_forecast(
+    fitted,
+    identified,
+    STEPS,
+    None,
+    simulate_innovations=True,
+    rng=np.random.default_rng(42),
+)
+fc_press = scenario_forecast(fitted, identified, STEPS, pressure_shocks)
+fc_mild = scenario_forecast(fitted, identified, STEPS, mild_shocks)
+fc_benign = scenario_forecast(fitted, identified, STEPS, benign_shocks)
+
+last_obs = df_model["prices"].iloc[-12:].values
+future_idx = pd.date_range(df_model.index[-1] + pd.offsets.MonthBegin(1), periods=STEPS, freq="MS")
+
+def to_yoy_stats(fc_da):
+    level = fc_da.isel(variable=cpi_idx)
+    median = level.median(dim=("chain", "draw")).values
+    lo = np.quantile(level.values, 0.16, axis=(0, 1))
+    hi = np.quantile(level.values, 0.84, axis=(0, 1))
+    def yoy(path):
+        combined = np.concatenate([last_obs, path])
+        return np.array([combined[i + 12] - combined[i] for i in range(len(path))])
+    return yoy(median), yoy(lo), yoy(hi)
+
+m_base, lo_base, hi_base = to_yoy_stats(fc_base)
+_, lo_pred, hi_pred = to_yoy_stats(fc_base_pred)
+m_press, _, _ = to_yoy_stats(fc_press)
+m_mild, _, _ = to_yoy_stats(fc_mild)
+m_benign, _, _ = to_yoy_stats(fc_benign)
+
+fig, ax = plt.subplots(figsize=(9, 4.2))
+ax.fill_between(future_idx, lo_pred, hi_pred, alpha=0.10, color="0.5", label="baseline 68% (predictive)")
+ax.fill_between(future_idx, lo_base, hi_base, alpha=0.25, color="0.3", label="baseline 68% (parameter-only)")
+ax.plot(future_idx, m_base, color="0.2", linewidth=1.8, label="baseline (no shocks)")
+ax.plot(future_idx, m_mild, color="C1", linewidth=1.6, linestyle="--", label="mild pressure (+1σ × 3m)")
+ax.plot(future_idx, m_press, color="C3", linewidth=1.8, label="pressure returns (+2σ × 6m)")
+ax.plot(future_idx, m_benign, color="C0", linewidth=1.8, label="benign (−1σ × 6m)")
+ax.axhline(0, color="0.5", linewidth=0.4, linestyle="--")
+ax.set_ylabel("CPI YoY (pp)")
+ax.legend(fontsize=9)
+fig.tight_layout()
+```
+
+The four paths share the same starting conditions and the same posterior draws; they differ only in the structural shocks fed into the first three or six forecast months. In CI-mode rendering the posterior has only 10 draws and the fan will be noisy and the four medians may sit nearly on top of each other, but under full sampling the mild, pressure, and benign paths separate meaningfully from baseline over the 12-24 month horizon as the shocks propagate through the lag structure.
+
+The wedge between the pressure and benign paths is the inflation counterpart to the industrial-production shortfall reported earlier: under the linear-model assumption it traces how persistent GSCPI innovations propagate into year-on-year CPI under different forward paths.
+
+## Validating the identified shock series
+
+The structural GSCPI shock series is the orthogonalised innovation to supply-chain pressure at each month, expressed in standardised units. By construction it is whatever component of the month's GSCPI movement is not predicted by the VAR's own lags or by contemporaneous co-movement with the other variables under the Cholesky ordering. If the identification is recovering a meaningful supply-chain factor, its largest positive realisations should cluster near dates of real-world supply-chain disruptions — the COVID-19 onset, the Ever Given grounding, the Delta wave, the Shanghai lockdown, the Red Sea attacks.
+
+Under CI-mode sampling the posterior has only 10 draws, so the shock series is extremely noisy and the alignment with annotated events will not be visible. The validation is meaningful only under full sampling; what follows is the machinery and an honest look at what CI produces.
+
+```{python}
+B = fitted.coefficients
+c_draws = fitted.intercepts
+P = identified.idata.posterior["structural_shock_matrix"].values
+P_inv = np.linalg.inv(P)
+
+y = data.endog
+T = y.shape[0]
+n_lags_ = fitted.n_lags
+x_lag = np.concatenate([y[n_lags_ - lag : T - lag] for lag in range(1, n_lags_ + 1)], axis=1)
+y_hat = c_draws[:, :, np.newaxis, :] + np.einsum("cdij,tj->cdti", B, x_lag)
+resid = y[n_lags_:][np.newaxis, np.newaxis, :, :] - y_hat
+structural = np.einsum("cdij,cdtj->cdti", P_inv, resid)
+
+gscpi_idx = data.endog_names.index("gscpi")
+shock_median = np.median(structural[:, :, :, gscpi_idx], axis=(0, 1))
+shock_series = pd.Series(shock_median, index=data.index[n_lags_:], name="gscpi_shock")
+```
+
+```{python}
+#| label: shock-events
+#| fig-cap: "Posterior median GSCPI structural shock with named events annotated."
+events = {
+    "COVID-19 onset": "2020-03-01",
+    "Ever Given / Suez": "2021-03-01",
+    "Delta wave": "2021-08-01",
+    "Shanghai lockdown": "2022-04-01",
+    "Red Sea": "2023-12-01",
+}
+fig, ax = plt.subplots(figsize=(10, 3.8))
+ax.plot(shock_series.loc["2019":], color="0.2", linewidth=1)
+ax.axhline(0, color="0.5", linewidth=0.4, linestyle="--")
+for label, dt in events.items():
+    ts = pd.Timestamp(dt)
+    ax.axvline(ts, color="C3", linewidth=0.6, linestyle=":")
+    ax.annotate(
+        label,
+        xy=(ts, ax.get_ylim()[1]),
+        xytext=(2, -5),
+        textcoords="offset points",
+        fontsize=7,
+        rotation=90,
+        va="top",
+    )
+ax.set_ylabel("structural GSCPI shock")
+fig.tight_layout()
+```
+
+```{python}
+#| label: shock-event-window
+event_rows = []
+post_2019 = shock_series.loc["2019-01-01":]
+for label, dt in events.items():
+    ts = pd.Timestamp(dt)
+    if ts not in shock_series.index:
+        ts = shock_series.index[shock_series.index.get_indexer([ts], method="nearest")[0]]
+    median_at_event = float(shock_series.loc[ts])
+    window_lo = ts - pd.DateOffset(months=1)
+    window_hi = ts + pd.DateOffset(months=1)
+    window_max = float(shock_series.loc[window_lo:window_hi].max())
+    pct_rank = float((post_2019 <= window_max).mean()) * 100
+    event_rows.append({
+        "event": label,
+        "month": ts.strftime("%Y-%m"),
+        "median_shock_at_event": round(median_at_event, 2),
+        "max_in_pm1m_window": round(window_max, 2),
+        "percentile_rank_post_2019": round(pct_rank, 0),
+    })
+event_table = pd.DataFrame(event_rows)
+event_table
+```
+
+The table reads as the auditable identification check: for each named event, what was the posterior-median structural GSCPI shock at the event month, what was the peak shock in a one-month window either side, and where did that peak sit in the post-2019 distribution of shocks? A meaningful supply-chain identification will show a clear majority of these events with their ±1-month peak in the top decile of post-2019 shocks (i.e., percentile rank ≥ 90). Where it does not, the identification is weaker than the narrative would suggest and the bracketed attribution numbers earlier in the notebook should be discounted accordingly. Under CI-mode sampling the table is built from a 10-draw posterior and the percentile ranks are correspondingly noisy; the full-sampling render is the version to read.
+
+## Sensitivity: does the ordering drive the story?
+
+Cholesky identification is ordering-dependent by construction, so any structural conclusion we draw from this VAR has to survive small, defensible perturbations of the ordering. The most legitimate weakness in the baseline `(gscpi, oil, output, ppi, prices, rate)` is the GSCPI/oil coupling: GSCPI is placed first so that oil can respond to supply-chain disruption within the month, but a reader could reasonably argue oil should come first instead. A second concern is the placement of monetary policy. The baseline ordering already has `rate` last, after `output` and `prices` — i.e., the Fed reacts to output and prices contemporaneously, which is the conventional Taylor-rule placement. The genuine stress test in the *opposite* direction is therefore to make the policy rate the most exogenous block instead of the least, forcing the rest of the system to absorb the contemporaneous variation that the baseline lets `rate` absorb. A third concern is the within-macro-block ordering of `output` before `prices`. During a supply-driven inflation episode, prices and availability constraints can plausibly drive production decisions at high frequency, so placing output before prices forces the model to explain price movements partly through what is - in those periods - a downstream variable; running the recursion as `prices → output` instead is a defensible alternative. To stress-test the ordering we compare the baseline against three alternatives — (a) swapping GSCPI and oil, (b) moving `rate` to the first position as a *policy-rate-first stress test* (monetary shocks treated as contemporaneously exogenous within the month), and (c) putting `prices` ahead of `output` within the macro block. For each alternative we recompute the CPI response to a GSCPI shock and the CPI historical counterfactual that switches off post-2020 GSCPI shocks.
+
+```{python}
+identified_alt1 = fitted.set_identification_strategy(
+    Cholesky(ordering=["oil", "gscpi", "output", "ppi", "prices", "rate"])
+)
+identified_alt2 = fitted.set_identification_strategy(
+    Cholesky(ordering=["rate", "gscpi", "oil", "output", "ppi", "prices"])
+)
+identified_alt3 = fitted.set_identification_strategy(
+    Cholesky(ordering=["gscpi", "oil", "ppi", "prices", "output", "rate"])
+)
+```
+
+```{python}
+#| label: sensitivity
+#| fig-cap: "CPI response to a GSCPI shock (top) and historical CPI counterfactual (bottom) under four Cholesky orderings: baseline, gscpi↔oil swap, policy-rate-first stress test, and prices-before-output."
+def cpi_to_gscpi_median(identified_obj, horizon=48):
+    ir = identified_obj.impulse_response(horizon=horizon)
+    return (
+        ir.idata.posterior_predictive["irf"]
+        .sel(response="prices", shock="gscpi")
+        .median(dim=("chain", "draw"))
+        .values
+    )
+
+def cpi_counterfactual_yoy(identified_obj):
+    hd_obj = identified_obj.historical_decomposition()
+    contrib = (
+        hd_obj.idata.posterior_predictive["hd"]
+        .sel(response="prices", shock="gscpi")
+        .median(dim=("chain", "draw"))
+        .to_pandas()
+    )
+    contrib.index = data.index[12:]
+    shift = contrib.copy()
+    shift.loc[:"2020-01-01"] = 0.0
+    cpi_obs = df_model["prices"].loc[data.index[12]:]
+    cpi_ctf = cpi_obs - shift
+    return cpi_obs.diff(12), cpi_ctf.diff(12)
+
+orderings = [
+    ("baseline", identified),
+    ("swap gscpi↔oil", identified_alt1),
+    ("policy-rate-first stress test", identified_alt2),
+    ("prices before output", identified_alt3),
+]
+
+fig, axes = plt.subplots(2, 4, figsize=(13, 5.5))
+for i, (name, ident) in enumerate(orderings):
+    irf_line = cpi_to_gscpi_median(ident)
+    axes[0, i].plot(np.arange(len(irf_line)), irf_line, color="C0")
+    axes[0, i].axhline(0, color="0.5", linewidth=0.4, linestyle="--")
+    axes[0, i].set_title(name)
+    axes[0, i].set_ylabel("CPI response")
+
+    obs_yoy, ctf_yoy = cpi_counterfactual_yoy(ident)
+    axes[1, i].plot(obs_yoy.loc["2018":], color="0.2", linewidth=1.2, label="observed")
+    axes[1, i].plot(ctf_yoy.loc["2018":], color="C3", linewidth=1.2, label="no GSCPI shocks post-2020")
+    axes[1, i].set_ylabel("CPI YoY (pp)")
+    if i == 0:
+        axes[1, i].legend(fontsize=7)
+fig.tight_layout()
+```
+
+The swap-gscpi↔oil ordering is expected to produce a slightly smaller supply-chain IRF at short horizons because oil absorbs some of the contemporaneous variation that GSCPI picks up in the baseline; under full sampling this should not change the qualitative inflation story. The policy-rate-first stress test is more conservative still — forcing monetary policy to be contemporaneously exogenous (the opposite of the Taylor-rule placement realised in the baseline) attenuates the rest of the contemporaneous block, and we expect a modestly muted CPI response and counterfactual while retaining the same sign and timing. The prices-before-output ordering reads as the within-macro-block dual of the baseline: it lets prices absorb upstream cost variation contemporaneously and forces output to react after, which is the natural recursion in a supply-driven episode where availability constraints drive production decisions. If all three checks come back qualitatively unchanged under full sampling — same sign, comparable peak inflation contribution, similar counterfactual gap — the baseline ordering is the right choice and the supply-chain story told earlier in the notebook stands.
+
+### Threats not addressed
+
+The four-ordering check above stress-tests the recursive identification, but it leaves several plausible threats untouched. Three deserve naming explicitly. First, *alternative supply-pressure measures*: the GSCPI is one of several supply-side indices, and a rerun against the San Francisco Federal Reserve's (SF Fed) cyclical supply-pressure index, the Baltic Dry Index, or the Harper Petersen container freight index (HARPEX) would document how much of the attribution is GSCPI-specific rather than supply-pressure-generic. Second, *alternative sample windows*: the March-July 2020 lockdown shock is an outlier in industrial production and CPI, and a robustness rerun excluding that window (or treating it as a structural break) would tell us how much of the impulse-response shape comes from those four months. Third, *parameter instability*: a constant-coefficient VAR estimated over 1998-2024 implicitly assumes the transmission mechanism is stable, but the post-2020 data may sit in a different regime than the 1998-2019 sample, in which case a regime-switching or time-varying-parameter VAR would give different attribution numbers. Each of these is a separate notebook rather than a parameter sweep here. The point of naming them is honest scoping: this tutorial demonstrates the attribution machinery on a six-variable Bayesian SVAR with a defensible Cholesky ordering, not the last word on the 2021-22 inflation episode.
+
+## Summary
+
+This tutorial fit a six-variable Bayesian structural VAR on the GSCPI, oil prices, industrial production, producer prices, consumer prices, and the 2-year Treasury yield, using a Cholesky identification that orders supply-chain pressure first. The impulse responses trace the fingerprint of a GSCPI innovation — a prompt move in producer prices, a slower passthrough to consumer prices, a contraction in industrial production, and a modest policy-rate response. The historical decomposition attributed roughly **0.91 percentage points** of peak CPI year-on-year inflation (about **11% of the 8.6% peak**) to GSCPI innovations under the baseline ordering; reading that as a *supply-chain* attribution depends on how much within-month GSCPI variation is supply-driven rather than demand-driven, and the forward-scenario analysis sketched how alternative supply-chain futures would shape the inflation path under the estimated dynamics.
+
+A real client engagement would push several extensions. Add a trade-weighted dollar index (DXY) to capture international and US-dollar transmission so that imported-goods inflation is not absorbed by the domestic block. Add the manufacturing inventory-to-sales ratio as an inventory amplifier to distinguish shocks that clear quickly from those that propagate through stockbuilding. Switch to sign-restriction identification, available in Impulso via `SignRestriction`, to separate supply-driven from demand-driven inflation without committing to a recursive ordering. Layer sector- or firm-specific VARs on top of this macro model to quantify exposure where operational decisions get made.
+
+```{python}
+#| echo: false
+#| output: asis
+import datetime as _dt
+import subprocess as _sp
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+try:
+    _v = _pkg_version("impulso")
+except PackageNotFoundError:
+    _v = "unknown"
+
+try:
+    _commit = _sp.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+except Exception:
+    _commit = "unknown"
+
+_render_date = _dt.date.today().isoformat()
+print(
+    f"---\n\n*Rendered with Impulso v{_v} at commit `{_commit}` on {_render_date}.*"
+)
+```
+
+<section class="consulting-cta">
+    <p>We currently have some <strong>availability for consulting</strong> on how Bayesian modelling, vector autoregressions, and impulso can be integrated into your team's macroeconomic and financial forecasting work. If this sounds relevant, <a href="https://calendly.com/hello-1761-izqw/15-minute-meeting-clone-1">book an introductory call</a>. These calls are for consulting inquiries only. For technical usage questions and free community support, please use GitHub Discussions and the documentation.</p>
+</section>

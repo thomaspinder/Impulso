@@ -245,7 +245,7 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
         Finished Chains:
         <span id="active-chains">4</span>
     </p>
-    <p>Sampling for 25 seconds</p>
+    <p>Sampling for 18 seconds</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>

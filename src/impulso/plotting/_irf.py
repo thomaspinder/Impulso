@@ -26,24 +26,25 @@ def plot_irf(
     """
     med = result.median()
     hdi = result.hdi()
-    var_names = variables or result.var_names
-    n_vars = len(var_names)
+    response_names = variables or list(med.coords["response"].values)
+    shock_names = list(med.coords["shock"].values)
 
-    fig, axes = plt.subplots(n_vars, n_vars, figsize=figsize, squeeze=False)
+    fig, axes = plt.subplots(len(response_names), len(shock_names), figsize=figsize, squeeze=False)
     fig.suptitle("Impulse Response Functions")
 
-    horizons = range(result.horizon + 1)
-    for i, resp in enumerate(var_names):
-        for j, shock in enumerate(var_names):
+    horizons = med.coords["horizon"].values
+    for i, resp in enumerate(response_names):
+        for j, shock in enumerate(shock_names):
             ax = axes[i][j]
             ax.set_title(f"{shock} -> {resp}", fontsize=9)
             ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
-            col_idx = i * n_vars + j
-            ax.plot(horizons, med.values[:, col_idx])
+            line = med.sel(response=resp, shock=shock)
+            interval = hdi.sel(response=resp, shock=shock)
+            ax.plot(horizons, line.values)
             ax.fill_between(
                 horizons,
-                hdi.lower.values[:, col_idx],
-                hdi.upper.values[:, col_idx],
+                interval.sel(hdi="lower").values,
+                interval.sel(hdi="higher").values,
                 alpha=0.3,
             )
 
