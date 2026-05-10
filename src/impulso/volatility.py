@@ -31,9 +31,10 @@ class Constant(ImpulsoModel):
     the off-diagonal block is empty.
 
     The PyMC variable names produced inside ``build_pymc_latent``
-    (``sigma_sd``, ``tril_offdiag``, ``Sigma``) match today's posterior
-    contents exactly so existing identification and downstream code
-    keep working unchanged.
+    (``sigma_sd``, ``tril_offdiag``) match today's posterior contents
+    exactly so existing identification and downstream code keep working
+    unchanged. The ``Sigma = L @ L.T`` deterministic is registered by
+    the caller in ``spec.py``, not by the adapter.
 
     Attributes:
         name: Discriminator key for the registry (always ``"constant"``).

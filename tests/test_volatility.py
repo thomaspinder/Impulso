@@ -66,3 +66,24 @@ class TestConstantBuildPymcLatent:
         var_names = {v.name for v in model.unobserved_RVs}
         assert "sigma_sd" in var_names
         assert "tril_offdiag" not in var_names
+
+    def test_n_vars_2_indexing_and_diagonal(self):
+        """Smallest non-trivial off-diagonal case.
+
+        Verifies the single off-diagonal sits at ``L[1, 0]`` (lower-triangular
+        cell, not upper) and the diagonal carries the ``sigma_sd`` draws
+        (not zeros). A regression that swapped the ``(i, j)`` indexing or
+        dropped the ``set_subtensor`` for the diagonal would slip past the
+        existing ``n_vars=3`` upper-triangular check.
+        """
+        import pymc as pm
+
+        adapter = Constant()
+        with pm.Model() as model:
+            L_tensor = adapter.build_pymc_latent(n_vars=2, T=50)
+            L_value, sd_value = pm.draw([L_tensor, model["sigma_sd"]], random_seed=42)
+
+        assert L_value.shape == (2, 2)
+        assert L_value[0, 1] == 0.0  # upper-triangular cell stays zero
+        assert L_value[1, 0] != 0.0  # off-diagonal placed in the lower-triangular cell
+        np.testing.assert_array_equal(np.diag(L_value), sd_value)
