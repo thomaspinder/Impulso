@@ -57,6 +57,10 @@ The time-index parameter on time-varying queries (`impulse_response(at=...)`, `f
 > **User:** "Just a univariate SV fit."
 > **Library:** `StochasticVolatility(dynamics="ar1").fit(SVData(y))`. Same class, standalone code path.
 
+## Conventions
+
+**Discriminator field on adapters**: every concrete adapter class (`Constant`, `RandomWalk`, `AR1`, …) declares its registry key with `name: Literal["x"] = "x"`, *not* `name: ClassVar[str] = "x"`. The Literal form is the modern Pydantic v2 idiom: it makes `name` a real instance attribute, fires `ValidationError` on construction-time mismatch (`Constant(name="other")`) and on post-construction mutation (under `frozen=True`), and participates in `model_dump`/`model_validate` round-trips. Class-level access (`Constant.name`) does *not* work with this pattern — registries that need the key value should hardcode the literal string.
+
 ## Flagged ambiguities
 
 - "SV" is both a noun (the model family — *stochastic volatility*) and an adjective ("an SV adapter"). The class `StochasticVolatility` is the canonical noun reference; the adjective form is fine in prose after the term has been spelled out.
