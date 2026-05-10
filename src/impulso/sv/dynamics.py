@@ -1,6 +1,6 @@
 """Log-volatility dynamics for univariate stochastic volatility models."""
 
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 import xarray as xr
@@ -43,7 +43,7 @@ class SVDynamics(Protocol):
 class RandomWalk(ImpulsoModel):
     """Random-walk log-volatility dynamics (Primiceri 2005)."""
 
-    name: ClassVar[str] = "random_walk"
+    name: Literal["random_walk"] = "random_walk"
 
     def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any) -> Any:
         import pymc as pm
@@ -73,7 +73,7 @@ class RandomWalk(ImpulsoModel):
 class AR1(ImpulsoModel):
     """AR(1) log-volatility dynamics (Kim-Shephard-Chib 1998)."""
 
-    name: ClassVar[str] = "ar1"
+    name: Literal["ar1"] = "ar1"
 
     def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any) -> Any:
         import pymc as pm
@@ -116,6 +116,6 @@ class AR1(ImpulsoModel):
 
 
 SV_DYNAMICS_REGISTRY: dict[str, type[SVDynamics]] = {
-    RandomWalk.name: RandomWalk,
-    AR1.name: AR1,
+    "random_walk": RandomWalk,
+    "ar1": AR1,
 }
