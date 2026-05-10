@@ -152,3 +152,30 @@ class TestPosteriorEquivalence:
                 fit_object.idata.posterior[name].values,
                 err_msg=f"default vs Constant() instance disagree on {name}",
             )
+
+
+class TestConstantCholeskyAt:
+    def test_returns_cholesky_of_sigma(self, synthetic_idata_2v):
+        adapter = Constant()
+        L = adapter.cholesky_at(synthetic_idata_2v.posterior, t=None)
+
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        # L @ L.T should reproduce Sigma.
+        reconstructed = np.einsum("cdij,cdkj->cdik", L, L)
+        np.testing.assert_allclose(reconstructed, sigma, rtol=1e-6)
+
+    def test_t_argument_ignored_for_constant(self, synthetic_idata_2v):
+        """For constant volatility, any value of t returns the same L."""
+        adapter = Constant()
+        L_none = adapter.cholesky_at(synthetic_idata_2v.posterior, t=None)
+        L_zero = adapter.cholesky_at(synthetic_idata_2v.posterior, t=0)
+        L_arbitrary = adapter.cholesky_at(synthetic_idata_2v.posterior, t=42)
+        np.testing.assert_array_equal(L_none, L_zero)
+        np.testing.assert_array_equal(L_none, L_arbitrary)
+
+    def test_returns_lower_triangular(self, synthetic_idata_2v):
+        adapter = Constant()
+        L = adapter.cholesky_at(synthetic_idata_2v.posterior, t=None)
+        # Strictly upper-triangular block must be zero.
+        upper = np.triu(L, k=1)
+        assert np.allclose(upper, 0.0)

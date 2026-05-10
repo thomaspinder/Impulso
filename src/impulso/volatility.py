@@ -81,7 +81,20 @@ class Constant(ImpulsoModel):
         return L
 
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
-        raise NotImplementedError  # Task 7
+        """Return the lower-triangular Cholesky factor of Σ for every draw.
+
+        For constant volatility, ``t`` is ignored — Σ is time-invariant.
+
+        Args:
+            posterior: An xarray Dataset (typically ``idata.posterior``)
+                containing ``Sigma`` of shape (chains, draws, n_vars, n_vars).
+            t: Time index. Ignored.
+
+        Returns:
+            Cholesky factors of shape (chains, draws, n_vars, n_vars).
+        """
+        sigma = posterior["Sigma"].values
+        return np.linalg.cholesky(sigma)
 
     def forecast_cholesky_path(
         self,
