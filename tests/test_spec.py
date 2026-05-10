@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from impulso.priors import MinnesotaPrior
 from impulso.spec import VAR
+from impulso.volatility import Constant
 
 
 class TestVARSpec:
@@ -43,3 +44,23 @@ class TestVARSpec:
     def test_rejects_zero_lags(self):
         with pytest.raises(ValidationError):
             VAR(lags=0, prior="minnesota")
+
+
+class TestVolatilityParameter:
+    def test_default_volatility_is_constant_string(self):
+        spec = VAR(lags=2)
+        assert spec.volatility == "constant"
+
+    def test_volatility_string_resolves_to_constant(self):
+        spec = VAR(lags=2)
+        assert isinstance(spec.resolved_volatility, Constant)
+
+    def test_volatility_object_pass_through(self):
+        adapter = Constant(sigma_sd_beta=3.0)
+        spec = VAR(lags=2, volatility=adapter)
+        assert spec.resolved_volatility is adapter
+        assert spec.resolved_volatility.sigma_sd_beta == 3.0
+
+    def test_unknown_string_raises(self):
+        with pytest.raises(ValidationError):
+            VAR(lags=2, volatility="nonexistent")

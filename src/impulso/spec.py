@@ -8,13 +8,18 @@ from pydantic import Field, model_validator
 from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.priors import MinnesotaPrior
-from impulso.protocols import Prior, Sampler
+from impulso.protocols import Prior, Sampler, VolatilityProcess
+from impulso.volatility import Constant
 
 if TYPE_CHECKING:
     from impulso.fitted import FittedVAR
 
 _PRIOR_REGISTRY: dict[str, type] = {
     "minnesota": MinnesotaPrior,
+}
+
+_VOLATILITY_REGISTRY: dict[str, type] = {
+    "constant": Constant,
 }
 
 
@@ -30,6 +35,7 @@ class VAR(ImpulsoBaseModel):
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
     max_lags: int | None = None
     prior: Literal["minnesota"] | Prior = "minnesota"
+    volatility: Literal["constant"] | VolatilityProcess = "constant"
 
     @model_validator(mode="after")
     def _validate_spec(self) -> Self:
@@ -45,6 +51,13 @@ class VAR(ImpulsoBaseModel):
         if isinstance(self.prior, str):
             return _PRIOR_REGISTRY[self.prior]()
         return self.prior
+
+    @property
+    def resolved_volatility(self) -> VolatilityProcess:
+        """Resolve string volatility shorthand to a VolatilityProcess instance."""
+        if isinstance(self.volatility, str):
+            return _VOLATILITY_REGISTRY[self.volatility]()
+        return self.volatility
 
     def fit(
         self,
