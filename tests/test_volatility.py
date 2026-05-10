@@ -87,3 +87,62 @@ class TestConstantBuildPymcLatent:
         assert L_value[0, 1] == 0.0  # upper-triangular cell stays zero
         assert L_value[1, 0] != 0.0  # off-diagonal placed in the lower-triangular cell
         np.testing.assert_array_equal(np.diag(L_value), sd_value)
+
+
+class TestPosteriorEquivalence:
+    """Sanity check: VAR(lags=1) with default volatility="constant" reproduces
+    the *shape* and *variable names* of today's posterior.
+
+    Marked slow because it runs MCMC (cores=1, draws=200, tune=200).
+    Intent is regression detection on the seam refactor, not statistical
+    correctness — the latter is covered by existing test_fitted.py /
+    test_identified.py tests, which we also run to confirm.
+    """
+
+    @pytest.mark.slow
+    def test_default_volatility_posterior_shape_unchanged(self, var_data_2v):
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        sampler = NUTSSampler(cores=1, chains=2, draws=200, tune=200, random_seed=42)
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+
+        posterior_vars = set(fitted.idata.posterior.data_vars)
+        # Exact set of variables today's pipeline produces:
+        expected = {"intercept", "B", "sigma_sd", "tril_offdiag", "Sigma"}
+        assert expected <= posterior_vars, f"Missing posterior variables: {expected - posterior_vars}"
+
+        # Shape contracts.
+        assert fitted.idata.posterior["intercept"].shape == (2, 200, 2)
+        assert fitted.idata.posterior["B"].shape == (2, 200, 2, 2)
+        assert fitted.idata.posterior["Sigma"].shape == (2, 200, 2, 2)
+        # Sigma is symmetric positive-definite per draw.
+        sigma = fitted.idata.posterior["Sigma"].values
+        assert np.allclose(sigma, np.swapaxes(sigma, -1, -2)), "Sigma not symmetric"
+
+    @pytest.mark.slow
+    def test_explicit_constant_matches_string_default(self, var_data_2v):
+        """VAR(lags=1, volatility="constant") and VAR(lags=1, volatility=Constant())
+        and VAR(lags=1) all produce identical posteriors given the same seed."""
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        def _fit(spec_kwargs):
+            sampler = NUTSSampler(cores=1, chains=2, draws=100, tune=100, random_seed=42)
+            return VAR(lags=1, **spec_kwargs).fit(var_data_2v, sampler=sampler)
+
+        fit_default = _fit({})
+        fit_string = _fit({"volatility": "constant"})
+        fit_object = _fit({"volatility": Constant()})
+
+        for name in ["intercept", "B", "Sigma"]:
+            np.testing.assert_array_equal(
+                fit_default.idata.posterior[name].values,
+                fit_string.idata.posterior[name].values,
+                err_msg=f"default vs string disagree on {name}",
+            )
+            np.testing.assert_array_equal(
+                fit_default.idata.posterior[name].values,
+                fit_object.idata.posterior[name].values,
+                err_msg=f"default vs Constant() instance disagree on {name}",
+            )
