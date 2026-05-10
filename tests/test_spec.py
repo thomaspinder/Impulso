@@ -100,3 +100,33 @@ class TestPyMCModelBuild:
         assert "sigma_sd" in rv_names
         assert "tril_offdiag" in rv_names
         assert "Sigma" in det_names
+
+    def test_var_fit_routes_through_volatility_seam(self, var_data_2v):
+        """VAR.fit (intercepted before sampling) must register the canonical RV set.
+
+        The companion test above mirrors the model graph by hand, so it would
+        keep passing even if VAR.fit silently skipped the volatility delegation.
+        This one captures the model from the production codepath via a sampler
+        that aborts before MCMC, then asserts the graph shape.
+        """
+        import pymc as pm
+
+        captured: dict[str, pm.Model] = {}
+
+        class CapturingSampler:
+            name = "capture"
+
+            def sample(self, model: pm.Model):
+                captured["model"] = model
+                raise RuntimeError("stop before sampling")
+
+        spec = VAR(lags=1)
+        with pytest.raises(RuntimeError, match="stop before sampling"):
+            spec.fit(var_data_2v, sampler=CapturingSampler())
+
+        model = captured["model"]
+        rv_names = {v.name for v in model.unobserved_RVs}
+        det_names = {v.name for v in model.deterministics}
+        assert {"intercept", "B", "sigma_sd", "tril_offdiag"} <= rv_names
+        assert "Sigma" in det_names
+        assert {v.name for v in model.observed_RVs} == {"obs"}
