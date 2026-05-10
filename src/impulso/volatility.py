@@ -36,6 +36,7 @@ class Constant(ImpulsoModel):
     keep working unchanged.
 
     Attributes:
+        name: Discriminator key for the registry (always ``"constant"``).
         sigma_sd_beta: HalfCauchy scale on diagonal SDs.
         tril_offdiag_sigma: Normal SD on off-diagonal correlation factors.
     """
