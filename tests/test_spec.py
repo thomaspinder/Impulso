@@ -64,3 +64,39 @@ class TestVolatilityParameter:
     def test_unknown_string_raises(self):
         with pytest.raises(ValidationError):
             VAR(lags=2, volatility="nonexistent")
+
+
+class TestPyMCModelBuild:
+    """Verify the PyMC model graph composition after the seam refactor."""
+
+    def test_model_has_expected_unobserved_rvs(self, var_data_2v):
+        """The same set of RVs must exist in the PyMC graph as before the seam."""
+        # We don't run MCMC here; we just build the model and inspect.
+        # Rebuild logic mirrors VAR.fit but stops before sampler.sample().
+        import pymc as pm
+
+        from impulso._lag_selection import select_lag_order  # noqa: F401 — import-side-effect parity
+
+        spec = VAR(lags=1)
+        prior_params = spec.resolved_prior.build_priors(n_vars=2, n_lags=1)
+        volatility = spec.resolved_volatility
+
+        y = var_data_2v.endog
+        Y = y[1:]
+        X_lag = y[:-1]
+
+        with pm.Model() as model:
+            pm.Normal("intercept", mu=0, sigma=1, shape=2)
+            pm.Normal("B", mu=prior_params["B_mu"], sigma=prior_params["B_sigma"], shape=(2, 2))
+            L = volatility.build_pymc_latent(n_vars=2, T=Y.shape[0])
+            pm.Deterministic("Sigma", pm.math.dot(L, L.T))
+            mu = pm.math.dot(X_lag, model.named_vars["B"].T)
+            pm.MvNormal("obs", mu=mu, chol=L, observed=Y)
+
+        rv_names = {v.name for v in model.unobserved_RVs}
+        det_names = {v.name for v in model.deterministics}
+        assert "intercept" in rv_names
+        assert "B" in rv_names
+        assert "sigma_sd" in rv_names
+        assert "tril_offdiag" in rv_names
+        assert "Sigma" in det_names

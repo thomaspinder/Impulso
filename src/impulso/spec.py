@@ -127,25 +127,14 @@ class VAR(ImpulsoBaseModel):
             else:
                 mu = intercept + pm.math.dot(X_lag, B.T)
 
-            # Residual covariance (Cholesky parameterization)
-            import pytensor.tensor as pt
-
-            sd = pm.HalfCauchy("sigma_sd", beta=2.5, shape=n_vars)
-            n_tril = n_vars * (n_vars - 1) // 2
-            L = pt.zeros((n_vars, n_vars))
-            L = pt.set_subtensor(L[np.diag_indices(n_vars)], sd)
-            if n_tril > 0:
-                tril_vals = pm.Normal("tril_offdiag", mu=0, sigma=0.5, shape=n_tril)
-                idx = 0
-                for i in range(1, n_vars):
-                    for j in range(i):
-                        L = pt.set_subtensor(L[i, j], tril_vals[idx] * sd[i])
-                        idx += 1
-            chol = L
-            pm.Deterministic("Sigma", pm.math.dot(chol, chol.T))
+            # Volatility process: registers latent vars, returns L (Cholesky factor of Σ_t).
+            # For constant volatility, L is (n_vars, n_vars) and time-invariant.
+            volatility = self.resolved_volatility
+            L = volatility.build_pymc_latent(n_vars=n_vars, T=Y.shape[0])
+            pm.Deterministic("Sigma", pm.math.dot(L, L.T))
 
             # Likelihood
-            pm.MvNormal("obs", mu=mu, chol=chol, observed=Y)
+            pm.MvNormal("obs", mu=mu, chol=L, observed=Y)
 
         # Sample
         idata = sampler.sample(model)
