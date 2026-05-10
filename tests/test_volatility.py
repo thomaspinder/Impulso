@@ -179,3 +179,27 @@ class TestConstantCholeskyAt:
         # Strictly upper-triangular block must be zero.
         upper = np.triu(L, k=1)
         assert np.allclose(upper, 0.0)
+
+
+class TestConstantForecastCholeskyPath:
+    def test_returns_broadcast_shape(self, synthetic_idata_2v):
+        adapter = Constant()
+        rng = np.random.default_rng(0)
+        path = adapter.forecast_cholesky_path(synthetic_idata_2v.posterior, steps=5, rng=rng)
+        # (chains, draws, steps, n_vars, n_vars)
+        assert path.shape == (2, 50, 5, 2, 2)
+
+    def test_constant_across_steps(self, synthetic_idata_2v):
+        """For constant volatility, every forecast step has the same L."""
+        adapter = Constant()
+        rng = np.random.default_rng(0)
+        path = adapter.forecast_cholesky_path(synthetic_idata_2v.posterior, steps=10, rng=rng)
+        # path[..., 0, :, :] must equal path[..., k, :, :] for all k.
+        np.testing.assert_array_equal(path[..., 0, :, :], path[..., 9, :, :])
+
+    def test_rng_unused_for_constant(self, synthetic_idata_2v):
+        """Constant is deterministic given the posterior — rng is accepted but unused."""
+        adapter = Constant()
+        path_a = adapter.forecast_cholesky_path(synthetic_idata_2v.posterior, steps=3, rng=np.random.default_rng(0))
+        path_b = adapter.forecast_cholesky_path(synthetic_idata_2v.posterior, steps=3, rng=np.random.default_rng(99999))
+        np.testing.assert_array_equal(path_a, path_b)

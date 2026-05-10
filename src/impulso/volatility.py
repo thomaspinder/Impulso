@@ -102,4 +102,20 @@ class Constant(ImpulsoModel):
         steps: int,
         rng: np.random.Generator,
     ) -> np.ndarray:
-        raise NotImplementedError  # Task 8
+        """Broadcast the constant Cholesky factor across forecast steps.
+
+        For constant volatility there is nothing to simulate — the forecast
+        covariance equals the in-sample covariance. ``rng`` is accepted for
+        signature parity with stochastic adapters and is ignored.
+
+        Args:
+            posterior: An xarray Dataset with ``Sigma`` of shape
+                (chains, draws, n_vars, n_vars).
+            steps: Forecast horizon.
+            rng: Unused.
+
+        Returns:
+            Cholesky factor path of shape (chains, draws, steps, n_vars, n_vars).
+        """
+        L = self.cholesky_at(posterior, t=None)  # (C, D, n, n)
+        return np.broadcast_to(L[:, :, np.newaxis, :, :], (*L.shape[:2], steps, *L.shape[-2:])).copy()
