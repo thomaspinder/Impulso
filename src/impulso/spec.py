@@ -46,6 +46,12 @@ class VAR(ImpulsoBaseModel):
             return _PRIOR_REGISTRY[self.prior]()
         return self.prior
 
+    @staticmethod
+    def _default_sampler() -> "Sampler":
+        """Return a safe default NUTSSampler with cores=1 to avoid multiprocessing crashes."""
+        from impulso.samplers import NUTSSampler
+        return NUTSSampler(cores=1, chains=4)
+
     def fit(
         self,
         data: VARData,
@@ -67,7 +73,7 @@ class VAR(ImpulsoBaseModel):
         from impulso.samplers import NUTSSampler
 
         if sampler is None:
-            sampler = NUTSSampler()
+            sampler = self._default_sampler()
 
         # Resolve lags
         if isinstance(self.lags, str):
