@@ -1289,6 +1289,7 @@ dev = [
     { name = "tabulate" },
     { name = "tox-uv" },
     { name = "ty" },
+    { name = "typing-extensions" },
     { name = "zensical" },
 ]
 docs = [
@@ -1323,6 +1324,7 @@ dev = [
     { name = "tabulate", specifier = ">=0.10.0" },
     { name = "tox-uv", specifier = ">=1.29.0" },
     { name = "ty", specifier = ">=0.0.14" },
+    { name = "typing-extensions", specifier = ">=4.12" },
     { name = "zensical", specifier = ">=0.0.28" },
 ]
 docs = [{ name = "statsmodels", specifier = ">=0.14.6" }]
