@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from impulso.protocols import VolatilityProcess
+from impulso.samplers import NUTSSampler
+from impulso.spec import VAR
 from impulso.volatility import Constant
 
 
@@ -97,14 +99,17 @@ class TestPosteriorEquivalence:
     Intent is regression detection on the seam refactor, not statistical
     correctness — the latter is covered by existing test_fitted.py /
     test_identified.py tests, which we also run to confirm.
+
+    The byte-for-byte equivalence assertion below pins ``nuts_sampler="pymc"``
+    explicitly so the determinism contract doesn't depend on whether nutpie
+    happens to be installed in the runner's environment. Coverage today is
+    only ``lags=1, n_vars=2, no exog``; extending the gate across
+    ``(lags, n_vars, exog)`` combinations is tracked as future work.
     """
 
     @pytest.mark.slow
     def test_default_volatility_posterior_shape_unchanged(self, var_data_2v):
-        from impulso.samplers import NUTSSampler
-        from impulso.spec import VAR
-
-        sampler = NUTSSampler(cores=1, chains=2, draws=200, tune=200, random_seed=42)
+        sampler = NUTSSampler(cores=1, chains=2, draws=200, tune=200, random_seed=42, nuts_sampler="pymc")
         fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
 
         posterior_vars = set(fitted.idata.posterior.data_vars)
@@ -112,11 +117,14 @@ class TestPosteriorEquivalence:
         expected = {"intercept", "B", "sigma_sd", "tril_offdiag", "Sigma"}
         assert expected <= posterior_vars, f"Missing posterior variables: {expected - posterior_vars}"
 
-        # Shape contracts.
-        assert fitted.idata.posterior["intercept"].shape == (2, 200, 2)
-        assert fitted.idata.posterior["B"].shape == (2, 200, 2, 2)
-        assert fitted.idata.posterior["Sigma"].shape == (2, 200, 2, 2)
-        # Sigma is symmetric positive-definite per draw.
+        # Shape contracts: (chains, draws, n_vars[, n_vars]).
+        n_chains, n_draws = sampler.chains, sampler.draws
+        n_vars = var_data_2v.endog.shape[1]
+        assert fitted.idata.posterior["intercept"].shape == (n_chains, n_draws, n_vars)
+        assert fitted.idata.posterior["B"].shape == (n_chains, n_draws, n_vars, n_vars)
+        assert fitted.idata.posterior["Sigma"].shape == (n_chains, n_draws, n_vars, n_vars)
+        # Sigma is symmetric per draw (positive-definiteness is enforced upstream
+        # by HalfCauchy(sigma_sd) > 0 and the MvNormal likelihood).
         sigma = fitted.idata.posterior["Sigma"].values
         assert np.allclose(sigma, np.swapaxes(sigma, -1, -2)), "Sigma not symmetric"
 
@@ -124,11 +132,9 @@ class TestPosteriorEquivalence:
     def test_explicit_constant_matches_string_default(self, var_data_2v):
         """VAR(lags=1, volatility="constant") and VAR(lags=1, volatility=Constant())
         and VAR(lags=1) all produce identical posteriors given the same seed."""
-        from impulso.samplers import NUTSSampler
-        from impulso.spec import VAR
 
         def _fit(spec_kwargs):
-            sampler = NUTSSampler(cores=1, chains=2, draws=100, tune=100, random_seed=42)
+            sampler = NUTSSampler(cores=1, chains=2, draws=100, tune=100, random_seed=42, nuts_sampler="pymc")
             return VAR(lags=1, **spec_kwargs).fit(var_data_2v, sampler=sampler)
 
         fit_default = _fit({})
