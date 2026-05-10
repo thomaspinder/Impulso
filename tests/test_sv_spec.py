@@ -123,3 +123,36 @@ def test_sv_spec_fit_ar1_smoke():
     assert fitted.dynamics.name == "ar1"
     assert "phi" in fitted.idata.posterior
     assert "alpha" in fitted.idata.posterior
+
+
+class TestSVDynamicsDiscriminator:
+    """Locks in the Literal[...] discriminator semantics for the SV dynamics
+    adapters (RandomWalk, AR1) — see CONTEXT.md "Conventions" and the
+    project-wide convention adopted in the volatility-process P1 work.
+    """
+
+    def test_random_walk_rejects_wrong_name_at_construction(self):
+        from impulso.sv.dynamics import RandomWalk
+
+        with pytest.raises(ValidationError):
+            RandomWalk(name="ar1")
+
+    def test_ar1_rejects_wrong_name_at_construction(self):
+        from impulso.sv.dynamics import AR1
+
+        with pytest.raises(ValidationError):
+            AR1(name="random_walk")
+
+    def test_random_walk_name_is_frozen(self):
+        from impulso.sv.dynamics import RandomWalk
+
+        rw = RandomWalk()
+        with pytest.raises(ValidationError):
+            rw.name = "ar1"  # ty: ignore[invalid-assignment]
+
+    def test_ar1_name_is_frozen(self):
+        from impulso.sv.dynamics import AR1
+
+        ar = AR1()
+        with pytest.raises(ValidationError):
+            ar.name = "random_walk"  # ty: ignore[invalid-assignment]

@@ -7,6 +7,7 @@ from impulso.spec import VAR
 __all__ = [
     "VAR",
     "Cholesky",
+    "Constant",
     "FEVDResult",
     "FittedSV",
     "FittedVAR",
@@ -24,6 +25,7 @@ __all__ = [
     "SignRestriction",
     "StochasticVolatility",
     "VARData",
+    "VolatilityProcess",
     "VolatilityResult",
     "enable_runtime_checks",
     "select_lag_order",
@@ -51,6 +53,8 @@ def __getattr__(name: str):
         "SVDefaultPrior": "impulso.sv.priors",
         "VolatilityResult": "impulso.results",
         "SVForecastResult": "impulso.results",
+        "Constant": "impulso.volatility",
+        "VolatilityProcess": "impulso.protocols",
     }
     if name in _lazy_imports:
         import importlib
