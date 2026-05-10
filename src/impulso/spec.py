@@ -30,6 +30,7 @@ class VAR(ImpulsoBaseModel):
         lags: Fixed lag order (int >= 1) or selection criterion string.
         max_lags: Upper bound for automatic selection. Only valid with string lags.
         prior: Prior shorthand string or Prior protocol instance.
+        volatility: Volatility shorthand string or VolatilityProcess protocol instance.
     """
 
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
