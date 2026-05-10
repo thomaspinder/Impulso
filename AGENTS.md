@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -150,17 +150,3 @@ Format out-of-scope items as complete issue drafts with title, labels, context,
 problem description, suggested approach, and affected files.
 
 Use the `/pr-review` command for the full review workflow.
-
-## Agent skills
-
-### Issue tracker
-
-GitHub Issues at `thomaspinder/Impulso`, accessed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Canonical defaults — `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
