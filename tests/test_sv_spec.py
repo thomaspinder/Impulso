@@ -345,15 +345,37 @@ class TestSVForecastCholeskyPath:
         # (chains, draws, steps, n_vars, n_vars)
         assert path.shape == (2, 50, 10, 2, 2)
 
-    def test_uses_dynamics_to_extrapolate(self, synthetic_sv_idata_2v):
-        """Different dynamics produce different forecast paths."""
+    def test_random_walk_forecast_shape(self, synthetic_sv_idata_2v):
+        """Random-walk dynamics produce a forecast path with the expected shape.
+
+        AR1 path shape is exercised in the integration tests, since it requires
+        ``phi``/``alpha`` in the posterior that the synthetic fixture does not
+        provide.
+        """
         from impulso.sv.spec import StochasticVolatility
 
-        rng_a = np.random.default_rng(0)
+        rng = np.random.default_rng(0)
         path_rw = StochasticVolatility(dynamics="random_walk").forecast_cholesky_path(
-            synthetic_sv_idata_2v.posterior, steps=5, rng=rng_a
+            synthetic_sv_idata_2v.posterior, steps=5, rng=rng
         )
-        # AR1 needs phi/alpha in the posterior; for the synthetic fixture this
-        # may not exist — the test below covers RW only and AR1 gets exercised
-        # in the integration tests.
         assert path_rw.shape == (2, 50, 5, 2, 2)
+
+    def test_output_is_lower_triangular(self, synthetic_sv_idata_2v):
+        """Forecast Cholesky factors must be lower-triangular at every step."""
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility(dynamics="random_walk")
+        path = sv.forecast_cholesky_path(synthetic_sv_idata_2v.posterior, steps=10, rng=np.random.default_rng(0))
+        # Check each forecast step's upper triangle is zero (use first chain/draw).
+        for t in range(path.shape[2]):
+            np.testing.assert_array_equal(np.triu(path[0, 0, t], 1), 0.0)
+
+    def test_diagonal_is_strictly_positive(self, synthetic_sv_idata_2v):
+        """Cholesky diagonals must be strictly positive (diag = exp(h_forecast / 2) > 0)."""
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility(dynamics="random_walk")
+        path = sv.forecast_cholesky_path(synthetic_sv_idata_2v.posterior, steps=5, rng=np.random.default_rng(0))
+        diags = np.diagonal(path, axis1=-2, axis2=-1)  # (C, D, steps, n_vars)
+        assert np.all(diags > 0)
+        assert not np.any(np.isnan(diags))
