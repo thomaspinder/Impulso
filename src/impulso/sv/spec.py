@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
+import xarray as xr
 
 from impulso._base import ImpulsoBaseModel
 from impulso.sv.data import SVData
@@ -11,7 +12,6 @@ from impulso.sv.priors import SVDefaultPrior, SVPrior
 
 if TYPE_CHECKING:
     import pytensor.tensor as pt
-    import xarray as xr
 
     from impulso.protocols import Sampler
     from impulso.sv.fitted import FittedSV
@@ -242,9 +242,48 @@ class StochasticVolatility(ImpulsoBaseModel):
         steps: int,
         rng: np.random.Generator,
     ) -> np.ndarray:
-        """Posterior-predictive Cholesky factors for ``steps`` ahead.
+        """Forecast the per-t Cholesky factor for ``steps`` ahead.
 
-        Stub; body lands in Task 6. See ADR-0003 and the
-        ``VolatilityProcess`` Protocol in ``impulso.protocols``.
+        Each variable's log-vol is extrapolated independently using the
+        configured dynamics; the correlation Cholesky ``R_chol`` is held
+        constant (Clark-style assumption).
+
+        ``SVDynamics.forecast_log_vol`` reads bare posterior keys (``h``,
+        ``sigma_eta``, and for AR(1) also ``phi``/``alpha``), whereas the
+        multivariate-fit posterior stores per-variable hyperparameters
+        under prefixed names (``v{i}_sigma_eta``, ...). For each variable
+        ``i`` we build a small slice ``Dataset`` with renamed keys and
+        delegate the extrapolation to ``dynamics.forecast_log_vol``.
+
+        Args:
+            posterior: Dataset with per-variable log-vol paths (``h``)
+                and ``R_chol``.
+            steps: Forecast horizon.
+            rng: Random number generator for the extrapolation
+                innovations.
+
+        Returns:
+            ``(chains, draws, steps, n_vars, n_vars)``.
         """
-        raise NotImplementedError  # Task 6
+        dynamics = self.resolved_dynamics
+
+        h = posterior["h"].values  # (C, D, T, n_vars)
+        R_chol = posterior["R_chol"].values  # (C, D, n_vars, n_vars)
+        n_chains, n_draws, _, n_vars = h.shape
+
+        h_forecast = np.zeros((n_chains, n_draws, steps, n_vars))
+        for i in range(n_vars):
+            slice_posterior = xr.Dataset({
+                "h": (("chain", "draw", "time"), h[:, :, :, i]),
+                "sigma_eta": (("chain", "draw"), posterior[f"v{i}_sigma_eta"].values),
+            })
+            # AR(1) also reads phi, alpha. For RW, only sigma_eta is needed.
+            for extra_var in ("phi", "alpha"):
+                key = f"v{i}_{extra_var}"
+                if key in posterior:
+                    slice_posterior[extra_var] = (("chain", "draw"), posterior[key].values)
+            h_forecast[:, :, :, i] = dynamics.forecast_log_vol(slice_posterior, steps, rng)
+
+        # Combine: L_t = diag(exp(h_t / 2)) @ R_chol for each forecast step.
+        sigma_t = np.exp(h_forecast / 2)  # (C, D, steps, n_vars)
+        return sigma_t[:, :, :, :, None] * R_chol[:, :, None, :, :]
