@@ -198,7 +198,7 @@ class TestSVMultivariateBuild:
         assert L_value.shape == (50, 3, 3)
 
     def test_registers_per_variable_log_vol_paths(self):
-        """For n_vars=3, expect h_0, h_1, h_2 (or h with shape (T, 3))."""
+        """Multivariate SV registers per-variable log-vol paths (v{i}_h) plus a stacked h."""
         import pymc as pm
 
         from impulso.sv.spec import StochasticVolatility
@@ -207,9 +207,17 @@ class TestSVMultivariateBuild:
         with pm.Model() as model:
             sv.build_pymc_latent(n_vars=2, T=50)
 
-        var_names = {v.name for v in model.unobserved_RVs} | {v.name for v in model.deterministics}
-        # Either separate h_0/h_1 or a stacked h with shape (T, 2) - pick one in implementation.
-        assert "h_0" in var_names or "h" in var_names
+        rv_names = {v.name for v in model.unobserved_RVs}
+        det_names = {v.name for v in model.deterministics}
+        # Stacked path registered as a Deterministic.
+        assert "h" in det_names
+        # Per-variable latent paths registered as Deterministics
+        # (RandomWalk.build_latent_path wraps in pm.Deterministic).
+        assert "v0_h" in det_names
+        assert "v1_h" in det_names
+        # Per-variable hyperparameters registered as RVs.
+        assert "v0_mu" in rv_names and "v1_mu" in rv_names
+        assert "v0_sigma_eta" in rv_names and "v1_sigma_eta" in rv_names
 
     def test_registers_correlation_cholesky(self):
         """The constant correlation Cholesky R_chol must be in the model."""

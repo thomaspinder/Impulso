@@ -109,9 +109,14 @@ class StochasticVolatility(ImpulsoBaseModel):
         For each ``i`` in ``0..n_vars-1``: registers a log-volatility path
         ``h_i,t`` following the configured dynamics, plus a per-variable
         ``sigma_eta_i`` (HalfNormal) and ``mu_i`` (Normal). The shared
-        correlation factor ``R_chol`` (lower-triangular ``n_vars x n_vars``)
-        is registered once via the manual LKJ workaround (diagonal pinned
-        to 1; off-diagonals from Normal). See CLAUDE.md for the broader
+        mixing factor ``R_chol`` (a unit-diagonal lower-triangular
+        ``n_vars x n_vars`` matrix) is registered once via the manual LKJ
+        workaround. Note: pinning the diagonal of a Cholesky factor to 1
+        does **not** make ``R_chol @ R_chol.T`` a correlation matrix; the
+        Gram-matrix diagonal is ``1 + sum_j off[i,j]^2``. The diagonal
+        pin is an *identifiability* device: all volatility scaling lives
+        in ``h``, so ``R_chol`` is identified only up to its
+        off-diagonal mixing entries. See CLAUDE.md for the broader
         LKJCholeskyCov workaround.
 
         Convention divergence from the standalone univariate fit:
@@ -160,9 +165,12 @@ class StochasticVolatility(ImpulsoBaseModel):
         h = pt.stack(h_paths, axis=1)
         pm.Deterministic("h", h)
 
-        # Correlation Cholesky factor R_chol (lower-triangular n_vars x n_vars).
+        # Unit-diagonal lower-triangular mixing factor R_chol (n_vars x n_vars).
         # Manual parameterisation per the LKJ workaround documented in CLAUDE.md.
-        # Diagonal pinned to 1 (correlation, not covariance); off-diagonals Normal.
+        # Diagonal pinned to 1 for identification (vol scale lives in h, so the
+        # mixing factor is identified only by its off-diagonals); off-diagonals
+        # from Normal(0, 0.5). This does NOT make R_chol @ R_chol.T a correlation
+        # matrix — its diagonal is 1 + sum_j off[i,j]^2.
         n_tril = n_vars * (n_vars - 1) // 2
         R_chol = pt.eye(n_vars)
         if n_tril > 0:
@@ -178,6 +186,11 @@ class StochasticVolatility(ImpulsoBaseModel):
         # Broadcasting: L[t, i, j] = sigma_t[t, i] * R_chol[i, j].
         sigma_t = pt.exp(h / 2)  # (T, n_vars)
         L = sigma_t[:, :, None] * R_chol[None, :, :]  # (T, n_vars, n_vars)
+        # NOTE: SVDynamics.forecast_log_vol reads bare posterior keys ("h",
+        # "sigma_eta", "phi", "alpha"). After build_pymc_latent fits, the
+        # posterior has prefixed names (v0_h, v0_sigma_eta, ...). Task 6's
+        # forecast_cholesky_path must build a per-variable slice posterior
+        # with renamed keys before calling forecast_log_vol.
         return L
 
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
