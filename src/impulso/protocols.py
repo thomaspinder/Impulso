@@ -29,7 +29,49 @@ class Sampler(Protocol):
 class IdentificationScheme(Protocol):
     """Contract for structural identification schemes."""
 
-    def identify(self, idata: "az.InferenceData", var_names: list[str]) -> "az.InferenceData": ...
+    def identify(
+        self,
+        L: np.ndarray,
+        var_names: list[str],
+        posterior: "xr.Dataset | None" = None,
+    ) -> np.ndarray:
+        """Identify the structural shock matrix from a Cholesky factor.
+
+        Args:
+            L: Lower-triangular Cholesky factor of the structural-shock
+                covariance, shape (chains, draws, n_vars, n_vars). Produced
+                by ``volatility.cholesky_at(...)``.
+            var_names: Endogenous variable names, in the order they appear
+                in the underlying data.
+            posterior: Full posterior xarray Dataset. Optional; provided by
+                the pipeline so schemes that need additional draws (e.g.,
+                SignRestriction with restriction_horizon > 0 needs B for the
+                MA recursion) can reach for them. Schemes that only need L
+                may ignore this argument. Schemes that need ``posterior``
+                for context but receive ``None`` should raise a clear
+                ``ValueError``.
+
+        Returns:
+            Structural shock matrix array of shape (chains, draws, n_vars, n_vars).
+            Caller is responsible for wrapping into an xarray DataArray with
+            named coords.
+        """
+        ...
+
+    def shock_coords(self, n_vars: int) -> list[str]:
+        """Return the labels for the ``shock`` coordinate of the structural matrix.
+
+        The pipeline calls this after ``identify`` to label the columns of
+        the structural shock matrix when wrapping into an xarray DataArray.
+
+        Args:
+            n_vars: Number of endogenous variables (i.e. width of the
+                structural shock matrix).
+
+        Returns:
+            A list of length ``n_vars`` naming each shock column.
+        """
+        ...
 
 
 @runtime_checkable

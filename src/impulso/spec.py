@@ -144,4 +144,5 @@ class VAR(ImpulsoBaseModel):
             n_lags=n_lags,
             data=data,
             var_names=data.endog_names,
+            volatility=self.resolved_volatility,
         )

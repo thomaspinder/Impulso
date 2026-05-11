@@ -8,7 +8,7 @@ from pydantic import Field, computed_field
 
 from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
-from impulso.protocols import IdentificationScheme
+from impulso.protocols import IdentificationScheme, VolatilityProcess
 
 if TYPE_CHECKING:
     from impulso.identified import IdentifiedVAR
@@ -23,12 +23,16 @@ class FittedVAR(ImpulsoBaseModel):
         n_lags: Lag order used in estimation.
         data: Original VARData used for fitting.
         var_names: Names of endogenous variables.
+        volatility: Volatility process used at fit time. Required;
+            populated by VAR.fit from VAR.volatility (default at the
+            spec level is "constant", which resolves to Constant()).
     """
 
     idata: az.InferenceData = Field(repr=False)
     n_lags: int
     data: VARData
     var_names: list[str]
+    volatility: VolatilityProcess
 
     @computed_field
     @property
@@ -114,15 +118,45 @@ class FittedVAR(ImpulsoBaseModel):
     def set_identification_strategy(self, scheme: IdentificationScheme) -> "IdentifiedVAR":
         """Apply a structural identification scheme.
 
+        Queries the fitted volatility process for the Cholesky factor of Σ
+        and passes it to the scheme. For constant volatility, the factor is
+        the same across all time points; for stochastic volatility (P3),
+        ``cholesky_at(t=None)`` returns the most-recent slice and
+        downstream IRF/FEVD/HD methods can re-query at other ``at`` values.
+
         Args:
-            scheme: An IdentificationScheme protocol instance (e.g. Cholesky).
+            scheme: An IdentificationScheme protocol instance (e.g. Cholesky,
+                SignRestriction).
 
         Returns:
-            IdentifiedVAR with structural shock matrix in the posterior.
+            IdentifiedVAR with structural_shock_matrix in the posterior.
         """
+        import xarray as xr
+
         from impulso.identified import IdentifiedVAR
 
-        identified_idata = scheme.identify(self.idata, self.var_names)
+        L = self.volatility.cholesky_at(self.idata.posterior, t=None)
+        P = scheme.identify(L, self.var_names, posterior=self.idata.posterior)
+
+        # Wrap into a DataArray with named coords.
+        shock_coords = scheme.shock_coords(n_vars=len(self.var_names))
+        P_da = xr.DataArray(
+            P,
+            dims=["chain", "draw", "response", "shock"],
+            coords={
+                "response": self.var_names,
+                "shock": shock_coords,
+            },
+        )
+
+        new_posterior = self.idata.posterior.assign(structural_shock_matrix=P_da)
+
+        # Carry through SignRestriction's acceptance rate if present.
+        acceptance_rate = getattr(scheme, "_last_acceptance_rate", None)
+        if isinstance(acceptance_rate, float) and acceptance_rate < 1.0:
+            new_posterior.attrs["sign_restriction_acceptance_rate"] = acceptance_rate
+
+        identified_idata = az.InferenceData(posterior=new_posterior)
         return IdentifiedVAR.model_construct(
             idata=identified_idata,
             n_lags=self.n_lags,

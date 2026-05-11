@@ -1,9 +1,8 @@
 """Identification schemes for structural VAR analysis."""
 
-import arviz as az
 import numpy as np
 import xarray as xr
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from impulso._base import ImpulsoModel
 
@@ -21,33 +20,44 @@ class Cholesky(ImpulsoModel):
 
     ordering: list[str]
 
-    def identify(self, idata: az.InferenceData, var_names: list[str]) -> az.InferenceData:
-        """Apply Cholesky identification to posterior covariance draws.
+    def identify(
+        self,
+        L: np.ndarray,
+        var_names: list[str],
+        posterior: "xr.Dataset | None" = None,
+    ) -> np.ndarray:
+        """Apply Cholesky identification.
+
+        For default variable ordering, ``identify`` is a no-op and returns
+        ``L`` unchanged. When ``self.ordering`` differs from ``var_names``,
+        the underlying covariance is permuted and re-decomposed so the
+        Cholesky factor reflects the requested causal ordering.
 
         Args:
-            idata: InferenceData with 'Sigma' in posterior.
-            var_names: Variable names from the VAR model.
+            L: Lower-triangular Cholesky factor, shape (chains, draws, n_vars, n_vars).
+            var_names: Variable names in the data's natural order.
+            posterior: Unused. Accepted for Protocol uniformity.
 
         Returns:
-            InferenceData with 'structural_shock_matrix' added to posterior.
+            Structural shock matrix, shape (chains, draws, n_vars, n_vars).
         """
-        sigma = idata.posterior["Sigma"].values  # (chains, draws, n, n)
+        del posterior  # unused
 
-        # Reorder if needed
+        # Fast path: ordering matches data — identify is a no-op.
+        if list(self.ordering) == list(var_names):
+            return L
+
+        # Reordering: reconstruct Sigma, permute, re-decompose.
+        sigma = np.einsum("cdij,cdkj->cdik", L, L)
         perm = [var_names.index(v) for v in self.ordering]
-        sigma_ordered = sigma[:, :, np.ix_(perm, perm)[0], np.ix_(perm, perm)[1]]
+        ix0, ix1 = np.ix_(perm, perm)
+        sigma_ordered = sigma[:, :, ix0, ix1]
+        return np.linalg.cholesky(sigma_ordered)
 
-        # Cholesky decompose each draw (broadcasts over leading dims)
-        P = np.linalg.cholesky(sigma_ordered)
-
-        P_da = xr.DataArray(
-            P,
-            dims=["chain", "draw", "shock", "response"],
-            coords={"shock": self.ordering, "response": self.ordering},
-        )
-
-        new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)
-        return az.InferenceData(posterior=new_posterior)
+    def shock_coords(self, n_vars: int) -> list[str]:
+        """Cholesky shock labels are simply the causal ordering."""
+        del n_vars  # ordering already has the right length
+        return list(self.ordering)
 
 
 class SignRestriction(ImpulsoModel):
@@ -67,37 +77,61 @@ class SignRestriction(ImpulsoModel):
     restriction_horizon: int = Field(default=0, ge=0)
     random_seed: int | None = None
 
-    def identify(self, idata: az.InferenceData, var_names: list[str]) -> az.InferenceData:
-        """Apply sign restriction identification.
+    # Single-call scratchpad: identify() writes the rate; the pipeline
+    # (set_identification_strategy) reads it immediately afterwards and
+    # attaches to idata.posterior.attrs. Not reentrant — overwritten on
+    # each identify() call. Do not rely on this between calls; the
+    # surviving public surface is the posterior attr.
+    _last_acceptance_rate: float = PrivateAttr(default=0.0)
+
+    def identify(
+        self,
+        L: np.ndarray,
+        var_names: list[str],
+        posterior: "xr.Dataset | None" = None,
+    ) -> np.ndarray:
+        """Apply sign-restriction identification.
 
         Args:
-            idata: InferenceData with 'Sigma' in posterior.
-            var_names: Variable names from the VAR model.
+            L: Lower-triangular Cholesky factor, shape (chains, draws, n_vars, n_vars).
+            var_names: Variable names in the data's natural order.
+            posterior: Required when ``self.restriction_horizon > 0`` because
+                the multi-horizon check needs the VAR coefficients ``B`` from
+                the posterior. Ignored for impact-only restrictions
+                (``restriction_horizon == 0``).
 
         Returns:
-            InferenceData with 'structural_shock_matrix' added to posterior.
+            Structural shock matrix, shape (chains, draws, n_vars, n_vars).
+            Per-draw fallback to the supplied ``L`` for draws where no
+            rotation satisfies the restrictions. Acceptance rate available
+            via the ``sign_restriction_acceptance_rate`` attribute on the
+            wrapping IdentifiedVAR's posterior (set by the pipeline).
         """
         from scipy.stats import special_ortho_group
 
-        sigma = idata.posterior["Sigma"].values
-        n_chains, n_draws, n_vars, _ = sigma.shape
+        n_chains, n_draws, n_vars, _ = L.shape
         rng = np.random.default_rng(self.random_seed)
 
         shock_names = list(next(iter(self.restrictions.values())).keys())
 
-        # Extract B coefficients for multi-horizon checking
-        if self.restriction_horizon > 0 and "B" not in idata.posterior:
-            raise ValueError("restriction_horizon > 0 requires 'B' (VAR coefficients) in idata.posterior")
-        B_all = idata.posterior["B"].values if self.restriction_horizon > 0 else None
-        n_lags = B_all.shape[-1] // n_vars if B_all is not None else 0
+        # Multi-horizon path needs B — fail clearly if posterior wasn't provided.
+        B_all: np.ndarray | None = None
+        n_lags = 0
+        if self.restriction_horizon > 0:
+            if posterior is None or "B" not in posterior:
+                raise ValueError(
+                    "restriction_horizon > 0 requires the full posterior with 'B' "
+                    "(VAR coefficients). Pass posterior=fitted.idata.posterior to identify()."
+                )
+            B_all = posterior["B"].values
+            n_lags = B_all.shape[-1] // n_vars
 
         P = np.full((n_chains, n_draws, n_vars, n_vars), np.nan)
-
         accepted_count = 0
         total_count = n_chains * n_draws
         for c in range(n_chains):
             for d in range(n_draws):
-                chol = np.linalg.cholesky(sigma[c, d])
+                chol = L[c, d]
                 found = False
                 B_draw = B_all[c, d] if B_all is not None else None
                 for _ in range(self.n_rotations):
@@ -113,7 +147,7 @@ class SignRestriction(ImpulsoModel):
                         accepted_count += 1
                         break
                 if not found:
-                    P[c, d] = chol
+                    P[c, d] = chol  # Fallback to the unrotated factor.
 
         fallback_count = total_count - accepted_count
         if fallback_count > 0:
@@ -121,20 +155,14 @@ class SignRestriction(ImpulsoModel):
 
             warnings.warn(
                 f"Sign restrictions not satisfied for {fallback_count}/{total_count} draws "
-                f"({fallback_count / total_count:.1%}). Those draws fell back to Cholesky.",
+                f"({fallback_count / total_count:.1%}). Those draws fell back to L (Cholesky).",
                 stacklevel=2,
             )
 
-        coord_shocks = self._build_shock_coords(shock_names, n_vars)
-        P_da = xr.DataArray(
-            P,
-            dims=["chain", "draw", "response", "shock"],
-            coords={"response": var_names, "shock": coord_shocks},
-        )
-
-        new_posterior = idata.posterior.assign(structural_shock_matrix=P_da)
-        new_posterior.attrs["sign_restriction_acceptance_rate"] = accepted_count / total_count
-        return az.InferenceData(posterior=new_posterior)
+        # Stash the acceptance rate as a side channel — the pipeline reads
+        # it back to attach to the InferenceData.attrs.
+        self._last_acceptance_rate = accepted_count / total_count
+        return P
 
     @staticmethod
     def _build_shock_coords(shock_names: list[str], n_vars: int) -> list[str]:
@@ -146,6 +174,11 @@ class SignRestriction(ImpulsoModel):
         if len(shock_names) == n_vars:
             return shock_names
         return shock_names + [f"unidentified_{i}" for i in range(1, n_vars - len(shock_names) + 1)]
+
+    def shock_coords(self, n_vars: int) -> list[str]:
+        """Sign-restriction shock labels: named shocks first, then padding."""
+        shock_names = list(next(iter(self.restrictions.values())).keys())
+        return self._build_shock_coords(shock_names, n_vars)
 
     def _check_restrictions_at_horizons(
         self,

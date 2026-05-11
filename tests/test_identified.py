@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from impulso.identification import Cholesky
+from impulso.identification import Cholesky, SignRestriction
 from impulso.identified import IdentifiedVAR
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
 from impulso.samplers import NUTSSampler
@@ -146,3 +146,46 @@ class TestIdentifiedVARFast:
         )
         r = repr(identified)
         assert "IdentifiedVAR" in r
+
+
+class TestP2PosteriorEquivalence:
+    """P2 must not change identified posteriors. Fits VAR(lags=1) +
+    Cholesky + SignRestriction under the new pipeline and asserts the
+    structural_shock_matrix posterior matches the mathematically expected
+    value (Cholesky) or is well-formed (SignRestriction smoke test).
+    """
+
+    @pytest.mark.slow
+    def test_cholesky_identified_posterior_unchanged(self, var_data_2v):
+        """P2 invariant: Cholesky-identified posterior equals np.linalg.cholesky(Sigma) at 1e-10."""
+        sampler = NUTSSampler(cores=1, chains=2, draws=200, tune=200, random_seed=42, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
+
+        P = identified.idata.posterior["structural_shock_matrix"].values
+        assert P.shape == (2, 200, 2, 2)
+
+        # Cholesky with identity ordering: P should equal np.linalg.cholesky(Sigma).
+        sigma = fitted.idata.posterior["Sigma"].values
+        np.testing.assert_allclose(P, np.linalg.cholesky(sigma), rtol=1e-10)
+
+    @pytest.mark.slow
+    def test_sign_restriction_identified_posterior_runs(self, var_data_2v):
+        """Smoke test: SignRestriction with restriction_horizon=2 produces
+        a valid structural_shock_matrix posterior."""
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        sampler = NUTSSampler(cores=1, chains=2, draws=100, tune=100, random_seed=42, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        scheme = SignRestriction(
+            restrictions={fitted.var_names[0]: {"shock_a": "+"}},
+            n_rotations=50,
+            restriction_horizon=2,
+            random_seed=42,
+        )
+        identified = fitted.set_identification_strategy(scheme)
+
+        P = identified.idata.posterior["structural_shock_matrix"].values
+        assert P.shape == (2, 100, 2, 2)
+        assert not np.isnan(P).any(), "Some draws produced NaN structural shock matrix"

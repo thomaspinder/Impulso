@@ -154,3 +154,61 @@ class TestFittedVARFast:
         assert isinstance(hdi, HDIResult)
         assert hdi.lower.shape == (4, 2)
         assert hdi.upper.shape == (4, 2)
+
+
+class TestFittedVARVolatility:
+    def test_fitted_var_carries_volatility(self, var_data_2v):
+        """FittedVAR must expose the volatility process used at fit time."""
+        from impulso.protocols import VolatilityProcess
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+        from impulso.volatility import Constant
+
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+
+        assert isinstance(fitted.volatility, VolatilityProcess)
+        assert isinstance(fitted.volatility, Constant)
+        assert fitted.volatility.name == "constant"
+
+    def test_fitted_var_volatility_round_trips_explicit(self, var_data_2v):
+        """A custom Constant() instance passed to VAR is preserved on FittedVAR."""
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+        from impulso.volatility import Constant
+
+        custom = Constant(sigma_sd_beta=3.0)
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1, volatility=custom).fit(var_data_2v, sampler=sampler)
+
+        assert fitted.volatility is custom
+        assert fitted.volatility.sigma_sd_beta == 3.0
+
+
+class TestSetIdentificationStrategyRoutesThroughSeam:
+    def test_calls_volatility_cholesky_at(self, var_data_2v):
+        """set_identification_strategy must query volatility.cholesky_at,
+        not read posterior['Sigma'] directly."""
+        from unittest.mock import MagicMock
+
+        from impulso.identification import Cholesky
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+
+        # Replace the volatility on the fitted spec with a spy.
+        spy = MagicMock(wraps=fitted.volatility)
+        object.__setattr__(fitted, "volatility", spy)
+
+        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
+
+        spy.cholesky_at.assert_called_once()
+        # Confirm the structural shock matrix made it into the posterior.
+        assert "structural_shock_matrix" in identified.idata.posterior
+        # Lock down the dims/coords contract that downstream IRF/FEVD/HD depend on.
+        ssm = identified.idata.posterior["structural_shock_matrix"]
+        assert ssm.dims == ("chain", "draw", "response", "shock")
+        assert list(ssm.coords["response"].values) == fitted.var_names
+        assert list(ssm.coords["shock"].values) == fitted.var_names

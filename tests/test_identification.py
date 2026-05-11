@@ -1,9 +1,7 @@
 """Tests for identification schemes."""
 
-import arviz as az
 import numpy as np
 import pytest
-import xarray as xr
 from pydantic import ValidationError
 
 from impulso.identification import Cholesky, SignRestriction
@@ -37,17 +35,13 @@ class TestCholesky:
                 A = rng.standard_normal((n_vars, n_vars))
                 sigma_draws[c, d] = A @ A.T + np.eye(n_vars)
 
-        sigma_da = xr.DataArray(
-            sigma_draws,
-            dims=["chain", "draw", "var1", "var2"],
-            coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
-        )
-        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+        L = np.linalg.cholesky(sigma_draws)
 
         chol = Cholesky(ordering=["y1", "y2"])
-        result = chol.identify(idata, var_names=["y1", "y2"])
+        result = chol.identify(L, var_names=["y1", "y2"])
 
-        assert "structural_shock_matrix" in result.posterior
+        assert isinstance(result, np.ndarray)
+        assert result.shape == L.shape
 
     def test_cholesky_identify_values_correct(self):
         """Verify Cholesky decomposition produces valid lower-triangular matrices."""
@@ -61,16 +55,10 @@ class TestCholesky:
                 A = rng.standard_normal((n_vars, n_vars))
                 sigma_draws[c, d] = A @ A.T + np.eye(n_vars)
 
-        sigma_da = xr.DataArray(
-            sigma_draws,
-            dims=["chain", "draw", "var1", "var2"],
-            coords={"var1": ["a", "b", "c"], "var2": ["a", "b", "c"]},
-        )
-        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+        L = np.linalg.cholesky(sigma_draws)
 
         chol = Cholesky(ordering=["a", "b", "c"])
-        result = chol.identify(idata, var_names=["a", "b", "c"])
-        P = result.posterior["structural_shock_matrix"].values
+        P = chol.identify(L, var_names=["a", "b", "c"])
 
         # Verify P @ P.T reconstructs Sigma
         for c in range(n_chains):
@@ -109,12 +97,7 @@ class TestSignRestriction:
                 A = rng.standard_normal((n_vars, n_vars))
                 sigma_draws[c, d] = A @ A.T + np.eye(n_vars)
 
-        sigma_da = xr.DataArray(
-            sigma_draws,
-            dims=["chain", "draw", "var1", "var2"],
-            coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
-        )
-        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+        L = np.linalg.cholesky(sigma_draws)
 
         sr = SignRestriction(
             restrictions={
@@ -124,8 +107,7 @@ class TestSignRestriction:
             n_rotations=5000,
             random_seed=42,
         )
-        result = sr.identify(idata, var_names=["y1", "y2"])
-        P = result.posterior["structural_shock_matrix"].values
+        P = sr.identify(L, var_names=["y1", "y2"])
 
         # Check that restrictions are satisfied (or fallback was used)
         assert P.shape == (1, 20, 2, 2)
@@ -149,16 +131,17 @@ class TestSignRestriction:
         assert scheme.restriction_horizon == 0
 
     def test_sign_restriction_identify_stores_acceptance_rate(self, synthetic_idata_2v):
-        """identify() should store acceptance_rate in posterior attrs."""
+        """identify() should record acceptance_rate on the scheme instance."""
         scheme = SignRestriction(
             restrictions={"y1": {"y1": "+"}},
             n_rotations=100,
             restriction_horizon=0,
             random_seed=42,
         )
-        result = scheme.identify(synthetic_idata_2v, ["y1", "y2"])
-        assert "sign_restriction_acceptance_rate" in result.posterior.attrs
-        rate = result.posterior.attrs["sign_restriction_acceptance_rate"]
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        L = np.linalg.cholesky(sigma)
+        scheme.identify(L, ["y1", "y2"])
+        rate = scheme._last_acceptance_rate
         assert 0.0 <= rate <= 1.0
 
     def test_identify_multi_horizon_through_identify(self, synthetic_idata_2v):
@@ -169,51 +152,25 @@ class TestSignRestriction:
             restriction_horizon=1,
             random_seed=42,
         )
-        result = scheme.identify(synthetic_idata_2v, ["y1", "y2"])
-        assert "structural_shock_matrix" in result.posterior
-        assert not np.any(np.isnan(result.posterior["structural_shock_matrix"].values))
-        rate = result.posterior.attrs["sign_restriction_acceptance_rate"]
-        assert 0.0 <= rate <= 1.0
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        L = np.linalg.cholesky(sigma)
+        P = scheme.identify(L, ["y1", "y2"], posterior=synthetic_idata_2v.posterior)
+        assert P.shape == L.shape
+        assert not np.any(np.isnan(P))
+        assert 0.0 <= scheme._last_acceptance_rate <= 1.0
 
     def test_shock_coordinates_with_partial_identification(self):
         """When fewer shocks are named than variables, remaining get 'unidentified_N' labels."""
-        rng = np.random.default_rng(42)
-        n_vars, n_chains, n_draws = 3, 1, 10
-        sigma = np.zeros((n_chains, n_draws, n_vars, n_vars))
-        for d in range(n_draws):
-            A = rng.standard_normal((n_vars, n_vars))
-            sigma[0, d] = A @ A.T + np.eye(n_vars)
-        sigma_da = xr.DataArray(
-            sigma,
-            dims=["chain", "draw", "var1", "var2"],
-            coords={"var1": ["y1", "y2", "y3"], "var2": ["y1", "y2", "y3"]},
-        )
-        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
-
         sr = SignRestriction(
             restrictions={"y1": {"my_shock": "+"}},
             n_rotations=100,
             random_seed=42,
         )
-        result = sr.identify(idata, var_names=["y1", "y2", "y3"])
-        shock_coords = list(result.posterior["structural_shock_matrix"].coords["shock"].values)
-        assert shock_coords == ["my_shock", "unidentified_1", "unidentified_2"]
+        coords = sr._build_shock_coords(["my_shock"], n_vars=3)
+        assert coords == ["my_shock", "unidentified_1", "unidentified_2"]
 
     def test_shock_coordinates_with_full_identification(self):
         """When all shocks are named, use those names directly."""
-        rng = np.random.default_rng(42)
-        n_vars, n_chains, n_draws = 2, 1, 10
-        sigma = np.zeros((n_chains, n_draws, n_vars, n_vars))
-        for d in range(n_draws):
-            A = rng.standard_normal((n_vars, n_vars))
-            sigma[0, d] = A @ A.T + np.eye(n_vars)
-        sigma_da = xr.DataArray(
-            sigma,
-            dims=["chain", "draw", "var1", "var2"],
-            coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
-        )
-        idata = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
-
         sr = SignRestriction(
             restrictions={
                 "y1": {"s1": "+", "s2": "+"},
@@ -222,9 +179,8 @@ class TestSignRestriction:
             n_rotations=5000,
             random_seed=42,
         )
-        result = sr.identify(idata, var_names=["y1", "y2"])
-        shock_coords = list(result.posterior["structural_shock_matrix"].coords["shock"].values)
-        assert shock_coords == ["s1", "s2"]
+        coords = sr._build_shock_coords(["s1", "s2"], n_vars=2)
+        assert coords == ["s1", "s2"]
 
     def test_identify_multi_horizon_raises_without_B(self):
         """identify() with restriction_horizon>0 raises ValueError if B is missing."""
@@ -234,12 +190,7 @@ class TestSignRestriction:
         for d in range(n_draws):
             A = rng.standard_normal((n_vars, n_vars))
             sigma[0, d] = A @ A.T + np.eye(n_vars)
-        sigma_da = xr.DataArray(
-            sigma,
-            dims=["chain", "draw", "var1", "var2"],
-            coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
-        )
-        idata_no_B = az.InferenceData(posterior=xr.Dataset({"Sigma": sigma_da}))
+        L = np.linalg.cholesky(sigma)
 
         scheme = SignRestriction(
             restrictions={"y1": {"y1": "+"}},
@@ -247,5 +198,104 @@ class TestSignRestriction:
             restriction_horizon=1,
             random_seed=42,
         )
-        with pytest.raises(ValueError, match="restriction_horizon > 0 requires 'B'"):
-            scheme.identify(idata_no_B, ["y1", "y2"])
+        with pytest.raises(ValueError, match="restriction_horizon > 0"):
+            scheme.identify(L, ["y1", "y2"], posterior=None)
+
+
+class TestCholeskyNewIdentify:
+    def test_identify_returns_ndarray_for_constant_L(self, synthetic_idata_2v):
+        """For a constant L (no time dim), Cholesky.identify returns the
+        reordered factor as an ndarray of shape (C, D, n, n)."""
+        from impulso.identification import Cholesky
+
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        L = np.linalg.cholesky(sigma)  # (2, 50, 2, 2)
+        var_names = list(synthetic_idata_2v.posterior["B"].coords.get("variable", ["v0", "v1"]))
+        if len(var_names) != 2:  # fallback if fixture coords differ
+            var_names = ["v0", "v1"]
+
+        scheme = Cholesky(ordering=var_names)
+        result = scheme.identify(L, var_names)
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape == L.shape
+        # With identity ordering, identify is a no-op — result equals L.
+        np.testing.assert_array_equal(result, L)
+
+    def test_identify_reorders_when_ordering_differs(self, synthetic_idata_2v):
+        from impulso.identification import Cholesky
+
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        L = np.linalg.cholesky(sigma)
+        var_names = ["v0", "v1"]
+
+        scheme = Cholesky(ordering=["v1", "v0"])  # reverse ordering
+        result = scheme.identify(L, var_names)
+
+        # When ordering reverses, the scheme should re-decompose the
+        # row-permuted Sigma — the result is NOT just a row swap of L.
+        assert result.shape == L.shape
+        # Reconstruct: result @ result.T should equal P @ Sigma @ P.T
+        # where P is the permutation matrix.
+        perm = np.array([1, 0])
+        sigma_perm = sigma[:, :, np.ix_(perm, perm)[0], np.ix_(perm, perm)[1]]
+        np.testing.assert_allclose(
+            np.einsum("cdij,cdkj->cdik", result, result),
+            sigma_perm,
+            rtol=1e-6,
+        )
+
+
+class TestSignRestrictionNewIdentify:
+    def test_identify_returns_ndarray_no_horizon(self, synthetic_idata_2v):
+        """SignRestriction with restriction_horizon=0 ignores posterior=None."""
+        from impulso.identification import SignRestriction
+
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        L = np.linalg.cholesky(sigma)
+        var_names = ["v0", "v1"]
+
+        scheme = SignRestriction(
+            restrictions={"v0": {"shock_a": "+"}, "v1": {"shock_a": "-"}},
+            n_rotations=20,
+            random_seed=0,
+        )
+        P = scheme.identify(L, var_names, posterior=None)
+
+        assert isinstance(P, np.ndarray)
+        assert P.shape == L.shape
+
+    def test_identify_with_horizon_requires_posterior(self, synthetic_idata_2v):
+        """restriction_horizon > 0 needs B; passing posterior=None raises."""
+        from impulso.identification import SignRestriction
+
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        L = np.linalg.cholesky(sigma)
+        var_names = ["v0", "v1"]
+
+        scheme = SignRestriction(
+            restrictions={"v0": {"shock_a": "+"}},
+            n_rotations=10,
+            restriction_horizon=2,
+            random_seed=0,
+        )
+        with pytest.raises(ValueError, match="restriction_horizon > 0"):
+            scheme.identify(L, var_names, posterior=None)
+
+    def test_identify_with_horizon_uses_posterior_B(self, synthetic_idata_2v):
+        """When posterior contains B, restriction_horizon > 0 path runs."""
+        from impulso.identification import SignRestriction
+
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        L = np.linalg.cholesky(sigma)
+        var_names = ["v0", "v1"]
+
+        scheme = SignRestriction(
+            restrictions={"v0": {"shock_a": "+"}},
+            n_rotations=10,
+            restriction_horizon=2,
+            random_seed=0,
+        )
+        # synthetic_idata_2v has B in posterior; should run without raising.
+        P = scheme.identify(L, var_names, posterior=synthetic_idata_2v.posterior)
+        assert P.shape == L.shape
