@@ -1,5 +1,7 @@
 """IdentifiedVAR — structural VAR with identified shocks."""
 
+from typing import Literal
+
 import arviz as az
 import numpy as np
 import pandas as pd
@@ -10,6 +12,9 @@ from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme, VolatilityProcess
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
+
+# Type alias for the `at=` parameter used by query methods.
+AtParam = int | Literal["last", "all"] | None
 
 
 class IdentifiedVAR(ImpulsoBaseModel):
@@ -60,33 +65,114 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         return np.stack(Phi, axis=2)
 
-    def impulse_response(self, horizon: int = 20) -> IRFResult:
+    def _resolve_at(self, at: AtParam) -> int | None:
+        """Resolve ``at=`` to an integer ``t`` suitable for ``cholesky_at(t)``.
+
+        Returns ``None`` when ``at`` is ``None`` or ``"last"``. ``cholesky_at``
+        adapters interpret ``t=None`` as "most recent" (SV) or "ignored"
+        (Constant), so passing ``None`` through is the right default in both
+        cases. Integer values are returned unchanged.
+
+        Args:
+            at: Either ``None``, ``"last"``, or an integer time index.
+                ``"all"`` is not handled here — callers must dispatch to the
+                per-t path before calling this helper.
+
+        Returns:
+            An integer time index, or ``None`` for the most-recent default.
+
+        Raises:
+            ValueError: If ``at`` is not one of the supported forms.
+        """
+        if at == "last" or at is None:
+            return None
+        if isinstance(at, int):
+            return at
+        raise ValueError(f"Invalid at= value: {at!r}. Expected int, 'last', 'all', or None.")
+
+    def _identify_per_t(self, L_path: np.ndarray) -> np.ndarray:
+        """Apply ``self.scheme.identify`` per time slice.
+
+        Iterates the per-t loop in Python — fine for Cholesky (vectorised
+        internally over draws), but expensive for ``SignRestriction`` at
+        large ``T`` because rotations are re-sampled per time slice. A
+        future optimisation could specialise the loop for time-invariant
+        schemes, but P3 does not need it.
+
+        Args:
+            L_path: ``(C, D, T, n, n)`` Cholesky factor path.
+
+        Returns:
+            ``(C, D, T, n, n)`` structural shock matrix path.
+        """
+        T = L_path.shape[2]
+        P_path = np.zeros_like(L_path)
+        for t in range(T):
+            P_path[:, :, t, :, :] = self.scheme.identify(
+                L_path[:, :, t, :, :], self.var_names, posterior=self.idata.posterior
+            )
+        return P_path
+
+    def impulse_response(self, horizon: int = 20, at: AtParam = None) -> IRFResult:
         """Compute structural impulse response functions.
 
         Args:
             horizon: Number of periods.
+            at: Time index for the structural shock matrix:
+
+                - ``None`` (default): for SV, equivalent to ``"last"``;
+                  for Constant, ignored entirely.
+                - ``int``: query the shock matrix at this specific ``t``.
+                - ``"last"``: most recent time slice.
+                - ``"all"``: return IRFs for shocks at every ``t`` (adds a
+                  ``time`` dim to the result).
 
         Returns:
             IRFResult with IRF posterior draws.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
-        P_draws = self.idata.posterior["structural_shock_matrix"].values  # (C, D, n, n)
         n_vars = B_draws.shape[2]
-
         Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
-        # IRF = Phi @ P, vectorised over (C, D, H) via broadcasting
-        irfs = Phi_arr @ P_draws[:, :, np.newaxis, :, :]
 
-        irf_da = xr.DataArray(
-            irfs,
-            dims=["chain", "draw", "horizon", "response", "shock"],
-            coords={
-                "response": self.var_names,
-                "shock": self.shock_names,
-                "horizon": np.arange(horizon + 1),
-            },
-            name="irf",
-        )
+        if at == "all":
+            # Per-t IRFs. T = effective in-sample length after lag trimming.
+            T = self.data.endog.shape[0] - self.n_lags
+            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
+            # L_path: (C, D, T, n, n); P_path: (C, D, T, n, n) by per-t identify.
+            P_path = self._identify_per_t(L_path)
+            # IRF: (C, D, T, H+1, n, n). Broadcast Phi over time and P_path
+            # over horizon.
+            irfs = Phi_arr[:, :, np.newaxis, :, :, :] @ P_path[:, :, :, np.newaxis, :, :]
+
+            irf_da = xr.DataArray(
+                irfs,
+                dims=["chain", "draw", "time", "horizon", "response", "shock"],
+                coords={
+                    "response": self.var_names,
+                    "shock": self.shock_names,
+                    "horizon": np.arange(horizon + 1),
+                },
+                name="irf",
+            )
+        else:
+            # Single-time IRF.
+            t = self._resolve_at(at)
+            L = self.volatility.cholesky_at(self.idata.posterior, t=t)
+            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)
+            # IRF = Phi @ P, vectorised over (C, D, H) via broadcasting
+            irfs = Phi_arr @ P[:, :, np.newaxis, :, :]
+
+            irf_da = xr.DataArray(
+                irfs,
+                dims=["chain", "draw", "horizon", "response", "shock"],
+                coords={
+                    "response": self.var_names,
+                    "shock": self.shock_names,
+                    "horizon": np.arange(horizon + 1),
+                },
+                name="irf",
+            )
+
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": irf_da}))
         return IRFResult(idata=idata, horizon=horizon, var_names=self.var_names)
 

@@ -50,12 +50,15 @@ class TestIdentifiedVARFast:
     """Fast tests using synthetic InferenceData (no MCMC)."""
 
     def test_impulse_response_shape(self, synthetic_identified_idata_2v, var_data_2v):
+        from impulso.volatility import Constant
 
         identified = IdentifiedVAR.model_construct(
             idata=synthetic_identified_idata_2v,
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=Cholesky(ordering=["y1", "y2"]),
         )
         irf = identified.impulse_response(horizon=10)
         assert isinstance(irf, IRFResult)
@@ -64,11 +67,15 @@ class TestIdentifiedVARFast:
         assert med.shape == (11, 4)  # (horizon+1, n_vars*n_vars)
 
     def test_fevd_shape(self, synthetic_identified_idata_2v, var_data_2v):
+        from impulso.volatility import Constant
+
         identified = IdentifiedVAR.model_construct(
             idata=synthetic_identified_idata_2v,
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=Cholesky(ordering=["y1", "y2"]),
         )
         fevd = identified.fevd(horizon=10)
         assert isinstance(fevd, FEVDResult)
@@ -77,12 +84,15 @@ class TestIdentifiedVARFast:
 
     def test_fevd_sums_to_one(self, synthetic_identified_idata_2v, var_data_2v):
         """FEVD shares should sum to ~1 for each response at each horizon."""
+        from impulso.volatility import Constant
 
         identified = IdentifiedVAR.model_construct(
             idata=synthetic_identified_idata_2v,
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=Cholesky(ordering=["y1", "y2"]),
         )
         fevd = identified.fevd(horizon=10)
         fevd_da = fevd.idata.posterior_predictive["fevd"]
@@ -93,22 +103,30 @@ class TestIdentifiedVARFast:
             np.testing.assert_allclose(sums, 1.0, atol=1e-10)
 
     def test_historical_decomposition_shape(self, synthetic_identified_idata_2v, var_data_2v):
+        from impulso.volatility import Constant
+
         identified = IdentifiedVAR.model_construct(
             idata=synthetic_identified_idata_2v,
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=Cholesky(ordering=["y1", "y2"]),
         )
         hd = identified.historical_decomposition()
         assert isinstance(hd, HistoricalDecompositionResult)
 
     def test_irf_deterministic_values(self, synthetic_identified_idata_2v, var_data_2v):
         """IRF at horizon 0 should equal the structural shock matrix."""
+        from impulso.volatility import Constant
+
         identified = IdentifiedVAR.model_construct(
             idata=synthetic_identified_idata_2v,
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=Cholesky(ordering=["y1", "y2"]),
         )
         irf = identified.impulse_response(horizon=5)
         irf_draws = irf.idata.posterior_predictive["irf"].values  # (C, D, H+1, n, n)
@@ -119,6 +137,8 @@ class TestIdentifiedVARFast:
 
     def test_irf_propagates_custom_shock_coords(self, synthetic_idata_2v, var_data_2v):
         """IRF shock coordinates should match structural_shock_matrix, not var_names."""
+        from impulso.volatility import Constant
+
         sigma = synthetic_idata_2v.posterior["Sigma"].values
         P = np.linalg.cholesky(sigma)
         P_da = xr.DataArray(
@@ -132,17 +152,23 @@ class TestIdentifiedVARFast:
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=Cholesky(ordering=["y1", "y2"]),
         )
         irf = identified.impulse_response(horizon=5)
         irf_shocks = list(irf.idata.posterior_predictive["irf"].coords["shock"].values)
         assert irf_shocks == ["my_shock", "unidentified_1"]
 
     def test_repr(self, synthetic_identified_idata_2v, var_data_2v):
+        from impulso.volatility import Constant
+
         identified = IdentifiedVAR.model_construct(
             idata=synthetic_identified_idata_2v,
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=Cholesky(ordering=["y1", "y2"]),
         )
         r = repr(identified)
         assert "IdentifiedVAR" in r
@@ -207,3 +233,50 @@ class TestIdentifiedVarCarriesVolatilityAndScheme:
         assert isinstance(identified.volatility, VolatilityProcess)
         assert isinstance(identified.scheme, IdentificationScheme)
         assert identified.scheme is scheme
+
+
+class TestImpulseResponseAt:
+    @pytest.mark.slow
+    def test_at_ignored_for_constant(self, var_data_2v):
+        """For Constant volatility, at= must be a no-op."""
+        from impulso.identification import Cholesky
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
+
+        irf_default = identified.impulse_response(horizon=5)
+        irf_at_last = identified.impulse_response(horizon=5, at="last")
+        irf_at_int = identified.impulse_response(horizon=5, at=10)
+        irf_at_none = identified.impulse_response(horizon=5, at=None)
+
+        np.testing.assert_array_equal(
+            irf_default.idata.posterior_predictive["irf"].values,
+            irf_at_last.idata.posterior_predictive["irf"].values,
+        )
+        np.testing.assert_array_equal(
+            irf_default.idata.posterior_predictive["irf"].values,
+            irf_at_int.idata.posterior_predictive["irf"].values,
+        )
+        np.testing.assert_array_equal(
+            irf_default.idata.posterior_predictive["irf"].values,
+            irf_at_none.idata.posterior_predictive["irf"].values,
+        )
+
+    @pytest.mark.slow
+    def test_at_all_returns_time_axis(self, var_data_2v):
+        """at='all' adds a time dim to the result."""
+        from impulso.identification import Cholesky
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
+
+        irf_all = identified.impulse_response(horizon=5, at="all")
+        # For Constant, at="all" produces a time dim of length T but every
+        # slice is identical. Shape: (chain, draw, time, horizon, response, shock).
+        assert "time" in irf_all.idata.posterior_predictive["irf"].dims
