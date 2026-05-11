@@ -166,3 +166,20 @@ class TestVarFitWithSV:
         assert "h" in det_names
         # No Sigma deterministic for SV (skipped — too memory-heavy).
         assert "Sigma" not in det_names
+
+
+class TestVolatilityShorthandSV:
+    def test_sv_string_resolves_to_stochastic_volatility(self):
+        from impulso.spec import VAR
+        from impulso.sv.spec import StochasticVolatility
+
+        spec = VAR(lags=2, volatility="sv")
+        assert isinstance(spec.resolved_volatility, StochasticVolatility)
+
+    def test_unknown_string_still_raises(self):
+        from pydantic import ValidationError
+
+        from impulso.spec import VAR
+
+        with pytest.raises(ValidationError):
+            VAR(lags=2, volatility="not_a_real_adapter")

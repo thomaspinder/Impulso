@@ -9,6 +9,7 @@ from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.priors import MinnesotaPrior
 from impulso.protocols import Prior, Sampler, VolatilityProcess
+from impulso.sv.spec import StochasticVolatility
 from impulso.volatility import Constant
 
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ _PRIOR_REGISTRY: dict[str, type] = {
 
 _VOLATILITY_REGISTRY: dict[str, type] = {
     "constant": Constant,
+    "sv": StochasticVolatility,
 }
 
 
@@ -36,7 +38,7 @@ class VAR(ImpulsoBaseModel):
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
     max_lags: int | None = None
     prior: Literal["minnesota"] | Prior = "minnesota"
-    volatility: Literal["constant"] | VolatilityProcess = "constant"
+    volatility: Literal["constant", "sv"] | VolatilityProcess = "constant"
 
     @model_validator(mode="after")
     def _validate_spec(self) -> Self:
