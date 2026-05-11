@@ -230,6 +230,23 @@ class TestSVMultivariateBuild:
         var_names = {v.name for v in model.unobserved_RVs} | {v.name for v in model.deterministics}
         assert "R_chol" in var_names or "R_chol_offdiag" in var_names
 
+    def test_n_vars_1_skips_r_chol_offdiag(self):
+        """For n_vars=1 there's no off-diagonal to parameterise; R_chol = I_1."""
+        import pymc as pm
+
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility(dynamics="random_walk")
+        with pm.Model() as model:
+            L = sv.build_pymc_latent(n_vars=1, T=20)
+            L_value = L.eval()
+
+        rv_names = {v.name for v in model.unobserved_RVs}
+        # No off-diagonal RV when n_vars=1.
+        assert "R_chol_offdiag" not in rv_names
+        # Shape sanity.
+        assert L_value.shape == (20, 1, 1)
+
 
 class TestSVCholeskyAt:
     def test_returns_correct_shape(self, synthetic_sv_idata_2v):

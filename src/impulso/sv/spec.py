@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-import xarray as xr
 
 from impulso._base import ImpulsoBaseModel
 from impulso.sv.data import SVData
@@ -12,6 +11,7 @@ from impulso.sv.priors import SVDefaultPrior, SVPrior
 
 if TYPE_CHECKING:
     import pytensor.tensor as pt
+    import xarray as xr
 
     from impulso.protocols import Sampler
     from impulso.sv.fitted import FittedSV
@@ -265,6 +265,8 @@ class StochasticVolatility(ImpulsoBaseModel):
         Returns:
             ``(chains, draws, steps, n_vars, n_vars)``.
         """
+        import xarray as xr
+
         dynamics = self.resolved_dynamics
 
         h = posterior["h"].values  # (C, D, T, n_vars)
