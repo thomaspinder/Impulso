@@ -50,10 +50,37 @@ class FittedVAR(ImpulsoBaseModel):
         """Posterior draws of intercept vectors."""
         return self.idata.posterior["intercept"].values
 
-    @property
     def sigma(self) -> np.ndarray:
-        """Posterior draws of residual covariance matrix."""
-        return self.idata.posterior["Sigma"].values
+        """Posterior draws of the structural-shock covariance Σ.
+
+        Dispatches to the configured volatility adapter so the returned
+        shape depends on whether Σ is time-invariant or time-varying:
+
+        * Constant volatility — Σ is shared across time, so the result
+          has shape ``(chains, draws, n_vars, n_vars)``.
+        * Stochastic volatility — Σ_t evolves, so the result has shape
+          ``(chains, draws, T, n_vars, n_vars)`` where ``T`` is the
+          in-sample length after lag trimming. Callers needing a single
+          slice should call ``volatility.cholesky_at(posterior, t)`` and
+          square the factor themselves.
+
+        Note:
+            **Breaking change vs. v0.0.4 and earlier**: ``sigma`` is now
+            a method, not a property. Call sites that used ``fitted.sigma``
+            must be updated to ``fitted.sigma()``.
+
+        Returns:
+            Posterior draws of Σ (or Σ_t for SV) computed from the
+            volatility adapter's Cholesky factor as ``L @ L.T``.
+        """
+        if getattr(self.volatility, "name", None) == "sv":
+            T = self.data.endog.shape[0] - self.n_lags
+            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
+            # Σ_t = L_t @ L_t.T, broadcast over (chains, draws, T).
+            return np.einsum("cdtij,cdtkj->cdtik", L_path, L_path)
+        L = self.volatility.cholesky_at(self.idata.posterior, t=None)
+        # Σ = L @ L.T, broadcast over (chains, draws).
+        return np.einsum("cdij,cdkj->cdik", L, L)
 
     def forecast(
         self,
