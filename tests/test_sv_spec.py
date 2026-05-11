@@ -181,3 +181,45 @@ class TestStochasticVolatilityIsVolatilityProcess:
         sv = StochasticVolatility()
         with pytest.raises(ValidationError):
             sv.name = "constant"  # ty: ignore[invalid-assignment]
+
+
+class TestSVMultivariateBuild:
+    def test_returns_3d_cholesky_factor(self):
+        """SV.build_pymc_latent returns L of shape (T, n_vars, n_vars)."""
+        import pymc as pm
+
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility(dynamics="random_walk")
+        with pm.Model():
+            L = sv.build_pymc_latent(n_vars=3, T=50)
+            L_value = L.eval()
+
+        assert L_value.shape == (50, 3, 3)
+
+    def test_registers_per_variable_log_vol_paths(self):
+        """For n_vars=3, expect h_0, h_1, h_2 (or h with shape (T, 3))."""
+        import pymc as pm
+
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility(dynamics="random_walk")
+        with pm.Model() as model:
+            sv.build_pymc_latent(n_vars=2, T=50)
+
+        var_names = {v.name for v in model.unobserved_RVs} | {v.name for v in model.deterministics}
+        # Either separate h_0/h_1 or a stacked h with shape (T, 2) - pick one in implementation.
+        assert "h_0" in var_names or "h" in var_names
+
+    def test_registers_correlation_cholesky(self):
+        """The constant correlation Cholesky R_chol must be in the model."""
+        import pymc as pm
+
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility(dynamics="random_walk")
+        with pm.Model() as model:
+            sv.build_pymc_latent(n_vars=3, T=50)
+
+        var_names = {v.name for v in model.unobserved_RVs} | {v.name for v in model.deterministics}
+        assert "R_chol" in var_names or "R_chol_offdiag" in var_names
