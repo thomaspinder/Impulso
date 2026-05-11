@@ -8,6 +8,7 @@ from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
+from impulso.protocols import IdentificationScheme, VolatilityProcess
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
 
 
@@ -19,12 +20,21 @@ class IdentifiedVAR(ImpulsoBaseModel):
         n_lags: Lag order.
         data: Original VARData.
         var_names: Endogenous variable names.
+        volatility: Volatility process carried through from the fitted VAR.
+            Required for ``at=`` queries on impulse_response / fevd /
+            historical_decomposition (P3), which re-call
+            ``volatility.cholesky_at(at)`` for the requested time slice.
+        scheme: Identification scheme used to produce the structural shock
+            matrix. Required for ``at=`` queries so the scheme can be
+            re-applied to a different Cholesky factor on demand.
     """
 
     idata: az.InferenceData = Field(repr=False)
     n_lags: int
     data: VARData
     var_names: list[str]
+    volatility: VolatilityProcess  # P3: needed for at= queries
+    scheme: IdentificationScheme  # P3: needed for at= queries
 
     @property
     def shock_names(self) -> list[str]:

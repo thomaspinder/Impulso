@@ -162,4 +162,6 @@ class FittedVAR(ImpulsoBaseModel):
             n_lags=self.n_lags,
             data=self.data,
             var_names=self.var_names,
+            volatility=self.volatility,
+            scheme=scheme,
         )

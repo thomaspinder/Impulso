@@ -189,3 +189,20 @@ class TestP2PosteriorEquivalence:
         P = identified.idata.posterior["structural_shock_matrix"].values
         assert P.shape == (2, 100, 2, 2)
         assert not np.isnan(P).any(), "Some draws produced NaN structural shock matrix"
+
+
+class TestIdentifiedVarCarriesVolatilityAndScheme:
+    def test_carries_volatility_and_scheme(self, var_data_2v):
+        from impulso.identification import Cholesky
+        from impulso.protocols import IdentificationScheme, VolatilityProcess
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        scheme = Cholesky(ordering=fitted.var_names)
+        identified = fitted.set_identification_strategy(scheme)
+
+        assert isinstance(identified.volatility, VolatilityProcess)
+        assert isinstance(identified.scheme, IdentificationScheme)
+        assert identified.scheme is scheme
