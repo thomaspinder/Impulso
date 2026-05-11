@@ -1,5 +1,6 @@
 """IdentifiedVAR — structural VAR with identified shocks."""
 
+import warnings
 from typing import Literal
 
 import arviz as az
@@ -271,24 +272,42 @@ class IdentifiedVAR(ImpulsoBaseModel):
         start: pd.Timestamp | None = None,
         end: pd.Timestamp | None = None,
         cumulative: bool = False,
+        at: AtParam = None,
     ) -> HistoricalDecompositionResult:
         """Compute historical decomposition of observed series.
+
+        Historical decomposition is intrinsically time-indexed: it attributes
+        each in-sample observation to past structural shocks. The ``at=``
+        parameter controls which Cholesky factor identifies those shocks.
 
         Args:
             start: Optional start date to restrict decomposition.
             end: Optional end date to restrict decomposition.
             cumulative: If True, return cumulative shock contributions.
+            at: Time index for the structural shock matrix:
+
+                - ``None`` (default) or ``"all"``: use ``cholesky_path`` —
+                  identify the shock at each ``t`` with its own ``L_t``.
+                  For stochastic volatility this is the correct structural
+                  decomposition; for constant volatility ``L_t`` is the same
+                  for all ``t`` and the result matches the legacy behaviour.
+                - ``int`` or ``"last"``: identify every shock with a single
+                  ``L`` queried at the supplied time index. Under stochastic
+                  volatility this is a non-standard hypothetical ("what if
+                  regime ``t`` had prevailed throughout?") and emits a
+                  ``UserWarning``. For constant volatility the result is
+                  identical to the default.
 
         Returns:
             HistoricalDecompositionResult.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
-        P_draws = self.idata.posterior["structural_shock_matrix"].values  # (C, D, n, n)
         intercept_draws = self.idata.posterior["intercept"].values  # (C, D, n)
 
         y = self.data.endog  # (T, n)
         T = y.shape[0]
         n_lags = self.n_lags
+        T_eff = T - n_lags
 
         # Build lag matrix: x_lag[t] = [y[t-1], y[t-2], ...] for t in [n_lags, T)
         x_lag = np.concatenate([y[n_lags - lag : T - lag] for lag in range(1, n_lags + 1)], axis=1)  # (T-p, n*p)
@@ -300,12 +319,37 @@ class IdentifiedVAR(ImpulsoBaseModel):
         y_obs = y[n_lags:]  # (T-p, n)
         resid = y_obs[np.newaxis, np.newaxis, :, :] - y_hat
 
-        # Structural residuals: P_inv @ resid
-        P_inv = np.linalg.inv(P_draws)  # (C, D, n, n)
-        structural_resid = np.einsum("cdij,cdtj->cdti", P_inv, resid)  # (C, D, T-p, n)
+        # Build a per-t structural shock matrix path P_path: (C, D, T_eff, n, n).
+        if at is None or at == "all":
+            # Per-t identification — correct for SV; broadcasts to constant L
+            # for Constant volatility, matching the legacy single-P behaviour.
+            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T_eff)
+            P_path = self._identify_per_t(L_path)
+        else:
+            # Single-L hypothetical applied across all t.
+            if getattr(self.volatility, "name", None) == "sv":
+                warnings.warn(
+                    f"historical_decomposition(at={at!r}) under stochastic "
+                    "volatility applies a single L across every in-sample "
+                    "period — this is a non-standard hypothetical "
+                    '("what if regime t had prevailed throughout?"), not '
+                    "the standard structural decomposition. Pass at=None "
+                    "or at='all' for the correct per-t decomposition.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            t = self._resolve_at(at)
+            L = self.volatility.cholesky_at(self.idata.posterior, t=t)
+            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)
+            # Broadcast P across the time axis.
+            P_path = np.broadcast_to(P[:, :, np.newaxis, :, :], (*P.shape[:2], T_eff, *P.shape[2:])).copy()
 
-        # hd[..., resp, shock] = P[resp, shock] * structural_resid[shock]
-        hd = P_draws[:, :, np.newaxis, :, :] * structural_resid[:, :, :, np.newaxis, :]
+        # Structural residuals: P_t^{-1} @ resid_t  -> (C, D, T-p, n)
+        P_inv_path = np.linalg.inv(P_path)  # (C, D, T_eff, n, n)
+        structural_resid = np.einsum("cdtij,cdtj->cdti", P_inv_path, resid)
+
+        # hd[..., t, resp, shock] = P_t[resp, shock] * structural_resid[t, shock]
+        hd = P_path * structural_resid[:, :, :, np.newaxis, :]
 
         if cumulative:
             hd = np.cumsum(hd, axis=2)
