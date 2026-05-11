@@ -194,20 +194,45 @@ class StochasticVolatility(ImpulsoBaseModel):
         return L
 
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
-        """Posterior draws of the Cholesky factor at time ``t``.
+        """Return L_t = diag(exp(h_t / 2)) @ R_chol for the requested t.
 
-        Stub; body lands in Task 5. See ADR-0003 and the
-        ``VolatilityProcess`` Protocol in ``impulso.protocols``.
+        Args:
+            posterior: An xarray Dataset containing ``h`` of shape
+                (chains, draws, T, n_vars) and ``R_chol`` of shape
+                (chains, draws, n_vars, n_vars).
+            t: Time index. ``None`` defaults to the most recent (T-1).
+
+        Returns:
+            Cholesky factor at time t, shape (chains, draws, n_vars, n_vars).
         """
-        raise NotImplementedError  # Task 5
+        h = posterior["h"].values  # (C, D, T, n_vars)
+        R_chol = posterior["R_chol"].values  # (C, D, n_vars, n_vars)
+
+        if t is None:
+            t = h.shape[2] - 1
+
+        sigma_t = np.exp(h[:, :, t, :] / 2)  # (C, D, n_vars)
+        return sigma_t[:, :, :, None] * R_chol  # (C, D, n_vars, n_vars)
 
     def cholesky_path(self, posterior: "xr.Dataset", T: int) -> np.ndarray:
-        """Posterior draws of the Cholesky factor path across in-sample ``t``.
+        """Return the full L_t path for t in 0..T-1.
 
-        Stub; body lands in Task 5. See ADR-0003 and the
-        ``VolatilityProcess`` Protocol in ``impulso.protocols``.
+        Args:
+            posterior: An xarray Dataset containing ``h`` (chains, draws, T, n_vars)
+                and ``R_chol`` (chains, draws, n_vars, n_vars).
+            T: Expected length of the time axis. Must match h.shape[2].
+
+        Returns:
+            (chains, draws, T, n_vars, n_vars).
         """
-        raise NotImplementedError  # Task 5
+        h = posterior["h"].values
+        R_chol = posterior["R_chol"].values
+
+        if h.shape[2] != T:
+            raise ValueError(f"posterior['h'] has T={h.shape[2]}, requested T={T}")
+
+        sigma_t = np.exp(h / 2)  # (C, D, T, n_vars)
+        return sigma_t[:, :, :, :, None] * R_chol[:, :, None, :, :]  # (C, D, T, n_vars, n_vars)
 
     def forecast_cholesky_path(
         self,

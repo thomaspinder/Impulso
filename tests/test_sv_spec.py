@@ -1,5 +1,6 @@
 """Tests for the StochasticVolatility spec."""
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -58,7 +59,6 @@ def test_sv_default_sampler_is_safe():
 @pytest.mark.slow
 def test_sv_spec_fit_random_walk_smoke():
     """Smoke test: fit() runs end-to-end with tiny MCMC."""
-    import numpy as np
     import pandas as pd
 
     from impulso.samplers import NUTSSampler
@@ -81,7 +81,6 @@ def test_sv_spec_fit_random_walk_smoke():
 
 def test_sv_spec_build_ar1_model():
     """AR(1) branch builds a valid PyMC model without running MCMC."""
-    import numpy as np
     import pandas as pd
     import pymc as pm
 
@@ -105,7 +104,6 @@ def test_sv_spec_build_ar1_model():
 @pytest.mark.slow
 def test_sv_spec_fit_ar1_smoke():
     """Smoke test: AR(1) fit runs end-to-end."""
-    import numpy as np
     import pandas as pd
 
     from impulso.samplers import NUTSSampler
@@ -231,3 +229,46 @@ class TestSVMultivariateBuild:
 
         var_names = {v.name for v in model.unobserved_RVs} | {v.name for v in model.deterministics}
         assert "R_chol" in var_names or "R_chol_offdiag" in var_names
+
+
+class TestSVCholeskyAt:
+    def test_returns_correct_shape(self, synthetic_sv_idata_2v):
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        L_last = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=None)
+        assert L_last.shape == (2, 50, 2, 2)
+
+    def test_t_indexes_into_time(self, synthetic_sv_idata_2v):
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        L_0 = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=0)
+        L_5 = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=5)
+        assert not np.allclose(L_0, L_5)
+
+    def test_t_none_defaults_to_last(self, synthetic_sv_idata_2v):
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        T = synthetic_sv_idata_2v.posterior["h"].shape[2]
+        L_none = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=None)
+        L_last = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=T - 1)
+        np.testing.assert_array_equal(L_none, L_last)
+
+
+class TestSVCholeskyPath:
+    def test_returns_full_path(self, synthetic_sv_idata_2v):
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        path = sv.cholesky_path(synthetic_sv_idata_2v.posterior, T=20)
+        assert path.shape == (2, 50, 20, 2, 2)
+
+    def test_path_matches_cholesky_at_per_t(self, synthetic_sv_idata_2v):
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        path = sv.cholesky_path(synthetic_sv_idata_2v.posterior, T=20)
+        L_3 = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=3)
+        np.testing.assert_array_equal(path[:, :, 3, :, :], L_3)
