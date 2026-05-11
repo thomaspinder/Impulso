@@ -286,3 +286,64 @@ class TestImpulseResponseAt:
         assert irf.shape == (1, 20, T_eff, horizon + 1, n_vars, n_vars)
         # For Constant, every time slice must be identical.
         np.testing.assert_array_equal(irf.values[:, :, 0, :, :, :], irf.values[:, :, -1, :, :, :])
+
+
+class TestFEVDAt:
+    @pytest.mark.slow
+    def test_at_ignored_for_constant(self, var_data_2v):
+        from impulso.identification import Cholesky
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
+
+        fevd_default = identified.fevd(horizon=5)
+        fevd_at_int = identified.fevd(horizon=5, at=3)
+        np.testing.assert_array_equal(
+            fevd_default.idata.posterior_predictive["fevd"].values,
+            fevd_at_int.idata.posterior_predictive["fevd"].values,
+        )
+
+    @pytest.mark.slow
+    def test_at_all_returns_time_axis(self, var_data_2v):
+        """at='all' adds a time dim of correct length to the result."""
+        from impulso.identification import Cholesky
+        from impulso.samplers import NUTSSampler
+        from impulso.spec import VAR
+
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
+
+        horizon = 5
+        fevd_all = identified.fevd(horizon=horizon, at="all")
+        fevd = fevd_all.idata.posterior_predictive["fevd"]
+        assert "time" in fevd.dims
+        T_eff = var_data_2v.endog.shape[0] - 1  # lags=1
+        n_vars = len(fitted.var_names)
+        assert fevd.sizes["time"] == T_eff
+        assert fevd.shape == (1, 20, T_eff, horizon + 1, n_vars, n_vars)
+        # For Constant, every time slice must be identical.
+        np.testing.assert_array_equal(fevd.values[:, :, 0, :, :, :], fevd.values[:, :, -1, :, :, :])
+
+    def test_median_raises_for_at_all(self, synthetic_identified_idata_2v, var_data_2v):
+        """median()/hdi()/to_dataframe() must refuse FEVDs with a time dim."""
+        from impulso.volatility import Constant
+
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_identified_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=Cholesky(ordering=["y1", "y2"]),
+        )
+        fevd_all = identified.fevd(horizon=5, at="all")
+        with pytest.raises(NotImplementedError, match="time-varying FEVDs"):
+            fevd_all.median()
+        with pytest.raises(NotImplementedError, match="time-varying FEVDs"):
+            fevd_all.hdi()
+        with pytest.raises(NotImplementedError, match="time-varying FEVDs"):
+            fevd_all.to_dataframe()

@@ -180,47 +180,91 @@ class IdentifiedVAR(ImpulsoBaseModel):
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": irf_da}))
         return IRFResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
-    def forecast_error_variance_decomposition(self, horizon: int = 20) -> FEVDResult:
+    def forecast_error_variance_decomposition(self, horizon: int = 20, at: AtParam = None) -> FEVDResult:
         """Compute forecast error variance decomposition.
 
         Args:
             horizon: Number of periods.
+            at: Time index for the structural shock matrix:
+
+                - ``None`` (default): for SV, equivalent to ``"last"``;
+                  for Constant, ignored entirely.
+                - ``int``: query the shock matrix at this specific ``t``.
+                - ``"last"``: most recent time slice.
+                - ``"all"``: return FEVDs for shocks at every ``t`` (adds a
+                  ``time`` dim to the result).
 
         Returns:
             FEVDResult with FEVD posterior draws.
         """
-        B_draws = self.idata.posterior["B"].values
-        P_draws = self.idata.posterior["structural_shock_matrix"].values
+        B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
         n_vars = B_draws.shape[2]
-
         Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
-        # Theta_h = Phi_h @ P, vectorised via broadcasting
-        Theta = Phi_arr @ P_draws[:, :, np.newaxis, :, :]
 
-        # FEVD: cumulative MSE contribution
-        mse_cum = np.cumsum(Theta**2, axis=2)  # (C, D, H+1, resp, shock)
-        total = mse_cum.sum(axis=-1, keepdims=True)  # (C, D, H+1, resp, 1)
-        fevd = np.where(total > 0, mse_cum / total, 0.0)
+        if at == "all":
+            # Per-t FEVDs. T = effective in-sample length after lag trimming.
+            T = self.data.endog.shape[0] - self.n_lags
+            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
+            # L_path: (C, D, T, n, n); P_path: (C, D, T, n, n) by per-t identify.
+            P_path = self._identify_per_t(L_path)
+            # Theta: (C, D, T, H+1, n, n). Broadcast Phi over time and P_path
+            # over horizon.
+            Theta = Phi_arr[:, :, np.newaxis, :, :, :] @ P_path[:, :, :, np.newaxis, :, :]
 
-        fevd_da = xr.DataArray(
-            fevd,
-            dims=["chain", "draw", "horizon", "response", "shock"],
-            coords={"response": self.var_names, "shock": self.shock_names},
-            name="fevd",
-        )
+            # FEVD: cumulative MSE contribution, summed over the horizon axis (axis=3).
+            mse_cum = np.cumsum(Theta**2, axis=3)  # (C, D, T, H+1, resp, shock)
+            total = mse_cum.sum(axis=-1, keepdims=True)  # (C, D, T, H+1, resp, 1)
+            fevd = np.where(total > 0, mse_cum / total, 0.0)
+
+            fevd_da = xr.DataArray(
+                fevd,
+                dims=["chain", "draw", "time", "horizon", "response", "shock"],
+                coords={
+                    "response": self.var_names,
+                    "shock": self.shock_names,
+                    "horizon": np.arange(horizon + 1),
+                    "time": self.data.index[self.n_lags :],
+                },
+                name="fevd",
+            )
+        else:
+            # Single-time FEVD.
+            t = self._resolve_at(at)
+            L = self.volatility.cholesky_at(self.idata.posterior, t=t)
+            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)
+            # Theta_h = Phi_h @ P, vectorised via broadcasting
+            Theta = Phi_arr @ P[:, :, np.newaxis, :, :]
+
+            # FEVD: cumulative MSE contribution
+            mse_cum = np.cumsum(Theta**2, axis=2)  # (C, D, H+1, resp, shock)
+            total = mse_cum.sum(axis=-1, keepdims=True)  # (C, D, H+1, resp, 1)
+            fevd = np.where(total > 0, mse_cum / total, 0.0)
+
+            fevd_da = xr.DataArray(
+                fevd,
+                dims=["chain", "draw", "horizon", "response", "shock"],
+                coords={
+                    "response": self.var_names,
+                    "shock": self.shock_names,
+                    "horizon": np.arange(horizon + 1),
+                },
+                name="fevd",
+            )
+
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
         return FEVDResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
-    def fevd(self, horizon: int = 20) -> FEVDResult:
+    def fevd(self, horizon: int = 20, at: AtParam = None) -> FEVDResult:
         """Alias for forecast_error_variance_decomposition.
 
         Args:
             horizon: Number of periods.
+            at: See :meth:`forecast_error_variance_decomposition`.
 
         Returns:
             FEVDResult.
         """
-        return self.forecast_error_variance_decomposition(horizon=horizon)
+        return self.forecast_error_variance_decomposition(horizon=horizon, at=at)
 
     def historical_decomposition(
         self,

@@ -169,13 +169,33 @@ class FEVDResult(VARResultBase):
     horizon: int
     var_names: list[str]
 
+    def _guard_no_time_dim(self) -> None:
+        """Raise if the FEVD DataArray has a ``time`` dim (``at='all'`` case).
+
+        The reshape-based aggregations in ``median``/``hdi``/``to_dataframe``
+        assume a 5-D ``(C, D, H+1, n, n)`` array. For ``at='all'`` the array is
+        6-D ``(C, D, T, H+1, n, n)`` and ``.reshape(H+1, -1)`` would silently
+        scramble the time and variable dims into the column axis. Refuse
+        instead and point the user at the underlying DataArray.
+        """
+        if "time" in self.idata.posterior_predictive["fevd"].dims:
+            raise NotImplementedError(
+                "FEVDResult.median()/hdi()/to_dataframe() do not support "
+                "time-varying FEVDs (at='all'). Access the underlying DataArray "
+                "directly via result.idata.posterior_predictive['fevd'] and "
+                "aggregate manually, or use at='last' / at=<int> / at=None for "
+                "a single-time FEVD."
+            )
+
     def median(self) -> pd.DataFrame:
         """Posterior median FEVD."""
+        self._guard_no_time_dim()
         fevd = self.idata.posterior_predictive["fevd"]
         return pd.DataFrame(fevd.median(dim=("chain", "draw")).values.reshape(self.horizon + 1, -1))
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """HDI for FEVD."""
+        self._guard_no_time_dim()
         hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["fevd"]
         lower = pd.DataFrame(hdi_data.sel(hdi="lower").values.reshape(self.horizon + 1, -1))
         upper = pd.DataFrame(hdi_data.sel(hdi="higher").values.reshape(self.horizon + 1, -1))
