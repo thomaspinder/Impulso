@@ -119,3 +119,19 @@ class Constant(ImpulsoModel):
         """
         L = self.cholesky_at(posterior, t=None)  # (C, D, n, n)
         return np.broadcast_to(L[:, :, np.newaxis, :, :], (*L.shape[:2], steps, *L.shape[-2:])).copy()
+
+    def cholesky_path(self, posterior: "xr.Dataset", T: int) -> np.ndarray:
+        """Broadcast the constant Cholesky factor across all in-sample t.
+
+        For constant volatility there is no per-t variation; this is a
+        broadcast convenience for the IdentifiedVAR query layer.
+
+        Args:
+            posterior: An xarray Dataset with ``Sigma``.
+            T: In-sample length (after lag trimming).
+
+        Returns:
+            Cholesky factor path of shape (chains, draws, T, n_vars, n_vars).
+        """
+        L = self.cholesky_at(posterior, t=None)  # (C, D, n, n)
+        return np.broadcast_to(L[:, :, np.newaxis, :, :], (*L.shape[:2], T, *L.shape[-2:])).copy()
