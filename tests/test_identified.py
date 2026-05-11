@@ -192,6 +192,7 @@ class TestP2PosteriorEquivalence:
 
 
 class TestIdentifiedVarCarriesVolatilityAndScheme:
+    @pytest.mark.slow
     def test_carries_volatility_and_scheme(self, var_data_2v):
         from impulso.identification import Cholesky
         from impulso.protocols import IdentificationScheme, VolatilityProcess
