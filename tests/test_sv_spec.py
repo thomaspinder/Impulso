@@ -156,3 +156,28 @@ class TestSVDynamicsDiscriminator:
         ar = AR1()
         with pytest.raises(ValidationError):
             ar.name = "random_walk"  # ty: ignore[invalid-assignment]
+
+
+class TestStochasticVolatilityIsVolatilityProcess:
+    def test_satisfies_protocol(self):
+        """SV is a VolatilityProcess at runtime (after stub methods land)."""
+        from impulso.protocols import VolatilityProcess
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        assert isinstance(sv, VolatilityProcess)
+
+    def test_name_is_sv(self):
+        """Discriminator field for the registry."""
+        from impulso.sv.spec import StochasticVolatility
+
+        assert StochasticVolatility().name == "sv"
+
+    def test_name_is_frozen(self):
+        from pydantic import ValidationError
+
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        with pytest.raises(ValidationError):
+            sv.name = "constant"  # ty: ignore[invalid-assignment]

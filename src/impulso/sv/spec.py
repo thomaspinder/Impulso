@@ -10,6 +10,9 @@ from impulso.sv.dynamics import SV_DYNAMICS_REGISTRY, SVDynamics
 from impulso.sv.priors import SVDefaultPrior, SVPrior
 
 if TYPE_CHECKING:
+    import pytensor.tensor as pt
+    import xarray as xr
+
     from impulso.protocols import Sampler
     from impulso.sv.fitted import FittedSV
 
@@ -22,12 +25,15 @@ class StochasticVolatility(ImpulsoBaseModel):
     """Univariate stochastic volatility model.
 
     Attributes:
+        name: Discriminator key for the volatility-process registry
+            (always ``"sv"``).
         dynamics: Log-volatility dynamics. String shorthand (``"random_walk"``
             or ``"ar1"``) or an explicit ``SVDynamics`` instance (e.g.
             ``RandomWalk()``, ``AR1()``).
         prior: Prior shorthand string or SVPrior instance.
     """
 
+    name: Literal["sv"] = "sv"
     dynamics: Literal["random_walk", "ar1"] | SVDynamics = "random_walk"
     prior: Literal["default"] | SVPrior = "default"
 
@@ -96,3 +102,40 @@ class StochasticVolatility(ImpulsoBaseModel):
             pm.Normal("y", mu=mu, sigma=pm.math.exp(pt.mul(0.5, h)), observed=y)
 
         return model
+
+    def build_pymc_latent(self, n_vars: int, T: int) -> "pt.TensorVariable":
+        """Register volatility latent variables in the active PyMC model.
+
+        Stub; body lands in Task 3. See ADR-0003 and the
+        ``VolatilityProcess`` Protocol in ``impulso.protocols``.
+        """
+        raise NotImplementedError  # Task 3
+
+    def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
+        """Posterior draws of the Cholesky factor at time ``t``.
+
+        Stub; body lands in Task 5. See ADR-0003 and the
+        ``VolatilityProcess`` Protocol in ``impulso.protocols``.
+        """
+        raise NotImplementedError  # Task 5
+
+    def cholesky_path(self, posterior: "xr.Dataset", T: int) -> np.ndarray:
+        """Posterior draws of the Cholesky factor path across in-sample ``t``.
+
+        Stub; body lands in Task 5. See ADR-0003 and the
+        ``VolatilityProcess`` Protocol in ``impulso.protocols``.
+        """
+        raise NotImplementedError  # Task 5
+
+    def forecast_cholesky_path(
+        self,
+        posterior: "xr.Dataset",
+        steps: int,
+        rng: np.random.Generator,
+    ) -> np.ndarray:
+        """Posterior-predictive Cholesky factors for ``steps`` ahead.
+
+        Stub; body lands in Task 6. See ADR-0003 and the
+        ``VolatilityProcess`` Protocol in ``impulso.protocols``.
+        """
+        raise NotImplementedError  # Task 6
