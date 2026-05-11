@@ -267,7 +267,7 @@ class TestImpulseResponseAt:
 
     @pytest.mark.slow
     def test_at_all_returns_time_axis(self, var_data_2v):
-        """at='all' adds a time dim to the result."""
+        """at='all' adds a time dim of correct length to the result."""
         from impulso.identification import Cholesky
         from impulso.samplers import NUTSSampler
         from impulso.spec import VAR
@@ -276,7 +276,13 @@ class TestImpulseResponseAt:
         fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
-        irf_all = identified.impulse_response(horizon=5, at="all")
-        # For Constant, at="all" produces a time dim of length T but every
-        # slice is identical. Shape: (chain, draw, time, horizon, response, shock).
-        assert "time" in irf_all.idata.posterior_predictive["irf"].dims
+        horizon = 5
+        irf_all = identified.impulse_response(horizon=horizon, at="all")
+        irf = irf_all.idata.posterior_predictive["irf"]
+        assert "time" in irf.dims
+        T_eff = var_data_2v.endog.shape[0] - 1  # lags=1
+        n_vars = len(fitted.var_names)
+        assert irf.sizes["time"] == T_eff
+        assert irf.shape == (1, 20, T_eff, horizon + 1, n_vars, n_vars)
+        # For Constant, every time slice must be identical.
+        np.testing.assert_array_equal(irf.values[:, :, 0, :, :, :], irf.values[:, :, -1, :, :, :])

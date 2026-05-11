@@ -88,7 +88,10 @@ class IdentifiedVAR(ImpulsoBaseModel):
             return None
         if isinstance(at, int):
             return at
-        raise ValueError(f"Invalid at= value: {at!r}. Expected int, 'last', 'all', or None.")
+        raise ValueError(
+            f"Invalid at= value: {at!r}. Expected int, 'last', or None. "
+            "('all' must be handled by the caller before reaching _resolve_at.)"
+        )
 
     def _identify_per_t(self, L_path: np.ndarray) -> np.ndarray:
         """Apply ``self.scheme.identify`` per time slice.
@@ -151,6 +154,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
                     "response": self.var_names,
                     "shock": self.shock_names,
                     "horizon": np.arange(horizon + 1),
+                    "time": self.data.index[self.n_lags :],
                 },
                 name="irf",
             )
