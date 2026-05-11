@@ -210,6 +210,8 @@ class StochasticVolatility(ImpulsoBaseModel):
 
         if t is None:
             t = h.shape[2] - 1
+        if not (0 <= t < h.shape[2]):
+            raise ValueError(f"t={t} is out of range for T={h.shape[2]}")
 
         sigma_t = np.exp(h[:, :, t, :] / 2)  # (C, D, n_vars)
         return sigma_t[:, :, :, None] * R_chol  # (C, D, n_vars, n_vars)

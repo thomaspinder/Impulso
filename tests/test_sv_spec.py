@@ -256,6 +256,45 @@ class TestSVCholeskyAt:
         L_last = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=T - 1)
         np.testing.assert_array_equal(L_none, L_last)
 
+    def test_diagonal_equals_exp_half_h(self, synthetic_sv_idata_2v):
+        """L's diagonal must equal exp(h_t / 2) — the core math identity."""
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        posterior = synthetic_sv_idata_2v.posterior
+        h = posterior["h"].values  # (C, D, T, n)
+        L = sv.cholesky_at(posterior, t=3)
+        np.testing.assert_allclose(
+            np.diagonal(L, axis1=-2, axis2=-1),
+            np.exp(h[:, :, 3, :] / 2),
+        )
+
+    def test_upper_triangle_is_zero(self, synthetic_sv_idata_2v):
+        """L must be lower-triangular."""
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        L = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=3)
+        # Check zero upper triangle for the first (chain, draw) draw.
+        np.testing.assert_array_equal(np.triu(L[0, 0], 1), 0.0)
+
+    def test_negative_t_raises(self, synthetic_sv_idata_2v):
+        """Negative t must raise ValueError, not silently wrap around."""
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        with pytest.raises(ValueError, match="out of range"):
+            sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=-1)
+
+    def test_out_of_range_t_raises(self, synthetic_sv_idata_2v):
+        """t >= T must raise ValueError."""
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        T = synthetic_sv_idata_2v.posterior["h"].shape[2]
+        with pytest.raises(ValueError, match="out of range"):
+            sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=T)
+
 
 class TestSVCholeskyPath:
     def test_returns_full_path(self, synthetic_sv_idata_2v):
@@ -272,3 +311,25 @@ class TestSVCholeskyPath:
         path = sv.cholesky_path(synthetic_sv_idata_2v.posterior, T=20)
         L_3 = sv.cholesky_at(synthetic_sv_idata_2v.posterior, t=3)
         np.testing.assert_array_equal(path[:, :, 3, :, :], L_3)
+
+    def test_path_diagonal_equals_exp_half_h(self, synthetic_sv_idata_2v):
+        """Across all t, diag(L_t) must equal exp(h_t / 2) — vectorised check."""
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        posterior = synthetic_sv_idata_2v.posterior
+        h = posterior["h"].values  # (C, D, T, n)
+        T = h.shape[2]
+        path = sv.cholesky_path(posterior, T=T)
+        # path: (C, D, T, n, n) → diagonals along last two axes: (C, D, T, n)
+        diagonals = np.diagonal(path, axis1=-2, axis2=-1)
+        np.testing.assert_allclose(diagonals, np.exp(h / 2))
+
+    def test_path_upper_triangle_is_zero(self, synthetic_sv_idata_2v):
+        """Each L_t in the path must be lower-triangular."""
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        path = sv.cholesky_path(synthetic_sv_idata_2v.posterior, T=20)
+        # Check first (chain, draw, t) slice.
+        np.testing.assert_array_equal(np.triu(path[0, 0, 7], 1), 0.0)
