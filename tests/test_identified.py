@@ -217,16 +217,25 @@ class TestP2PosteriorEquivalence:
         assert not np.isnan(P).any(), "Some draws produced NaN structural shock matrix"
 
 
-class TestIdentifiedVarCarriesVolatilityAndScheme:
-    @pytest.mark.slow
-    def test_carries_volatility_and_scheme(self, var_data_2v):
-        from impulso.identification import Cholesky
-        from impulso.protocols import IdentificationScheme, VolatilityProcess
-        from impulso.samplers import NUTSSampler
-        from impulso.spec import VAR
+def _fitted_from_synthetic(synthetic_idata_2v, var_data_2v):
+    """Build a FittedVAR from synthetic InferenceData (no MCMC)."""
+    from impulso.fitted import FittedVAR
+    from impulso.volatility import Constant
 
-        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
-        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+    return FittedVAR.model_construct(
+        idata=synthetic_idata_2v,
+        n_lags=1,
+        data=var_data_2v,
+        var_names=["y1", "y2"],
+        volatility=Constant(),
+    )
+
+
+class TestIdentifiedVarCarriesVolatilityAndScheme:
+    def test_carries_volatility_and_scheme(self, synthetic_idata_2v, var_data_2v):
+        from impulso.protocols import IdentificationScheme, VolatilityProcess
+
+        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_2v)
         scheme = Cholesky(ordering=fitted.var_names)
         identified = fitted.set_identification_strategy(scheme)
 
@@ -236,15 +245,9 @@ class TestIdentifiedVarCarriesVolatilityAndScheme:
 
 
 class TestImpulseResponseAt:
-    @pytest.mark.slow
-    def test_at_ignored_for_constant(self, var_data_2v):
+    def test_at_ignored_for_constant(self, synthetic_idata_2v, var_data_2v):
         """For Constant volatility, at= must be a no-op."""
-        from impulso.identification import Cholesky
-        from impulso.samplers import NUTSSampler
-        from impulso.spec import VAR
-
-        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
-        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_2v)
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
         irf_default = identified.impulse_response(horizon=5)
@@ -265,15 +268,9 @@ class TestImpulseResponseAt:
             irf_at_none.idata.posterior_predictive["irf"].values,
         )
 
-    @pytest.mark.slow
-    def test_at_all_returns_time_axis(self, var_data_2v):
+    def test_at_all_returns_time_axis(self, synthetic_idata_2v, var_data_2v):
         """at='all' adds a time dim of correct length to the result."""
-        from impulso.identification import Cholesky
-        from impulso.samplers import NUTSSampler
-        from impulso.spec import VAR
-
-        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
-        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_2v)
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
         horizon = 5
@@ -281,22 +278,18 @@ class TestImpulseResponseAt:
         irf = irf_all.idata.posterior_predictive["irf"]
         assert "time" in irf.dims
         T_eff = var_data_2v.endog.shape[0] - 1  # lags=1
+        n_chains = fitted.idata.posterior.sizes["chain"]
+        n_draws = fitted.idata.posterior.sizes["draw"]
         n_vars = len(fitted.var_names)
         assert irf.sizes["time"] == T_eff
-        assert irf.shape == (1, 20, T_eff, horizon + 1, n_vars, n_vars)
+        assert irf.shape == (n_chains, n_draws, T_eff, horizon + 1, n_vars, n_vars)
         # For Constant, every time slice must be identical.
         np.testing.assert_array_equal(irf.values[:, :, 0, :, :, :], irf.values[:, :, -1, :, :, :])
 
 
 class TestFEVDAt:
-    @pytest.mark.slow
-    def test_at_ignored_for_constant(self, var_data_2v):
-        from impulso.identification import Cholesky
-        from impulso.samplers import NUTSSampler
-        from impulso.spec import VAR
-
-        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
-        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+    def test_at_ignored_for_constant(self, synthetic_idata_2v, var_data_2v):
+        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_2v)
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
         fevd_default = identified.fevd(horizon=5)
@@ -306,15 +299,9 @@ class TestFEVDAt:
             fevd_at_int.idata.posterior_predictive["fevd"].values,
         )
 
-    @pytest.mark.slow
-    def test_at_all_returns_time_axis(self, var_data_2v):
+    def test_at_all_returns_time_axis(self, synthetic_idata_2v, var_data_2v):
         """at='all' adds a time dim of correct length to the result."""
-        from impulso.identification import Cholesky
-        from impulso.samplers import NUTSSampler
-        from impulso.spec import VAR
-
-        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
-        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_2v)
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
         horizon = 5
@@ -322,9 +309,11 @@ class TestFEVDAt:
         fevd = fevd_all.idata.posterior_predictive["fevd"]
         assert "time" in fevd.dims
         T_eff = var_data_2v.endog.shape[0] - 1  # lags=1
+        n_chains = fitted.idata.posterior.sizes["chain"]
+        n_draws = fitted.idata.posterior.sizes["draw"]
         n_vars = len(fitted.var_names)
         assert fevd.sizes["time"] == T_eff
-        assert fevd.shape == (1, 20, T_eff, horizon + 1, n_vars, n_vars)
+        assert fevd.shape == (n_chains, n_draws, T_eff, horizon + 1, n_vars, n_vars)
         # For Constant, every time slice must be identical.
         np.testing.assert_array_equal(fevd.values[:, :, 0, :, :, :], fevd.values[:, :, -1, :, :, :])
 
