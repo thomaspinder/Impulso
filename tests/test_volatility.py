@@ -205,3 +205,16 @@ class TestConstantForecastCholeskyPath:
         path_a = adapter.forecast_cholesky_path(synthetic_idata_2v.posterior, steps=3, rng=np.random.default_rng(0))
         path_b = adapter.forecast_cholesky_path(synthetic_idata_2v.posterior, steps=3, rng=np.random.default_rng(99999))
         np.testing.assert_array_equal(path_a, path_b)
+
+
+class TestConstantCholeskyPath:
+    def test_returns_broadcast_shape_for_T(self, synthetic_idata_2v):
+        adapter = Constant()
+        path = adapter.cholesky_path(synthetic_idata_2v.posterior, T=10)
+        # (chains, draws, T, n_vars, n_vars)
+        assert path.shape == (2, 50, 10, 2, 2)
+
+    def test_constant_across_time(self, synthetic_idata_2v):
+        adapter = Constant()
+        path = adapter.cholesky_path(synthetic_idata_2v.posterior, T=5)
+        np.testing.assert_array_equal(path[..., 0, :, :], path[..., 4, :, :])

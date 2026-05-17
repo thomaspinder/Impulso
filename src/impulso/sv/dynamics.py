@@ -26,8 +26,16 @@ class SVDynamics(Protocol):
         prior_params: dict,
         T: int,
         sigma_eta: "pt.TensorVariable",
+        name_prefix: str = "",
     ) -> "pt.TensorVariable":
-        """Register and return the latent log-volatility path inside the active PyMC model."""
+        """Register and return the latent log-volatility path inside the active PyMC model.
+
+        ``name_prefix`` is prepended to every registered PyMC variable name
+        (e.g., ``name_prefix="v0_"`` produces ``v0_h0``, ``v0_z``, ``v0_h``).
+        Used by multivariate SV adapters to avoid name collisions across
+        per-variable log-vol paths. Default empty prefix preserves the
+        univariate naming.
+        """
         ...
 
     def forecast_log_vol(
@@ -45,14 +53,14 @@ class RandomWalk(ImpulsoModel):
 
     name: Literal["random_walk"] = "random_walk"
 
-    def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any) -> Any:
+    def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any, name_prefix: str = "") -> Any:
         import pymc as pm
         import pytensor.tensor as pt
 
-        h0 = pm.Normal("h0", mu=prior_params["h0_mu"], sigma=prior_params["h0_sigma"])
-        z = pm.Normal("z", mu=0.0, sigma=1.0, shape=T - 1)
+        h0 = pm.Normal(f"{name_prefix}h0", mu=prior_params["h0_mu"], sigma=prior_params["h0_sigma"])
+        z = pm.Normal(f"{name_prefix}z", mu=0.0, sigma=1.0, shape=T - 1)
         h_path = pt.concatenate([pt.as_tensor_variable([h0]), h0 + sigma_eta * pt.cumsum(z)])
-        return pm.Deterministic("h", h_path)
+        return pm.Deterministic(f"{name_prefix}h", h_path)
 
     def forecast_log_vol(
         self,
@@ -75,24 +83,28 @@ class AR1(ImpulsoModel):
 
     name: Literal["ar1"] = "ar1"
 
-    def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any) -> Any:
+    def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any, name_prefix: str = "") -> Any:
         import pymc as pm
         import pytensor.tensor as pt
 
-        phi = pm.Beta("phi", alpha=prior_params["phi_a"], beta=prior_params["phi_b"])
-        alpha = pm.Normal("alpha", mu=prior_params["alpha_mu"], sigma=prior_params["alpha_sigma"])
+        phi = pm.Beta(f"{name_prefix}phi", alpha=prior_params["phi_a"], beta=prior_params["phi_b"])
+        alpha = pm.Normal(
+            f"{name_prefix}alpha",
+            mu=prior_params["alpha_mu"],
+            sigma=prior_params["alpha_sigma"],
+        )
         # Floor guards against phi^2 = 1 rounding producing NaN log-prob under Beta(20, 1.5).
         stationary_var = 1.0 / pm.math.maximum(1.0 - pt.mul(phi, phi), 1e-6)
         g_init = pm.Normal.dist(mu=0.0, sigma=pm.math.sqrt(stationary_var))
         g = pm.AR(
-            "g",
+            f"{name_prefix}g",
             rho=pt.stack([pt.as_tensor_variable(0.0), phi]),
             sigma=1.0,
             constant=True,
             init_dist=g_init,
             shape=T,
         )
-        return pm.Deterministic("h", alpha + pt.mul(sigma_eta, g))
+        return pm.Deterministic(f"{name_prefix}h", alpha + pt.mul(sigma_eta, g))
 
     def forecast_log_vol(
         self,

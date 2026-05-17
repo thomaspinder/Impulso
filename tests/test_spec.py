@@ -130,3 +130,56 @@ class TestPyMCModelBuild:
         assert {"intercept", "B", "sigma_sd", "tril_offdiag"} <= rv_names
         assert "Sigma" in det_names
         assert {v.name for v in model.observed_RVs} == {"obs"}
+
+
+class TestVarFitWithSV:
+    def test_var_fit_with_sv_builds_3d_chol(self, var_data_2v):
+        """VAR(volatility=StochasticVolatility(...)).fit(...) builds a model
+        whose obs likelihood uses a 3D chol factor (per-t)."""
+        import pymc as pm
+
+        from impulso.spec import VAR
+        from impulso.sv.spec import StochasticVolatility
+
+        captured = {}
+
+        class CapturingSampler:
+            name = "capture"
+
+            def sample(self, model: pm.Model):
+                captured["model"] = model
+                raise RuntimeError("stop before sampling")
+
+        with pytest.raises(RuntimeError, match="stop before sampling"):
+            VAR(lags=1, volatility=StochasticVolatility()).fit(var_data_2v, sampler=CapturingSampler())
+
+        model = captured["model"]
+        rv_names = {v.name for v in model.unobserved_RVs}
+        det_names = {v.name for v in model.deterministics}
+
+        # Per-variable log-vol paths registered.
+        assert "v0_mu" in rv_names and "v1_mu" in rv_names
+        assert "v0_sigma_eta" in rv_names and "v1_sigma_eta" in rv_names
+        # Shared correlation factor.
+        assert "R_chol" in det_names or "R_chol" in rv_names
+        # h is the stacked log-vol path deterministic.
+        assert "h" in det_names
+        # No Sigma deterministic for SV (skipped — too memory-heavy).
+        assert "Sigma" not in det_names
+
+
+class TestVolatilityShorthandSV:
+    def test_sv_string_resolves_to_stochastic_volatility(self):
+        from impulso.spec import VAR
+        from impulso.sv.spec import StochasticVolatility
+
+        spec = VAR(lags=2, volatility="sv")
+        assert isinstance(spec.resolved_volatility, StochasticVolatility)
+
+    def test_unknown_string_still_raises(self):
+        from pydantic import ValidationError
+
+        from impulso.spec import VAR
+
+        with pytest.raises(ValidationError):
+            VAR(lags=2, volatility="not_a_real_adapter")

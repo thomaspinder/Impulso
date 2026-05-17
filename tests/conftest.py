@@ -193,3 +193,35 @@ def synthetic_sv_idata():
         "sigma_eta": xr.DataArray(sigma_eta, dims=["chain", "draw"]),
     })
     return az.InferenceData(posterior=posterior)
+
+
+@pytest.fixture
+def synthetic_sv_idata_2v():
+    """Synthetic InferenceData mimicking a fitted multivariate SV model.
+
+    Shape: 2 chains, 50 draws, T=20, n_vars=2.
+    Contains: h (2, 50, 20, 2), R_chol (2, 50, 2, 2), v0_mu, v1_mu,
+    v0_sigma_eta, v1_sigma_eta.
+    """
+    rng = np.random.default_rng(0)
+    n_chains, n_draws, T, n_vars = 2, 50, 20, 2
+
+    h = rng.standard_normal((n_chains, n_draws, T, n_vars)) * 0.3 - 1.0
+
+    R_chol = np.zeros((n_chains, n_draws, n_vars, n_vars))
+    for c in range(n_chains):
+        for d in range(n_draws):
+            A = rng.standard_normal((n_vars, n_vars))
+            R_chol[c, d] = np.linalg.cholesky(A @ A.T + np.eye(n_vars))
+    diag_inv = 1.0 / np.diagonal(R_chol, axis1=-2, axis2=-1)[:, :, :, None]
+    R_chol = R_chol * diag_inv
+
+    posterior = xr.Dataset({
+        "h": (("chain", "draw", "time", "variable"), h),
+        "R_chol": (("chain", "draw", "i", "j"), R_chol),
+        "v0_mu": (("chain", "draw"), rng.standard_normal((n_chains, n_draws))),
+        "v1_mu": (("chain", "draw"), rng.standard_normal((n_chains, n_draws))),
+        "v0_sigma_eta": (("chain", "draw"), np.abs(rng.standard_normal((n_chains, n_draws)))),
+        "v1_sigma_eta": (("chain", "draw"), np.abs(rng.standard_normal((n_chains, n_draws)))),
+    })
+    return az.InferenceData(posterior=posterior)

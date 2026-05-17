@@ -9,6 +9,7 @@ from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.priors import MinnesotaPrior
 from impulso.protocols import Prior, Sampler, VolatilityProcess
+from impulso.sv.spec import StochasticVolatility
 from impulso.volatility import Constant
 
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ _PRIOR_REGISTRY: dict[str, type] = {
 
 _VOLATILITY_REGISTRY: dict[str, type] = {
     "constant": Constant,
+    "sv": StochasticVolatility,
 }
 
 
@@ -36,7 +38,7 @@ class VAR(ImpulsoBaseModel):
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
     max_lags: int | None = None
     prior: Literal["minnesota"] | Prior = "minnesota"
-    volatility: Literal["constant"] | VolatilityProcess = "constant"
+    volatility: Literal["constant", "sv"] | VolatilityProcess = "constant"
 
     @model_validator(mode="after")
     def _validate_spec(self) -> Self:
@@ -129,11 +131,18 @@ class VAR(ImpulsoBaseModel):
 
             # Volatility process: registers latent vars, returns L (Cholesky factor of Σ_t).
             # For constant volatility, L is (n_vars, n_vars) and time-invariant.
+            # For stochastic volatility, L is (T, n_vars, n_vars) — per-t.
             volatility = self.resolved_volatility
             L = volatility.build_pymc_latent(n_vars=n_vars, T=Y.shape[0])
-            pm.Deterministic("Sigma", pm.math.dot(L, L.T))
+            # Sigma deterministic is only registered for time-invariant L —
+            # for SV, materialising (T, n, n) per draw is wasteful; users can
+            # reconstruct per-t Σ via `volatility.cholesky_at(posterior, t)`.
+            if L.ndim == 2:
+                pm.Deterministic("Sigma", pm.math.dot(L, L.T))
 
-            # Likelihood
+            # Likelihood. PyMC handles batched chol natively: for 2D L, every
+            # observation uses the same chol; for 3D L (T, n, n), each
+            # observation t uses chol[t].
             pm.MvNormal("obs", mu=mu, chol=L, observed=Y)
 
         # Sample

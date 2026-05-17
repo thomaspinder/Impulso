@@ -122,3 +122,13 @@ class VolatilityProcess(Protocol):
         volatility, simulates forward from posterior dynamics.
         """
         ...
+
+    def cholesky_path(self, posterior: "xr.Dataset", T: int) -> np.ndarray:
+        """Posterior draws of the Cholesky factor path across all in-sample t.
+
+        Returns shape (chains, draws, T, n_vars, n_vars). For constant
+        volatility, broadcasts the time-invariant L across the requested
+        ``T``. For stochastic volatility, indexes into the latent log-vol
+        posterior to construct L_t for each t.
+        """
+        ...

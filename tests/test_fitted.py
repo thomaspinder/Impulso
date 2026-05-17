@@ -106,17 +106,20 @@ class TestFittedVARFast:
     """Fast tests using synthetic InferenceData (no MCMC)."""
 
     def test_properties_from_synthetic(self, synthetic_idata_2v, var_data_2v):
+        from impulso.volatility import Constant
+
         fitted = FittedVAR.model_construct(
             idata=synthetic_idata_2v,
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
+            volatility=Constant(),
         )
         assert fitted.n_lags == 1
         assert fitted.has_exog is False
         assert fitted.coefficients.shape == (2, 50, 2, 2)
         assert fitted.intercepts.shape == (2, 50, 2)
-        assert fitted.sigma.shape == (2, 50, 2, 2)
+        assert fitted.sigma().shape == (2, 50, 2, 2)
 
     def test_repr_from_synthetic(self, synthetic_idata_2v, var_data_2v):
         fitted = FittedVAR.model_construct(
@@ -212,3 +215,26 @@ class TestSetIdentificationStrategyRoutesThroughSeam:
         assert ssm.dims == ("chain", "draw", "response", "shock")
         assert list(ssm.coords["response"].values) == fitted.var_names
         assert list(ssm.coords["shock"].values) == fitted.var_names
+
+
+class TestFittedVarSigmaDispatch:
+    """`FittedVAR.sigma()` dispatches by volatility adapter type."""
+
+    @pytest.mark.slow
+    def test_constant_sigma_unchanged(self, var_data_2v):
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        sigma = fitted.sigma()
+        # For Constant: (chains, draws, n_vars, n_vars).
+        assert sigma.shape == (1, 20, 2, 2)
+
+    @pytest.mark.slow
+    def test_sv_sigma_returns_per_t(self, var_data_2v):
+        from impulso.sv.spec import StochasticVolatility
+
+        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
+        fitted = VAR(lags=1, volatility=StochasticVolatility()).fit(var_data_2v, sampler=sampler)
+        sigma_path = fitted.sigma()
+        # For SV: (chains, draws, T, n_vars, n_vars).
+        T = var_data_2v.endog.shape[0] - 1  # n_lags=1
+        assert sigma_path.shape == (1, 20, T, 2, 2)
