@@ -38,11 +38,13 @@ class Constant(ImpulsoModel):
 
     Attributes:
         name: Discriminator key for the registry (always ``"constant"``).
+        is_time_varying: Always ``False`` — Σ is shared across t.
         sigma_sd_beta: HalfCauchy scale on diagonal SDs.
         tril_offdiag_sigma: Normal SD on off-diagonal correlation factors.
     """
 
     name: Literal["constant"] = "constant"
+    is_time_varying: bool = False
 
     sigma_sd_beta: float = Field(2.5, gt=0)
     tril_offdiag_sigma: float = Field(0.5, gt=0)

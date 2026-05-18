@@ -17,6 +17,14 @@ class TestConstantAdapter:
     def test_constant_name(self):
         assert Constant().name == "constant"
 
+    def test_constant_is_time_varying_false(self):
+        assert Constant().is_time_varying is False
+
+    def test_is_time_varying_settable_per_instance(self):
+        # Plain instance field (not ClassVar), so a subclass or wrapper can
+        # override at construction time.
+        assert Constant(is_time_varying=True).is_time_varying is True
+
     def test_constant_is_frozen(self):
         from pydantic import ValidationError
 

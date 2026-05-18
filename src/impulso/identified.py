@@ -133,12 +133,27 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         Returns:
             IRFResult with IRF posterior draws.
+
+        Raises:
+            ValueError: When ``at='all'`` is requested for a non-time-varying
+                volatility process (``Constant``). Under constant Σ the per-t
+                IRF is identical for every t, so the time axis carries no
+                information — use ``at=None`` (default) or ``at='last'``.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
         n_vars = B_draws.shape[2]
         Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
 
         if at == "all":
+            if not self.volatility.is_time_varying:
+                raise ValueError(
+                    "impulse_response(at='all') is only meaningful for "
+                    "time-varying volatility (Σ_t evolves over t). The "
+                    f"current volatility process ({type(self.volatility).__name__}) "
+                    "is time-invariant, so the per-t IRF would be identical at "
+                    "every t. Use at=None (default) or at='last' for a "
+                    "single-time IRF instead."
+                )
             # Per-t IRFs. T = effective in-sample length after lag trimming.
             T = self.data.endog.shape[0] - self.n_lags
             L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
@@ -200,12 +215,27 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         Returns:
             FEVDResult with FEVD posterior draws.
+
+        Raises:
+            ValueError: When ``at='all'`` is requested for a non-time-varying
+                volatility process (``Constant``). Under constant Σ the per-t
+                FEVD is identical for every t, so the time axis carries no
+                information — use ``at=None`` (default) or ``at='last'``.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
         n_vars = B_draws.shape[2]
         Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
 
         if at == "all":
+            if not self.volatility.is_time_varying:
+                raise ValueError(
+                    "fevd(at='all') is only meaningful for time-varying "
+                    "volatility (Σ_t evolves over t). The current volatility "
+                    f"process ({type(self.volatility).__name__}) is "
+                    "time-invariant, so the per-t FEVD would be identical at "
+                    "every t. Use at=None (default) or at='last' for a "
+                    "single-time FEVD instead."
+                )
             # Per-t FEVDs. T = effective in-sample length after lag trimming.
             T = self.data.endog.shape[0] - self.n_lags
             L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
@@ -323,15 +353,14 @@ class IdentifiedVAR(ImpulsoBaseModel):
         y_obs = y[n_lags:]  # (T-p, n)
         resid = y_obs[np.newaxis, np.newaxis, :, :] - y_hat
 
-        # Build a per-t structural shock matrix path P_path: (C, D, T_eff, n, n).
-        if at is None or at == "all":
-            # Per-t identification — correct for SV; broadcasts to constant L
-            # for Constant volatility, matching the legacy single-P behaviour.
-            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T_eff)
-            P_path = self._identify_per_t(L_path)
-        else:
-            # Single-L hypothetical applied across all t.
-            if getattr(self.volatility, "name", None) == "sv":
+        # Two regimes for the structural-shock matrix:
+        #   1. Time-invariant Σ (Constant adapter), or SV with an explicit
+        #      single-L hypothetical (at=int / 'last'): identify once,
+        #      invert once, broadcast across t.
+        #   2. Time-varying Σ with default at=None/'all': per-t identify and
+        #      invert (the standard SV structural decomposition).
+        if not self.volatility.is_time_varying or at not in (None, "all"):
+            if self.volatility.is_time_varying:
                 warnings.warn(
                     f"historical_decomposition(at={at!r}) under stochastic "
                     "volatility applies a single L across every in-sample "
@@ -342,18 +371,22 @@ class IdentifiedVAR(ImpulsoBaseModel):
                     UserWarning,
                     stacklevel=2,
                 )
-            t = self._resolve_at(at)
+            # For Constant the time index is irrelevant; for SV+explicit-at it
+            # is the resolved single time slice. Either way: one identify, one
+            # invert, then broadcast over t via einsum / np.newaxis.
+            t = self._resolve_at(at) if self.volatility.is_time_varying else None
             L = self.volatility.cholesky_at(self.idata.posterior, t=t)
-            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)
-            # Broadcast P across the time axis.
-            P_path = np.broadcast_to(P[:, :, np.newaxis, :, :], (*P.shape[:2], T_eff, *P.shape[2:])).copy()
-
-        # Structural residuals: P_t^{-1} @ resid_t  -> (C, D, T-p, n)
-        P_inv_path = np.linalg.inv(P_path)  # (C, D, T_eff, n, n)
-        structural_resid = np.einsum("cdtij,cdtj->cdti", P_inv_path, resid)
-
-        # hd[..., t, resp, shock] = P_t[resp, shock] * structural_resid[t, shock]
-        hd = P_path * structural_resid[:, :, :, np.newaxis, :]
+            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)  # (C, D, n, n)
+            P_inv = np.linalg.inv(P)  # (C, D, n, n)
+            structural_resid = np.einsum("cdij,cdtj->cdti", P_inv, resid)  # (C, D, T_eff, n)
+            hd = P[:, :, np.newaxis, :, :] * structural_resid[:, :, :, np.newaxis, :]
+        else:
+            # SV per-t structural decomposition.
+            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T_eff)
+            P_path = self._identify_per_t(L_path)  # (C, D, T_eff, n, n)
+            P_inv_path = np.linalg.inv(P_path)
+            structural_resid = np.einsum("cdtij,cdtj->cdti", P_inv_path, resid)
+            hd = P_path * structural_resid[:, :, :, np.newaxis, :]
 
         if cumulative:
             hd = np.cumsum(hd, axis=2)
