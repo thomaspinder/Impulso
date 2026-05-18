@@ -98,17 +98,204 @@ class TestForecastResultMethods:
         assert df.shape == (4, 2)
 
 
+def _make_irf_result(responses=("gdp", "inf"), shocks=("e_gdp", "e_inf"), horizon=10):
+    rng = np.random.default_rng(42)
+    n_resp = len(responses)
+    n_shock = len(shocks)
+    data = rng.standard_normal((2, 50, horizon + 1, n_resp, n_shock))
+    da = xr.DataArray(
+        data,
+        dims=["chain", "draw", "horizon", "response", "shock"],
+        coords={
+            "response": list(responses),
+            "shock": list(shocks),
+            "horizon": np.arange(horizon + 1),
+        },
+        name="irf",
+    )
+    idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": da}))
+    return IRFResult.model_construct(idata=idata, horizon=horizon, var_names=list(responses))
+
+
+def _make_fevd_result(responses=("gdp", "inf"), shocks=("e_gdp", "e_inf"), horizon=10):
+    rng = np.random.default_rng(43)
+    n_resp = len(responses)
+    n_shock = len(shocks)
+    data = rng.uniform(size=(2, 50, horizon + 1, n_resp, n_shock))
+    data = data / data.sum(axis=-1, keepdims=True)  # rows sum to 1, like an FEVD
+    da = xr.DataArray(
+        data,
+        dims=["chain", "draw", "horizon", "response", "shock"],
+        coords={
+            "response": list(responses),
+            "shock": list(shocks),
+            "horizon": np.arange(horizon + 1),
+        },
+        name="fevd",
+    )
+    idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": da}))
+    return FEVDResult.model_construct(idata=idata, horizon=horizon, var_names=list(responses))
+
+
+def _make_hd_result(responses=("gdp", "inf"), shocks=("e_gdp", "e_inf"), n_periods=24):
+    rng = np.random.default_rng(44)
+    n_resp = len(responses)
+    n_shock = len(shocks)
+    data = rng.standard_normal((2, 50, n_periods, n_resp, n_shock))
+    time_index = pd.date_range("2000-01-01", periods=n_periods, freq="QS")
+    da = xr.DataArray(
+        data,
+        dims=["chain", "draw", "time", "response", "shock"],
+        coords={
+            "response": list(responses),
+            "shock": list(shocks),
+            "time": ("time", time_index),
+        },
+        name="hd",
+    )
+    idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": da}))
+    return HistoricalDecompositionResult.model_construct(idata=idata, var_names=list(responses))
+
+
 class TestIRFResultMethods:
-    def test_median_shape(self):
-        rng = np.random.default_rng(42)
-        data = rng.standard_normal((2, 50, 11, 2, 2))
-        da = xr.DataArray(
-            data,
-            dims=["chain", "draw", "horizon", "response", "shock"],
-            coords={"response": ["y1", "y2"], "shock": ["y1", "y2"], "horizon": np.arange(11)},
-            name="irf",
-        )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": da}))
-        result = IRFResult.model_construct(idata=idata, horizon=10, var_names=["y1", "y2"])
+    def test_median_shape_and_labels(self):
+        """IRF.median() returns wide DataFrame indexed by horizon with
+        MultiIndex(['response','shock']) on columns.
+        """
+        result = _make_irf_result(horizon=10)
         med = result.median()
-        assert med.shape == (11, 4)  # (horizon+1) x (n_vars * n_vars)
+        assert isinstance(med, pd.DataFrame)
+        assert med.shape == (11, 4)
+        assert isinstance(med.columns, pd.MultiIndex)
+        assert med.columns.names == ["response", "shock"]
+        assert set(med.columns.tolist()) == {
+            ("gdp", "e_gdp"),
+            ("gdp", "e_inf"),
+            ("inf", "e_gdp"),
+            ("inf", "e_inf"),
+        }
+        # Row index is the integer horizon 0..H
+        assert list(med.index) == list(range(11))
+
+    def test_median_values_round_trip_labels(self):
+        """Values selected by label must match values pulled from the raw
+        DataArray, proving the column labelling isn't swapped or permuted.
+        """
+        result = _make_irf_result(horizon=10)
+        med = result.median()
+        raw = result.idata.posterior_predictive["irf"].median(dim=("chain", "draw"))
+        for resp in ("gdp", "inf"):
+            for shock in ("e_gdp", "e_inf"):
+                np.testing.assert_allclose(
+                    med[(resp, shock)].values,
+                    raw.sel(response=resp, shock=shock).values,
+                )
+
+    def test_hdi_shape_and_labels(self):
+        """HDIResult.lower / .upper must mirror median()'s shape and labels."""
+        result = _make_irf_result(horizon=10)
+        hdi = result.hdi(prob=0.89)
+        for frame in (hdi.lower, hdi.upper):
+            assert isinstance(frame, pd.DataFrame)
+            assert frame.shape == (11, 4)
+            assert isinstance(frame.columns, pd.MultiIndex)
+            assert frame.columns.names == ["response", "shock"]
+            assert set(frame.columns.tolist()) == {
+                ("gdp", "e_gdp"),
+                ("gdp", "e_inf"),
+                ("inf", "e_gdp"),
+                ("inf", "e_inf"),
+            }
+            assert list(frame.index) == list(range(11))
+        assert (hdi.upper.values >= hdi.lower.values).all()
+
+
+class TestFEVDResultMethods:
+    def test_median_shape_and_labels(self):
+        """FEVD.median() returns wide DataFrame indexed by horizon with
+        MultiIndex(['response','shock']) on columns.
+        """
+        result = _make_fevd_result(horizon=10)
+        med = result.median()
+        assert isinstance(med, pd.DataFrame)
+        assert med.shape == (11, 4)
+        assert isinstance(med.columns, pd.MultiIndex)
+        assert med.columns.names == ["response", "shock"]
+        assert set(med.columns.tolist()) == {
+            ("gdp", "e_gdp"),
+            ("gdp", "e_inf"),
+            ("inf", "e_gdp"),
+            ("inf", "e_inf"),
+        }
+        assert list(med.index) == list(range(11))
+
+    def test_median_values_round_trip_labels(self):
+        result = _make_fevd_result(horizon=10)
+        med = result.median()
+        raw = result.idata.posterior_predictive["fevd"].median(dim=("chain", "draw"))
+        for resp in ("gdp", "inf"):
+            for shock in ("e_gdp", "e_inf"):
+                np.testing.assert_allclose(
+                    med[(resp, shock)].values,
+                    raw.sel(response=resp, shock=shock).values,
+                )
+
+    def test_hdi_shape_and_labels(self):
+        result = _make_fevd_result(horizon=10)
+        hdi = result.hdi(prob=0.89)
+        for frame in (hdi.lower, hdi.upper):
+            assert isinstance(frame, pd.DataFrame)
+            assert frame.shape == (11, 4)
+            assert isinstance(frame.columns, pd.MultiIndex)
+            assert frame.columns.names == ["response", "shock"]
+            assert list(frame.index) == list(range(11))
+        assert (hdi.upper.values >= hdi.lower.values).all()
+
+
+class TestHistoricalDecompositionResultMethods:
+    def test_median_indexed_by_time_with_multiindex_columns(self):
+        """HD.median() returns wide DataFrame indexed by a DatetimeIndex
+        (the per-t in-sample dates) with MultiIndex(['response','shock'])
+        on columns. The shape is (T, n_resp * n_shock).
+        """
+        result = _make_hd_result(n_periods=24)
+        med = result.median()
+        assert isinstance(med, pd.DataFrame)
+        assert med.shape == (24, 4)
+        assert isinstance(med.index, pd.DatetimeIndex)
+        expected_index = pd.date_range("2000-01-01", periods=24, freq="QS")
+        assert med.index.name == "time"
+        np.testing.assert_array_equal(med.index.values, expected_index.values)
+        assert isinstance(med.columns, pd.MultiIndex)
+        assert med.columns.names == ["response", "shock"]
+        assert set(med.columns.tolist()) == {
+            ("gdp", "e_gdp"),
+            ("gdp", "e_inf"),
+            ("inf", "e_gdp"),
+            ("inf", "e_inf"),
+        }
+
+    def test_median_values_round_trip_labels(self):
+        result = _make_hd_result(n_periods=24)
+        med = result.median()
+        raw = result.idata.posterior_predictive["hd"].median(dim=("chain", "draw"))
+        for resp in ("gdp", "inf"):
+            for shock in ("e_gdp", "e_inf"):
+                np.testing.assert_allclose(
+                    med[(resp, shock)].values,
+                    raw.sel(response=resp, shock=shock).values,
+                )
+
+    def test_hdi_shape_and_labels(self):
+        result = _make_hd_result(n_periods=24)
+        hdi = result.hdi(prob=0.89)
+        expected_index = pd.date_range("2000-01-01", periods=24, freq="QS")
+        for frame in (hdi.lower, hdi.upper):
+            assert isinstance(frame, pd.DataFrame)
+            assert frame.shape == (24, 4)
+            assert isinstance(frame.index, pd.DatetimeIndex)
+            assert frame.index.name == "time"
+            np.testing.assert_array_equal(frame.index.values, expected_index.values)
+            assert isinstance(frame.columns, pd.MultiIndex)
+            assert frame.columns.names == ["response", "shock"]
+        assert (hdi.upper.values >= hdi.lower.values).all()

@@ -33,17 +33,17 @@ def plot_irf(
     fig.suptitle("Impulse Response Functions")
 
     horizons = range(result.horizon + 1)
+    shock_names = result.idata.posterior_predictive["irf"].coords["shock"].values.tolist()
     for i, resp in enumerate(var_names):
-        for j, shock in enumerate(var_names):
+        for j, shock in enumerate(shock_names[:n_vars]):
             ax = axes[i][j]
             ax.set_title(f"{shock} -> {resp}", fontsize=9)
             ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
-            col_idx = i * n_vars + j
-            ax.plot(horizons, med.values[:, col_idx])
+            ax.plot(horizons, med[(resp, shock)].values)
             ax.fill_between(
                 horizons,
-                hdi.lower.values[:, col_idx],
-                hdi.upper.values[:, col_idx],
+                hdi.lower[(resp, shock)].values,
+                hdi.upper[(resp, shock)].values,
                 alpha=0.3,
             )
 
