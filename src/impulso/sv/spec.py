@@ -103,7 +103,12 @@ class StochasticVolatility(ImpulsoBaseModel):
 
         return model
 
-    def build_pymc_latent(self, n_vars: int, T: int) -> "pt.TensorVariable":
+    def build_pymc_latent(
+        self,
+        n_vars: int,
+        T: int,
+        data: np.ndarray | None = None,
+    ) -> "pt.TensorVariable":
         """Register the Clark-style multivariate SV latents.
 
         For each ``i`` in ``0..n_vars-1``: registers a log-volatility path
@@ -139,15 +144,16 @@ class StochasticVolatility(ImpulsoBaseModel):
         import pymc as pm
         import pytensor.tensor as pt
 
+        if data is None:
+            raise ValueError(
+                "Multivariate StochasticVolatility.build_pymc_latent requires `data` "
+                "to seed per-variable priors. The VAR pipeline passes OLS residuals; "
+                "direct callers should pass the same."
+            )
+        if data.shape != (T, n_vars):
+            raise ValueError(f"data shape {data.shape} != expected ({T}, {n_vars})")
+
         dynamics = self.resolved_dynamics
-        # The SV prior depends on the observed series only via the data
-        # mean / variance used to set mu_mu, h0_mu, etc. The multivariate
-        # adapter cannot peek at the structural-shock series (it does not
-        # exist at this point in the pipeline), so we use a synthetic
-        # zero-array. This produces a near-pinpoint prior on mu_i
-        # (mu_sigma == 1e-6 floor) and an h0_mu of log(1e-8) ~= -18.4.
-        # These are weakly-influential given the data; a P4 issue tracks
-        # tightening this (see plans/2026-05-10-volatility-process-seam-p3.md).
         prior_params = self.resolved_prior.build_priors(np.zeros(T))
 
         # Per-variable log-vol paths.

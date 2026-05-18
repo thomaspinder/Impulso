@@ -206,7 +206,7 @@ class TestSVMultivariateBuild:
 
         sv = StochasticVolatility(dynamics="random_walk")
         with pm.Model():
-            L = sv.build_pymc_latent(n_vars=3, T=50)
+            L = sv.build_pymc_latent(n_vars=3, T=50, data=np.zeros((50, 3)))
             L_value = L.eval()
 
         assert L_value.shape == (50, 3, 3)
@@ -219,7 +219,7 @@ class TestSVMultivariateBuild:
 
         sv = StochasticVolatility(dynamics="random_walk")
         with pm.Model() as model:
-            sv.build_pymc_latent(n_vars=2, T=50)
+            sv.build_pymc_latent(n_vars=2, T=50, data=np.zeros((50, 2)))
 
         rv_names = {v.name for v in model.unobserved_RVs}
         det_names = {v.name for v in model.deterministics}
@@ -241,7 +241,7 @@ class TestSVMultivariateBuild:
 
         sv = StochasticVolatility(dynamics="random_walk")
         with pm.Model() as model:
-            sv.build_pymc_latent(n_vars=3, T=50)
+            sv.build_pymc_latent(n_vars=3, T=50, data=np.zeros((50, 3)))
 
         var_names = {v.name for v in model.unobserved_RVs} | {v.name for v in model.deterministics}
         assert "R_chol" in var_names or "R_chol_offdiag" in var_names
@@ -254,7 +254,7 @@ class TestSVMultivariateBuild:
 
         sv = StochasticVolatility(dynamics="random_walk")
         with pm.Model() as model:
-            L = sv.build_pymc_latent(n_vars=1, T=20)
+            L = sv.build_pymc_latent(n_vars=1, T=20, data=np.zeros((20, 1)))
             L_value = L.eval()
 
         rv_names = {v.name for v in model.unobserved_RVs}
@@ -262,6 +262,31 @@ class TestSVMultivariateBuild:
         assert "R_chol_offdiag" not in rv_names
         # Shape sanity.
         assert L_value.shape == (20, 1, 1)
+
+
+class TestSVBuildPymcLatentDataValidation:
+    """Multivariate SV cannot fit per-variable priors from nothing — `data`
+    is required (issue #65). The standalone univariate fit (StochasticVolatility.fit)
+    is unaffected; it goes through _build_pymc_model, not build_pymc_latent."""
+
+    def test_raises_when_data_is_none(self):
+        import pymc as pm
+
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        with pm.Model(), pytest.raises(ValueError, match="requires `data`"):
+            sv.build_pymc_latent(n_vars=2, T=50, data=None)
+
+    def test_raises_on_wrong_shape(self):
+        import pymc as pm
+
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility()
+        bad = np.zeros((50, 3))
+        with pm.Model(), pytest.raises(ValueError, match="data shape"):
+            sv.build_pymc_latent(n_vars=2, T=50, data=bad)
 
 
 class TestSVCholeskyAt:
