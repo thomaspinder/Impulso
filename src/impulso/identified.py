@@ -371,7 +371,14 @@ class IdentifiedVAR(ImpulsoBaseModel):
         hd_da = xr.DataArray(
             hd,
             dims=["chain", "draw", "time", "response", "shock"],
-            coords={"response": self.var_names, "shock": self.shock_names},
+            coords={
+                "response": self.var_names,
+                "shock": self.shock_names,
+                # Tuple form forces the coord onto the declared `time` dim;
+                # otherwise a named DatetimeIndex (e.g. .name == "date")
+                # would be inferred as its own dim and collide.
+                "time": ("time", idx[t_start:t_end]),
+            },
             name="hd",
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da}))

@@ -5,10 +5,28 @@ from abc import abstractmethod
 import arviz as az
 import numpy as np
 import pandas as pd
+import xarray as xr
 from matplotlib.figure import Figure
 from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
+
+
+def _wide_frame(da: xr.DataArray, row_dim: str) -> pd.DataFrame:
+    """Reshape a (row_dim, response, shock) DataArray into a wide DataFrame.
+
+    The returned frame is indexed by the coord values of ``row_dim`` and has
+    a `MultiIndex(['response', 'shock'])` on columns built from those coords
+    in the order they appear on the DataArray.
+    """
+    da = da.transpose(row_dim, "response", "shock")
+    row_values = da.coords[row_dim].values
+    row_index = pd.DatetimeIndex(row_values, name="time") if row_dim == "time" else pd.Index(row_values, name=row_dim)
+    columns = pd.MultiIndex.from_product(
+        [da.coords["response"].values.tolist(), da.coords["shock"].values.tolist()],
+        names=["response", "shock"],
+    )
+    return pd.DataFrame(da.values.reshape(len(row_index), -1), index=row_index, columns=columns)
 
 
 class HDIResult(ImpulsoBaseModel):
@@ -133,21 +151,31 @@ class IRFResult(VARResultBase):
             )
 
     def median(self) -> pd.DataFrame:
-        """Posterior median IRF."""
+        """Posterior median IRF.
+
+        Returns:
+            DataFrame indexed by horizon (integer 0..H) with a
+            `MultiIndex(['response', 'shock'])` on columns.
+        """
         self._guard_no_time_dim()
         irf = self.idata.posterior_predictive["irf"]
-        return pd.DataFrame(irf.median(dim=("chain", "draw")).values.reshape(self.horizon + 1, -1))
+        return _wide_frame(irf.median(dim=("chain", "draw")), "horizon")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
-        """HDI for IRF."""
+        """HDI for IRF.
+
+        Returns:
+            HDIResult whose `lower` / `upper` DataFrames mirror the shape and
+            labels of `median()`.
+        """
         self._guard_no_time_dim()
         hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["irf"]
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values.reshape(self.horizon + 1, -1))
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values.reshape(self.horizon + 1, -1))
+        lower = _wide_frame(hdi_data.sel(hdi="lower"), "horizon")
+        upper = _wide_frame(hdi_data.sel(hdi="higher"), "horizon")
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert IRF to DataFrame."""
+        """Convert IRF to DataFrame (passthrough to `median()`)."""
         return self.median()
 
     def plot(self) -> Figure:
@@ -188,21 +216,31 @@ class FEVDResult(VARResultBase):
             )
 
     def median(self) -> pd.DataFrame:
-        """Posterior median FEVD."""
+        """Posterior median FEVD.
+
+        Returns:
+            DataFrame indexed by horizon (integer 0..H) with a
+            `MultiIndex(['response', 'shock'])` on columns.
+        """
         self._guard_no_time_dim()
         fevd = self.idata.posterior_predictive["fevd"]
-        return pd.DataFrame(fevd.median(dim=("chain", "draw")).values.reshape(self.horizon + 1, -1))
+        return _wide_frame(fevd.median(dim=("chain", "draw")), "horizon")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
-        """HDI for FEVD."""
+        """HDI for FEVD.
+
+        Returns:
+            HDIResult whose `lower` / `upper` DataFrames mirror the shape and
+            labels of `median()`.
+        """
         self._guard_no_time_dim()
         hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["fevd"]
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values.reshape(self.horizon + 1, -1))
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values.reshape(self.horizon + 1, -1))
+        lower = _wide_frame(hdi_data.sel(hdi="lower"), "horizon")
+        upper = _wide_frame(hdi_data.sel(hdi="higher"), "horizon")
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert FEVD to DataFrame."""
+        """Convert FEVD to DataFrame (passthrough to `median()`)."""
         return self.median()
 
     def plot(self) -> Figure:
@@ -223,19 +261,31 @@ class HistoricalDecompositionResult(VARResultBase):
     var_names: list[str]
 
     def median(self) -> pd.DataFrame:
-        """Posterior median historical decomposition."""
+        """Posterior median historical decomposition.
+
+        Returns:
+            DataFrame indexed by a `DatetimeIndex` over the in-sample period
+            (after lag-trimming and any `start` / `end` filter applied at
+            decomposition time), with a `MultiIndex(['response', 'shock'])`
+            on columns.
+        """
         hd = self.idata.posterior_predictive["hd"]
-        return pd.DataFrame(hd.median(dim=("chain", "draw")).values.reshape(-1, len(self.var_names)))
+        return _wide_frame(hd.median(dim=("chain", "draw")), "time")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
-        """HDI for historical decomposition."""
+        """HDI for historical decomposition.
+
+        Returns:
+            HDIResult whose `lower` / `upper` DataFrames mirror the shape and
+            labels of `median()`.
+        """
         hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["hd"]
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values.reshape(-1, len(self.var_names)))
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values.reshape(-1, len(self.var_names)))
+        lower = _wide_frame(hdi_data.sel(hdi="lower"), "time")
+        upper = _wide_frame(hdi_data.sel(hdi="higher"), "time")
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert historical decomposition to DataFrame."""
+        """Convert historical decomposition to DataFrame (passthrough to `median()`)."""
         return self.median()
 
     def plot(self) -> Figure:
