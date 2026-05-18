@@ -286,7 +286,7 @@ print(h.dims, h.shape)
 
 ## Time-varying impulse responses with `at=`
 
-When the volatility is time-varying, the structural impact matrix is too. The `at=` parameter on `impulse_response`, `forecast_error_variance_decomposition`, and `historical_decomposition` selects which date's Cholesky factor (and hence which structural impact matrix) the computation uses:
+When the volatility is time-varying, the structural impact matrix is too. The `at=` parameter on `impulse_response`, `fevd`, and `historical_decomposition` selects which date's Cholesky factor (and hence which structural impact matrix) the computation uses:
 
 - `at="last"` — most recent in-sample period (the default when the volatility is stochastic)
 - `at=t` — a specific integer index into the lag-trimmed sample
@@ -326,7 +326,7 @@ print(irf_all_arr.shape)
 print(irf_all_arr.dims)
 ```
 
-The same `at=` argument is accepted by `forecast_error_variance_decomposition` and `historical_decomposition` with the same semantics.
+The same `at=` argument is accepted by `fevd` and `historical_decomposition` with the same semantics.
 
 ## References
 

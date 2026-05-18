@@ -16,7 +16,7 @@ from impulso._base import ImpulsoBaseModel
 def _wide_frame(da: xr.DataArray, row_dim: str) -> pd.DataFrame:
     """Reshape a (row_dim, response, shock) DataArray into a wide DataFrame.
 
-    The returned frame is indexed by the coord values of ``row_dim`` and has
+    The returned frame is indexed by the coord values of `row_dim` and has
     a `MultiIndex(['response', 'shock'])` on columns built from those coords
     in the order they appear on the DataArray.
     """
@@ -48,9 +48,9 @@ class VARResultBase(ImpulsoBaseModel):
     """Base class for VAR post-estimation results.
 
     Subclasses that hold a single named DataArray in
-    ``idata.posterior_predictive`` (IRF, FEVD) declare its key via the
-    class-level ``_PRIMARY_KEY``; this drives the shared
-    ``_guard_no_time_dim`` check.
+    `idata.posterior_predictive` (IRF, FEVD) declare its key via the
+    class-level `_PRIMARY_KEY`; this drives the shared
+    `_guard_no_time_dim` check.
 
     Attributes:
         idata: ArviZ InferenceData holding the result draws.
@@ -88,9 +88,9 @@ class VARResultBase(ImpulsoBaseModel):
     def _guard_no_time_dim(self) -> None:
         """Refuse `median`/`hdi`/`to_dataframe` on a time-aware result.
 
-        The reshape-based aggregations assume a 5-D ``(C, D, H+1, n, n)``
-        DataArray. For ``at='all'`` the array is 6-D
-        ``(C, D, T, H+1, n, n)`` and ``.reshape(H+1, -1)`` would silently
+        The reshape-based aggregations assume a 5-D `(C, D, H+1, n, n)`
+        DataArray. For `at='all'` the array is 6-D
+        `(C, D, T, H+1, n, n)` and `.reshape(H+1, -1)` would silently
         scramble the time and variable dims into the column axis. Refuse
         instead and point the user at the underlying DataArray.
         """
@@ -109,9 +109,6 @@ class VARResultBase(ImpulsoBaseModel):
                 f"manually, or use at='last' / at=<int> / at=None for a "
                 f"single-time {key.upper()}."
             )
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}()"
 
 
 class ForecastResult(VARResultBase):

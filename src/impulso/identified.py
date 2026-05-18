@@ -28,11 +28,11 @@ class IdentifiedVAR(ImpulsoBaseModel):
         data: Original VARData.
         var_names: Endogenous variable names.
         volatility: Volatility process carried through from the fitted VAR.
-            Required for ``at=`` queries on impulse_response / fevd /
+            Required for `at=` queries on impulse_response / fevd /
             historical_decomposition (P3), which re-call
-            ``volatility.cholesky_at(at)`` for the requested time slice.
+            `volatility.cholesky_at(at)` for the requested time slice.
         scheme: Identification scheme used to produce the structural shock
-            matrix. Required for ``at=`` queries so the scheme can be
+            matrix. Required for `at=` queries so the scheme can be
             re-applied to a different Cholesky factor on demand.
     """
 
@@ -58,23 +58,23 @@ class IdentifiedVAR(ImpulsoBaseModel):
         return compute_ma_phi(A, horizon)
 
     def _resolve_at(self, at: AtParam) -> int | None:
-        """Resolve ``at=`` to an integer ``t`` suitable for ``cholesky_at(t)``.
+        """Resolve `at=` to an integer `t` suitable for `cholesky_at(t)`.
 
-        Returns ``None`` when ``at`` is ``None`` or ``"last"``. ``cholesky_at``
-        adapters interpret ``t=None`` as "most recent" (SV) or "ignored"
-        (Constant), so passing ``None`` through is the right default in both
+        Returns `None` when `at` is `None` or `"last"`. `cholesky_at`
+        adapters interpret `t=None` as "most recent" (SV) or "ignored"
+        (Constant), so passing `None` through is the right default in both
         cases. Integer values are returned unchanged.
 
         Args:
-            at: Either ``None``, ``"last"``, or an integer time index.
-                ``"all"`` is not handled here — callers must dispatch to the
+            at: Either `None`, `"last"`, or an integer time index.
+                `"all"` is not handled here — callers must dispatch to the
                 per-t path before calling this helper.
 
         Returns:
-            An integer time index, or ``None`` for the most-recent default.
+            An integer time index, or `None` for the most-recent default.
 
         Raises:
-            ValueError: If ``at`` is not one of the supported forms.
+            ValueError: If `at` is not one of the supported forms.
         """
         if at == "last" or at is None:
             return None
@@ -86,19 +86,19 @@ class IdentifiedVAR(ImpulsoBaseModel):
         )
 
     def _identify_per_t(self, L_path: np.ndarray) -> np.ndarray:
-        """Apply ``self.scheme.identify`` per time slice.
+        """Apply `self.scheme.identify` per time slice.
 
         Iterates the per-t loop in Python — fine for Cholesky (vectorised
-        internally over draws), but expensive for ``SignRestriction`` at
-        large ``T`` because rotations are re-sampled per time slice. A
+        internally over draws), but expensive for `SignRestriction` at
+        large `T` because rotations are re-sampled per time slice. A
         future optimisation could specialise the loop for time-invariant
         schemes, but P3 does not need it.
 
         Args:
-            L_path: ``(C, D, T, n, n)`` Cholesky factor path.
+            L_path: `(C, D, T, n, n)` Cholesky factor path.
 
         Returns:
-            ``(C, D, T, n, n)`` structural shock matrix path.
+            `(C, D, T, n, n)` structural shock matrix path.
         """
         T = L_path.shape[2]
         P_path = np.zeros_like(L_path)
@@ -115,21 +115,21 @@ class IdentifiedVAR(ImpulsoBaseModel):
             horizon: Number of periods.
             at: Time index for the structural shock matrix:
 
-                - ``None`` (default): for SV, equivalent to ``"last"``;
+                - `None` (default): for SV, equivalent to `"last"`;
                   for Constant, ignored entirely.
-                - ``int``: query the shock matrix at this specific ``t``.
-                - ``"last"``: most recent time slice.
-                - ``"all"``: return IRFs for shocks at every ``t`` (adds a
-                  ``time`` dim to the result).
+                - `int`: query the shock matrix at this specific `t`.
+                - `"last"`: most recent time slice.
+                - `"all"`: return IRFs for shocks at every `t` (adds a
+                  `time` dim to the result).
 
         Returns:
             IRFResult with IRF posterior draws.
 
         Raises:
-            ValueError: When ``at='all'`` is requested for a non-time-varying
-                volatility process (``Constant``). Under constant Σ the per-t
+            ValueError: When `at='all'` is requested for a non-time-varying
+                volatility process (`Constant`). Under constant Σ the per-t
                 IRF is identical for every t, so the time axis carries no
-                information — use ``at=None`` (default) or ``at='last'``.
+                information — use `at=None` (default) or `at='last'`.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
         n_vars = B_draws.shape[2]
@@ -190,28 +190,28 @@ class IdentifiedVAR(ImpulsoBaseModel):
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": irf_da}))
         return IRFResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
-    def forecast_error_variance_decomposition(self, horizon: int = 20, at: AtParam = None) -> FEVDResult:
+    def fevd(self, horizon: int = 20, at: AtParam = None) -> FEVDResult:
         """Compute forecast error variance decomposition.
 
         Args:
             horizon: Number of periods.
             at: Time index for the structural shock matrix:
 
-                - ``None`` (default): for SV, equivalent to ``"last"``;
+                - `None` (default): for SV, equivalent to `"last"`;
                   for Constant, ignored entirely.
-                - ``int``: query the shock matrix at this specific ``t``.
-                - ``"last"``: most recent time slice.
-                - ``"all"``: return FEVDs for shocks at every ``t`` (adds a
-                  ``time`` dim to the result).
+                - `int`: query the shock matrix at this specific `t`.
+                - `"last"`: most recent time slice.
+                - `"all"`: return FEVDs for shocks at every `t` (adds a
+                  `time` dim to the result).
 
         Returns:
             FEVDResult with FEVD posterior draws.
 
         Raises:
-            ValueError: When ``at='all'`` is requested for a non-time-varying
-                volatility process (``Constant``). Under constant Σ the per-t
+            ValueError: When `at='all'` is requested for a non-time-varying
+                volatility process (`Constant`). Under constant Σ the per-t
                 FEVD is identical for every t, so the time axis carries no
-                information — use ``at=None`` (default) or ``at='last'``.
+                information — use `at=None` (default) or `at='last'`.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
         n_vars = B_draws.shape[2]
@@ -280,18 +280,6 @@ class IdentifiedVAR(ImpulsoBaseModel):
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
         return FEVDResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
-    def fevd(self, horizon: int = 20, at: AtParam = None) -> FEVDResult:
-        """Alias for forecast_error_variance_decomposition.
-
-        Args:
-            horizon: Number of periods.
-            at: See :meth:`forecast_error_variance_decomposition`.
-
-        Returns:
-            FEVDResult.
-        """
-        return self.forecast_error_variance_decomposition(horizon=horizon, at=at)
-
     def historical_decomposition(
         self,
         start: pd.Timestamp | None = None,
@@ -302,7 +290,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         """Compute historical decomposition of observed series.
 
         Historical decomposition is intrinsically time-indexed: it attributes
-        each in-sample observation to past structural shocks. The ``at=``
+        each in-sample observation to past structural shocks. The `at=`
         parameter controls which Cholesky factor identifies those shocks.
 
         Args:
@@ -311,16 +299,16 @@ class IdentifiedVAR(ImpulsoBaseModel):
             cumulative: If True, return cumulative shock contributions.
             at: Time index for the structural shock matrix:
 
-                - ``None`` (default) or ``"all"``: use ``cholesky_path`` —
-                  identify the shock at each ``t`` with its own ``L_t``.
+                - `None` (default) or `"all"`: use `cholesky_path` —
+                  identify the shock at each `t` with its own `L_t`.
                   For stochastic volatility this is the correct structural
-                  decomposition; for constant volatility ``L_t`` is the same
-                  for all ``t`` and the result matches the legacy behaviour.
-                - ``int`` or ``"last"``: identify every shock with a single
-                  ``L`` queried at the supplied time index. Under stochastic
+                  decomposition; for constant volatility `L_t` is the same
+                  for all `t` and the result matches the legacy behaviour.
+                - `int` or `"last"`: identify every shock with a single
+                  `L` queried at the supplied time index. Under stochastic
                   volatility this is a non-standard hypothetical ("what if
-                  regime ``t`` had prevailed throughout?") and emits a
-                  ``UserWarning``. For constant volatility the result is
+                  regime `t` had prevailed throughout?") and emits a
+                  `UserWarning`. For constant volatility the result is
                   identical to the default.
 
         Returns:

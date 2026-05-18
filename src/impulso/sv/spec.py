@@ -26,11 +26,11 @@ class StochasticVolatility(ImpulsoBaseModel):
 
     Attributes:
         name: Discriminator key for the volatility-process registry
-            (always ``"sv"``).
-        is_time_varying: Always ``True`` — Σ_t evolves over t.
-        dynamics: Log-volatility dynamics. String shorthand (``"random_walk"``
-            or ``"ar1"``) or an explicit ``SVDynamics`` instance (e.g.
-            ``RandomWalk()``, ``AR1()``).
+            (always `"sv"`).
+        is_time_varying: Always `True` — Σ_t evolves over t.
+        dynamics: Log-volatility dynamics. String shorthand (`"random_walk"`
+            or `"ar1"`) or an explicit `SVDynamics` instance (e.g.
+            `RandomWalk()`, `AR1()`).
         prior: Prior shorthand string or SVPrior instance.
     """
 
@@ -113,31 +113,31 @@ class StochasticVolatility(ImpulsoBaseModel):
     ) -> "pt.TensorVariable":
         """Register the Clark-style multivariate SV latents.
 
-        For each ``i`` in ``0..n_vars-1``: per-variable priors are seeded
-        from ``data[:, i]`` (typically VAR OLS residuals), then a log-vol
-        path ``h_i,t`` is registered via the configured dynamics. The
+        For each `i` in `0..n_vars-1`: per-variable priors are seeded
+        from `data[:, i]` (typically VAR OLS residuals), then a log-vol
+        path `h_i,t` is registered via the configured dynamics. The
         per-variable log-vol *level* comes from the dynamics' own intercept
-        when available (AR(1)'s ``alpha``), else from an outer ``mu_i``
+        when available (AR(1)'s `alpha`), else from an outer `mu_i`
         (random-walk has no intrinsic level). The shared mixing factor
-        ``R_chol`` (a unit-diagonal lower-triangular ``n_vars x n_vars``
+        `R_chol` (a unit-diagonal lower-triangular `n_vars x n_vars`
         matrix) is registered once via the manual LKJ workaround. Note:
         pinning the diagonal of a Cholesky factor to 1 does **not** make
-        ``R_chol @ R_chol.T`` a correlation matrix; the Gram-matrix
-        diagonal is ``1 + sum_j off[i,j]^2``. The diagonal pin is an
-        *identifiability* device: all volatility scaling lives in ``h``,
-        so ``R_chol`` is identified only up to its off-diagonal mixing
+        `R_chol @ R_chol.T` a correlation matrix; the Gram-matrix
+        diagonal is `1 + sum_j off[i,j]^2`. The diagonal pin is an
+        *identifiability* device: all volatility scaling lives in `h`,
+        so `R_chol` is identified only up to its off-diagonal mixing
         entries. See CLAUDE.md for the broader LKJCholeskyCov workaround.
 
         Args:
             n_vars: Number of structural shocks / endogenous variables.
             T: Number of in-sample observations.
-            data: Per-variable series of shape ``(T, n_vars)`` used to
+            data: Per-variable series of shape `(T, n_vars)` used to
                 seed per-variable priors. Required — the VAR pipeline
                 passes OLS residuals; direct callers should do the same.
 
         Returns:
-            ``L_t`` of shape ``(T, n_vars, n_vars)`` where
-            ``L_t[t] = diag(exp(h_t / 2)) @ R_chol``.
+            `L_t` of shape `(T, n_vars, n_vars)` where
+            `L_t[t] = diag(exp(h_t / 2)) @ R_chol`.
         """
         import pymc as pm
         import pytensor.tensor as pt
@@ -208,10 +208,10 @@ class StochasticVolatility(ImpulsoBaseModel):
         """Return L_t = diag(exp(h_t / 2)) @ R_chol for the requested t.
 
         Args:
-            posterior: An xarray Dataset containing ``h`` of shape
-                (chains, draws, T, n_vars) and ``R_chol`` of shape
+            posterior: An xarray Dataset containing `h` of shape
+                (chains, draws, T, n_vars) and `R_chol` of shape
                 (chains, draws, n_vars, n_vars).
-            t: Time index. ``None`` defaults to the most recent (T-1).
+            t: Time index. `None` defaults to the most recent (T-1).
 
         Returns:
             Cholesky factor at time t, shape (chains, draws, n_vars, n_vars).
@@ -231,8 +231,8 @@ class StochasticVolatility(ImpulsoBaseModel):
         """Return the full L_t path for t in 0..T-1.
 
         Args:
-            posterior: An xarray Dataset containing ``h`` (chains, draws, T, n_vars)
-                and ``R_chol`` (chains, draws, n_vars, n_vars).
+            posterior: An xarray Dataset containing `h` (chains, draws, T, n_vars)
+                and `R_chol` (chains, draws, n_vars, n_vars).
             T: Expected length of the time axis. Must match h.shape[2].
 
         Returns:
@@ -253,28 +253,28 @@ class StochasticVolatility(ImpulsoBaseModel):
         steps: int,
         rng: np.random.Generator,
     ) -> np.ndarray:
-        """Forecast the per-t Cholesky factor for ``steps`` ahead.
+        """Forecast the per-t Cholesky factor for `steps` ahead.
 
         Each variable's log-vol is extrapolated independently using the
-        configured dynamics; the correlation Cholesky ``R_chol`` is held
+        configured dynamics; the correlation Cholesky `R_chol` is held
         constant (Clark-style assumption).
 
-        ``SVDynamics.forecast_log_vol`` reads bare posterior keys (``h``,
-        ``sigma_eta``, and for AR(1) also ``phi``/``alpha``), whereas the
+        `SVDynamics.forecast_log_vol` reads bare posterior keys (`h`,
+        `sigma_eta`, and for AR(1) also `phi`/`alpha`), whereas the
         multivariate-fit posterior stores per-variable hyperparameters
-        under prefixed names (``v{i}_sigma_eta``, ...). For each variable
-        ``i`` we build a small slice ``Dataset`` with renamed keys and
-        delegate the extrapolation to ``dynamics.forecast_log_vol``.
+        under prefixed names (`v{i}_sigma_eta`, ...). For each variable
+        `i` we build a small slice `Dataset` with renamed keys and
+        delegate the extrapolation to `dynamics.forecast_log_vol`.
 
         Args:
-            posterior: Dataset with per-variable log-vol paths (``h``)
-                and ``R_chol``.
+            posterior: Dataset with per-variable log-vol paths (`h`)
+                and `R_chol`.
             steps: Forecast horizon.
             rng: Random number generator for the extrapolation
                 innovations.
 
         Returns:
-            ``(chains, draws, steps, n_vars, n_vars)``.
+            `(chains, draws, steps, n_vars, n_vars)`.
         """
         import xarray as xr
 

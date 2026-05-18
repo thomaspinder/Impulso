@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import arviz as az
 import numpy as np
-from pydantic import Field, computed_field
+from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
@@ -34,7 +34,6 @@ class FittedVAR(ImpulsoBaseModel):
     var_names: list[str]
     volatility: VolatilityProcess
 
-    @computed_field
     @property
     def has_exog(self) -> bool:
         """Whether the model includes exogenous variables."""
@@ -57,21 +56,21 @@ class FittedVAR(ImpulsoBaseModel):
         shape depends on whether Σ is time-invariant or time-varying:
 
         * Constant volatility — Σ is shared across time, so the result
-          has shape ``(chains, draws, n_vars, n_vars)``.
+          has shape `(chains, draws, n_vars, n_vars)`.
         * Stochastic volatility — Σ_t evolves, so the result has shape
-          ``(chains, draws, T, n_vars, n_vars)`` where ``T`` is the
+          `(chains, draws, T, n_vars, n_vars)` where `T` is the
           in-sample length after lag trimming. Callers needing a single
-          slice should call ``volatility.cholesky_at(posterior, t)`` and
+          slice should call `volatility.cholesky_at(posterior, t)` and
           square the factor themselves.
 
         Note:
-            **Breaking change vs. v0.0.4 and earlier**: ``sigma`` is now
-            a method, not a property. Call sites that used ``fitted.sigma``
-            must be updated to ``fitted.sigma()``.
+            **Breaking change vs. v0.0.4 and earlier**: `sigma` is now
+            a method, not a property. Call sites that used `fitted.sigma`
+            must be updated to `fitted.sigma()`.
 
         Returns:
             Posterior draws of Σ (or Σ_t for SV) computed from the
-            volatility adapter's Cholesky factor as ``L @ L.T``.
+            volatility adapter's Cholesky factor as `L @ L.T`.
         """
         if self.volatility.is_time_varying:
             T = self.data.endog.shape[0] - self.n_lags
@@ -148,8 +147,8 @@ class FittedVAR(ImpulsoBaseModel):
         Queries the fitted volatility process for the Cholesky factor of Σ
         and passes it to the scheme. For constant volatility, the factor is
         the same across all time points; for stochastic volatility (P3),
-        ``cholesky_at(t=None)`` returns the most-recent slice and
-        downstream IRF/FEVD/HD methods can re-query at other ``at`` values.
+        `cholesky_at(t=None)` returns the most-recent slice and
+        downstream IRF/FEVD/HD methods can re-query at other `at` values.
 
         Args:
             scheme: An IdentificationScheme protocol instance (e.g. Cholesky,

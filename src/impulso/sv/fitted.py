@@ -57,9 +57,9 @@ class FittedSV(ImpulsoBaseModel):
         Args:
             steps: Number of forecast steps.
             random_seed: Controls the RNG used to draw forecast innovations.
-                Accepts an int seed, a ``numpy.random.Generator``, or ``None``
+                Accepts an int seed, a `numpy.random.Generator`, or `None`
                 (default) for fresh non-deterministic draws. Pass an int or
-                ``Generator`` for reproducible forecasts.
+                `Generator` for reproducible forecasts.
 
         Returns:
             SVForecastResult wrapping posterior predictive draws.

@@ -1,6 +1,6 @@
 """Log-volatility dynamics for univariate stochastic volatility models."""
 
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 import numpy as np
 import xarray as xr
@@ -22,9 +22,9 @@ class SVDynamics(Protocol):
     name: str
     has_explicit_level: bool
     """Whether the dynamics owns the log-vol level via an explicit intercept
-    (e.g. AR(1)'s ``alpha``). Multivariate adapters use this to avoid a
-    redundant outer ``mu_i`` shift when the dynamics already carries the
-    level. ``True`` for AR(1), ``False`` for random-walk."""
+    (e.g. AR(1)'s `alpha`). Multivariate adapters use this to avoid a
+    redundant outer `mu_i` shift when the dynamics already carries the
+    level. `True` for AR(1), `False` for random-walk."""
 
     def build_latent_path(
         self,
@@ -35,8 +35,8 @@ class SVDynamics(Protocol):
     ) -> "pt.TensorVariable":
         """Register and return the latent log-volatility path inside the active PyMC model.
 
-        ``name_prefix`` is prepended to every registered PyMC variable name
-        (e.g., ``name_prefix="v0_"`` produces ``v0_h0``, ``v0_z``, ``v0_h``).
+        `name_prefix` is prepended to every registered PyMC variable name
+        (e.g., `name_prefix="v0_"` produces `v0_h0`, `v0_z`, `v0_h`).
         Used by multivariate SV adapters to avoid name collisions across
         per-variable log-vol paths. Default empty prefix preserves the
         univariate naming.
@@ -59,7 +59,13 @@ class RandomWalk(ImpulsoModel):
     name: Literal["random_walk"] = "random_walk"
     has_explicit_level: bool = False
 
-    def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any, name_prefix: str = "") -> Any:
+    def build_latent_path(
+        self,
+        prior_params: dict,
+        T: int,
+        sigma_eta: "pt.TensorVariable",
+        name_prefix: str = "",
+    ) -> "pt.TensorVariable":
         import pymc as pm
         import pytensor.tensor as pt
 
@@ -90,7 +96,13 @@ class AR1(ImpulsoModel):
     name: Literal["ar1"] = "ar1"
     has_explicit_level: bool = True
 
-    def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any, name_prefix: str = "") -> Any:
+    def build_latent_path(
+        self,
+        prior_params: dict,
+        T: int,
+        sigma_eta: "pt.TensorVariable",
+        name_prefix: str = "",
+    ) -> "pt.TensorVariable":
         import pymc as pm
         import pytensor.tensor as pt
 
