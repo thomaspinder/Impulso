@@ -1,6 +1,7 @@
 """Result objects for VAR post-estimation output."""
 
 from abc import abstractmethod
+from typing import ClassVar
 
 import arviz as az
 import numpy as np
@@ -46,11 +47,19 @@ class HDIResult(ImpulsoBaseModel):
 class VARResultBase(ImpulsoBaseModel):
     """Base class for VAR post-estimation results.
 
+    Subclasses that hold a single named DataArray in
+    ``idata.posterior_predictive`` (IRF, FEVD) declare its key via the
+    class-level ``_PRIMARY_KEY``; this drives the shared
+    ``_guard_no_time_dim`` check.
+
     Attributes:
         idata: ArviZ InferenceData holding the result draws.
     """
 
     idata: az.InferenceData = Field(repr=False)
+
+    # Empty default — subclasses with a `time`-aware median override it.
+    _PRIMARY_KEY: ClassVar[str] = ""
 
     @abstractmethod
     def median(self) -> pd.DataFrame:
@@ -75,6 +84,31 @@ class VARResultBase(ImpulsoBaseModel):
     def plot(self) -> Figure:
         """Plot the result. Subclasses must implement."""
         raise NotImplementedError
+
+    def _guard_no_time_dim(self) -> None:
+        """Refuse `median`/`hdi`/`to_dataframe` on a time-aware result.
+
+        The reshape-based aggregations assume a 5-D ``(C, D, H+1, n, n)``
+        DataArray. For ``at='all'`` the array is 6-D
+        ``(C, D, T, H+1, n, n)`` and ``.reshape(H+1, -1)`` would silently
+        scramble the time and variable dims into the column axis. Refuse
+        instead and point the user at the underlying DataArray.
+        """
+        key = self._PRIMARY_KEY
+        if not key:
+            raise NotImplementedError(
+                f"{type(self).__name__} did not declare _PRIMARY_KEY; the time-dim guard cannot be evaluated."
+            )
+        if "time" in self.idata.posterior_predictive[key].dims:
+            cls_name = type(self).__name__
+            raise NotImplementedError(
+                f"{cls_name}.median()/hdi()/to_dataframe() do not support "
+                f"time-varying {key.upper()}s (at='all'). Access the "
+                f"underlying DataArray directly via "
+                f"result.idata.posterior_predictive[{key!r}] and aggregate "
+                f"manually, or use at='last' / at=<int> / at=None for a "
+                f"single-time {key.upper()}."
+            )
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -129,26 +163,10 @@ class IRFResult(VARResultBase):
         var_names: Names of variables.
     """
 
+    _PRIMARY_KEY: ClassVar[str] = "irf"
+
     horizon: int
     var_names: list[str]
-
-    def _guard_no_time_dim(self) -> None:
-        """Raise if the IRF DataArray has a ``time`` dim (``at='all'`` case).
-
-        The reshape-based aggregations in ``median``/``hdi``/``to_dataframe``
-        assume a 5-D ``(C, D, H+1, n, n)`` array. For ``at='all'`` the array is
-        6-D ``(C, D, T, H+1, n, n)`` and ``.reshape(H+1, -1)`` would silently
-        scramble the time and variable dims into the column axis. Refuse
-        instead and point the user at the underlying DataArray.
-        """
-        if "time" in self.idata.posterior_predictive["irf"].dims:
-            raise NotImplementedError(
-                "IRFResult.median()/hdi()/to_dataframe() do not support "
-                "time-varying IRFs (at='all'). Access the underlying DataArray "
-                "directly via result.idata.posterior_predictive['irf'] and "
-                "aggregate manually, or use at='last' / at=<int> / at=None for "
-                "a single-time IRF."
-            )
 
     def median(self) -> pd.DataFrame:
         """Posterior median IRF.
@@ -194,26 +212,10 @@ class FEVDResult(VARResultBase):
         var_names: Names of variables.
     """
 
+    _PRIMARY_KEY: ClassVar[str] = "fevd"
+
     horizon: int
     var_names: list[str]
-
-    def _guard_no_time_dim(self) -> None:
-        """Raise if the FEVD DataArray has a ``time`` dim (``at='all'`` case).
-
-        The reshape-based aggregations in ``median``/``hdi``/``to_dataframe``
-        assume a 5-D ``(C, D, H+1, n, n)`` array. For ``at='all'`` the array is
-        6-D ``(C, D, T, H+1, n, n)`` and ``.reshape(H+1, -1)`` would silently
-        scramble the time and variable dims into the column axis. Refuse
-        instead and point the user at the underlying DataArray.
-        """
-        if "time" in self.idata.posterior_predictive["fevd"].dims:
-            raise NotImplementedError(
-                "FEVDResult.median()/hdi()/to_dataframe() do not support "
-                "time-varying FEVDs (at='all'). Access the underlying DataArray "
-                "directly via result.idata.posterior_predictive['fevd'] and "
-                "aggregate manually, or use at='last' / at=<int> / at=None for "
-                "a single-time FEVD."
-            )
 
     def median(self) -> pd.DataFrame:
         """Posterior median FEVD.
