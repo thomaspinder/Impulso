@@ -90,12 +90,15 @@ def synthetic_idata_2v():
     B = rng.standard_normal((n_chains, n_draws, n_vars, n_vars * n_lags)) * 0.3
     intercept = rng.standard_normal((n_chains, n_draws, n_vars)) * 0.01
 
-    # Positive definite Sigma via A @ A.T + I
+    # Positive definite Sigma via A @ A.T + I, plus its Cholesky factor L
+    # so the fixture mirrors a real Constant-adapter posterior.
     sigma = np.zeros((n_chains, n_draws, n_vars, n_vars))
+    L = np.zeros_like(sigma)
     for c in range(n_chains):
         for d in range(n_draws):
             A = rng.standard_normal((n_vars, n_vars)) * 0.5
             sigma[c, d] = A @ A.T + np.eye(n_vars)
+            L[c, d] = np.linalg.cholesky(sigma[c, d])
 
     posterior = xr.Dataset({
         "B": xr.DataArray(B, dims=["chain", "draw", "var", "coeff"]),
@@ -105,6 +108,7 @@ def synthetic_idata_2v():
             dims=["chain", "draw", "var1", "var2"],
             coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
         ),
+        "L": xr.DataArray(L, dims=["chain", "draw", "var1", "var2"]),
     })
     return az.InferenceData(posterior=posterior)
 

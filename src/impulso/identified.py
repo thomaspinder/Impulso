@@ -155,7 +155,10 @@ class IdentifiedVAR(ImpulsoBaseModel):
                     "response": self.var_names,
                     "shock": self.shock_names,
                     "horizon": np.arange(horizon + 1),
-                    "time": self.data.index[self.n_lags :],
+                    # Tuple form forces the coord onto the declared `time` dim;
+                    # otherwise a named DatetimeIndex (e.g. .name == "date")
+                    # would be inferred as its own dim and collide.
+                    "time": ("time", self.data.index[self.n_lags :]),
                 },
                 name="irf",
             )
@@ -224,7 +227,8 @@ class IdentifiedVAR(ImpulsoBaseModel):
                     "response": self.var_names,
                     "shock": self.shock_names,
                     "horizon": np.arange(horizon + 1),
-                    "time": self.data.index[self.n_lags :],
+                    # Tuple form: see analogous comment in impulse_response.
+                    "time": ("time", self.data.index[self.n_lags :]),
                 },
                 name="fevd",
             )

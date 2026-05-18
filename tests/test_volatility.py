@@ -71,6 +71,30 @@ class TestConstantBuildPymcLatent:
         assert "sigma_sd" in var_names
         assert "tril_offdiag" not in var_names
 
+    def test_registers_L_deterministic(self):
+        """L is exposed as a posterior deterministic so cholesky_at can read it
+        without re-decomposing Σ on every call."""
+        import pymc as pm
+
+        adapter = Constant()
+        with pm.Model() as model:
+            adapter.build_pymc_latent(n_vars=3, T=100)
+
+        det_names = {v.name for v in model.deterministics}
+        assert "L" in det_names
+
+    def test_accepts_and_ignores_data_kwarg(self):
+        """Constant accepts the `data` kwarg for Protocol parity with
+        stochastic adapters but ignores it (Σ is data-independent)."""
+        import pymc as pm
+
+        adapter = Constant()
+        fake_resid = np.zeros((50, 3))
+        with pm.Model() as model:
+            adapter.build_pymc_latent(n_vars=3, T=50, data=fake_resid)
+
+        assert "L" in {v.name for v in model.deterministics}
+
     def test_n_vars_2_indexing_and_diagonal(self):
         """Smallest non-trivial off-diagonal case.
 
@@ -115,8 +139,9 @@ class TestPosteriorEquivalence:
         fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
 
         posterior_vars = set(fitted.idata.posterior.data_vars)
-        # Exact set of variables today's pipeline produces:
-        expected = {"intercept", "B", "sigma_sd", "tril_offdiag", "Sigma"}
+        # Variables today's pipeline produces. ``L`` is the cached Cholesky
+        # factor of Σ — see Constant.cholesky_at.
+        expected = {"intercept", "B", "sigma_sd", "tril_offdiag", "L", "Sigma"}
         assert expected <= posterior_vars, f"Missing posterior variables: {expected - posterior_vars}"
 
         # Shape contracts: (chains, draws, n_vars[, n_vars]).
@@ -143,7 +168,7 @@ class TestPosteriorEquivalence:
         fit_string = _fit({"volatility": "constant"})
         fit_object = _fit({"volatility": Constant()})
 
-        for name in ["intercept", "B", "Sigma"]:
+        for name in ["intercept", "B", "L", "Sigma"]:
             np.testing.assert_array_equal(
                 fit_default.idata.posterior[name].values,
                 fit_string.idata.posterior[name].values,
@@ -181,6 +206,28 @@ class TestConstantCholeskyAt:
         # Strictly upper-triangular block must be zero.
         upper = np.triu(L, k=1)
         assert np.allclose(upper, 0.0)
+
+    def test_reads_cached_L_not_decomposed_sigma(self):
+        """cholesky_at must read posterior["L"] directly, not recompute
+        chol(Σ). Pinned by making L and Σ inconsistent in the fixture and
+        asserting the returned array equals L exactly."""
+        import arviz as az
+        import xarray as xr
+
+        # L is a fixed lower-triangular factor; Σ is something *different*
+        # (identity). A correct implementation returns L. A re-decomposing
+        # implementation returns chol(I) = I, which would differ.
+        L_truth = np.array([[2.0, 0.0], [0.5, 1.5]])
+        L_arr = np.broadcast_to(L_truth, (1, 1, 2, 2)).copy()
+        sigma_arr = np.broadcast_to(np.eye(2), (1, 1, 2, 2)).copy()
+        posterior = xr.Dataset({
+            "L": xr.DataArray(L_arr, dims=["chain", "draw", "var1", "var2"]),
+            "Sigma": xr.DataArray(sigma_arr, dims=["chain", "draw", "var1", "var2"]),
+        })
+        idata = az.InferenceData(posterior=posterior)
+
+        out = Constant().cholesky_at(idata.posterior, t=None)
+        np.testing.assert_array_equal(out, L_arr)
 
 
 class TestConstantForecastCholeskyPath:

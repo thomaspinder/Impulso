@@ -47,7 +47,12 @@ class Constant(ImpulsoModel):
     sigma_sd_beta: float = Field(2.5, gt=0)
     tril_offdiag_sigma: float = Field(0.5, gt=0)
 
-    def build_pymc_latent(self, n_vars: int, T: int) -> "pt.TensorVariable":
+    def build_pymc_latent(
+        self,
+        n_vars: int,
+        T: int,
+        data: np.ndarray | None = None,
+    ) -> "pt.TensorVariable":
         """Register the constant-volatility latent vars in the active PyMC model.
 
         Lifts the manual-Cholesky parameterisation from the previous
@@ -60,6 +65,8 @@ class Constant(ImpulsoModel):
             T: Number of observations after lag trimming. Ignored for
                 constant volatility — kept in the signature for parity
                 with stochastic adapters.
+            data: Accepted for Protocol parity with stochastic adapters and
+                ignored — Σ is data-independent in the constant case.
 
         Returns:
             Lower-triangular Cholesky factor L of shape (n_vars, n_vars).
@@ -78,23 +85,26 @@ class Constant(ImpulsoModel):
                 for j in range(i):
                     L = pt.set_subtensor(L[i, j], tril_vals[idx] * sd[i])
                     idx += 1
-        return L
+        # Expose L as a deterministic so cholesky_at can read it directly
+        # from the posterior instead of re-decomposing Σ on every call.
+        return pm.Deterministic("L", L)
 
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
         """Return the lower-triangular Cholesky factor of Σ for every draw.
 
-        For constant volatility, ``t`` is ignored — Σ is time-invariant.
+        Reads ``posterior["L"]`` directly — the factor is registered as a
+        deterministic in ``build_pymc_latent`` so this method does not
+        re-decompose Σ. For constant volatility, ``t`` is ignored.
 
         Args:
             posterior: An xarray Dataset (typically ``idata.posterior``)
-                containing ``Sigma`` of shape (chains, draws, n_vars, n_vars).
+                containing ``L`` of shape (chains, draws, n_vars, n_vars).
             t: Time index. Ignored.
 
         Returns:
             Cholesky factors of shape (chains, draws, n_vars, n_vars).
         """
-        sigma = posterior["Sigma"].values
-        return np.linalg.cholesky(sigma)
+        return posterior["L"].values
 
     def forecast_cholesky_path(
         self,
