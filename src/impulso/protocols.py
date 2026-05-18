@@ -40,16 +40,16 @@ class IdentificationScheme(Protocol):
         Args:
             L: Lower-triangular Cholesky factor of the structural-shock
                 covariance, shape (chains, draws, n_vars, n_vars). Produced
-                by ``volatility.cholesky_at(...)``.
+                by `volatility.cholesky_at(...)`.
             var_names: Endogenous variable names, in the order they appear
                 in the underlying data.
             posterior: Full posterior xarray Dataset. Optional; provided by
                 the pipeline so schemes that need additional draws (e.g.,
                 SignRestriction with restriction_horizon > 0 needs B for the
                 MA recursion) can reach for them. Schemes that only need L
-                may ignore this argument. Schemes that need ``posterior``
-                for context but receive ``None`` should raise a clear
-                ``ValueError``.
+                may ignore this argument. Schemes that need `posterior`
+                for context but receive `None` should raise a clear
+                `ValueError`.
 
         Returns:
             Structural shock matrix array of shape (chains, draws, n_vars, n_vars).
@@ -59,9 +59,9 @@ class IdentificationScheme(Protocol):
         ...
 
     def shock_coords(self, n_vars: int) -> list[str]:
-        """Return the labels for the ``shock`` coordinate of the structural matrix.
+        """Return the labels for the `shock` coordinate of the structural matrix.
 
-        The pipeline calls this after ``identify`` to label the columns of
+        The pipeline calls this after `identify` to label the columns of
         the structural shock matrix when wrapping into an xarray DataArray.
 
         Args:
@@ -69,7 +69,7 @@ class IdentificationScheme(Protocol):
                 structural shock matrix).
 
         Returns:
-            A list of length ``n_vars`` naming each shock column.
+            A list of length `n_vars` naming each shock column.
         """
         ...
 
@@ -90,10 +90,10 @@ class VolatilityProcess(Protocol):
 
     name: str
     is_time_varying: bool
-    """Whether Σ_t evolves over time. ``False`` for homoscedastic adapters
-    (``Constant``); ``True`` for stochastic-volatility adapters. Drives
+    """Whether Σ_t evolves over time. `False` for homoscedastic adapters
+    (`Constant`); `True` for stochastic-volatility adapters. Drives
     branching in `FittedVAR.sigma` and `IdentifiedVAR.historical_decomposition`
-    so neither has to string-sniff the adapter ``name``."""
+    so neither has to string-sniff the adapter `name`."""
 
     def build_pymc_latent(
         self,
@@ -110,7 +110,7 @@ class VolatilityProcess(Protocol):
         Args:
             n_vars: Number of endogenous variables.
             T: Number of in-sample observations (after lag trimming).
-            data: Optional per-variable series of shape ``(T, n_vars)``,
+            data: Optional per-variable series of shape `(T, n_vars)`,
                 typically OLS residuals from the VAR pipeline. Stochastic
                 adapters use this to seed per-variable priors; constant
                 adapters ignore it.
@@ -146,7 +146,7 @@ class VolatilityProcess(Protocol):
 
         Returns shape (chains, draws, T, n_vars, n_vars). For constant
         volatility, broadcasts the time-invariant L across the requested
-        ``T``. For stochastic volatility, indexes into the latent log-vol
+        `T`. For stochastic volatility, indexes into the latent log-vol
         posterior to construct L_t for each t.
         """
         ...

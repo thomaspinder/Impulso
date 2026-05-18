@@ -1,6 +1,6 @@
 """SVData — validated, immutable data container for univariate SV models."""
 
-from typing import Self
+from typing import ClassVar, Self
 
 import numpy as np
 import pandas as pd
@@ -22,7 +22,9 @@ class SVData(ImpulsoBaseModel):
     name: str
     index: pd.DatetimeIndex = Field(repr=False)
 
-    _MIN_OBS: int = 24  # two years of monthly data; SV estimation is uninformative below this
+    # Class-level constant — two years of monthly data. ClassVar keeps this
+    # out of Pydantic's model_fields so it never appears in model_dump or repr.
+    _MIN_OBS: ClassVar[int] = 24
 
     @model_validator(mode="after")
     def _validate(self) -> Self:

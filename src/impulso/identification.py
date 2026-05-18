@@ -29,8 +29,8 @@ class Cholesky(ImpulsoModel):
     ) -> np.ndarray:
         """Apply Cholesky identification.
 
-        For default variable ordering, ``identify`` is a no-op and returns
-        ``L`` unchanged. When ``self.ordering`` differs from ``var_names``,
+        For default variable ordering, `identify` is a no-op and returns
+        `L` unchanged. When `self.ordering` differs from `var_names`,
         the underlying covariance is permuted and re-decomposed so the
         Cholesky factor reflects the requested causal ordering.
 
@@ -96,16 +96,16 @@ class SignRestriction(ImpulsoModel):
         Args:
             L: Lower-triangular Cholesky factor, shape (chains, draws, n_vars, n_vars).
             var_names: Variable names in the data's natural order.
-            posterior: Required when ``self.restriction_horizon > 0`` because
-                the multi-horizon check needs the VAR coefficients ``B`` from
+            posterior: Required when `self.restriction_horizon > 0` because
+                the multi-horizon check needs the VAR coefficients `B` from
                 the posterior. Ignored for impact-only restrictions
-                (``restriction_horizon == 0``).
+                (`restriction_horizon == 0`).
 
         Returns:
             Structural shock matrix, shape (chains, draws, n_vars, n_vars).
-            Per-draw fallback to the supplied ``L`` for draws where no
+            Per-draw fallback to the supplied `L` for draws where no
             rotation satisfies the restrictions. Acceptance rate available
-            via the ``sign_restriction_acceptance_rate`` attribute on the
+            via the `sign_restriction_acceptance_rate` attribute on the
             wrapping IdentifiedVAR's posterior (set by the pipeline).
         """
         from scipy.stats import special_ortho_group

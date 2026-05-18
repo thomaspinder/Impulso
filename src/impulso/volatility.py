@@ -24,21 +24,21 @@ class Constant(ImpulsoModel):
     """Homoscedastic volatility — single Σ shared across all time points.
 
     Lifts today's manual-Cholesky parameterisation from
-    ``spec.py:_build_pymc_model`` into the volatility-process seam:
+    `spec.py:_build_pymc_model` into the volatility-process seam:
     HalfCauchy(beta=sigma_sd_beta) on the diagonal scales,
     Normal(mu=0, sigma=tril_offdiag_sigma) on the lower-triangular
-    off-diagonals (scaled by the row's diagonal). For ``n_vars == 1``
+    off-diagonals (scaled by the row's diagonal). For `n_vars == 1`
     the off-diagonal block is empty.
 
-    The PyMC variable names produced inside ``build_pymc_latent``
-    (``sigma_sd``, ``tril_offdiag``) match today's posterior contents
+    The PyMC variable names produced inside `build_pymc_latent`
+    (`sigma_sd`, `tril_offdiag`) match today's posterior contents
     exactly so existing identification and downstream code keep working
-    unchanged. The ``Sigma = L @ L.T`` deterministic is registered by
-    the caller in ``spec.py``, not by the adapter.
+    unchanged. The `Sigma = L @ L.T` deterministic is registered by
+    the caller in `spec.py`, not by the adapter.
 
     Attributes:
-        name: Discriminator key for the registry (always ``"constant"``).
-        is_time_varying: Always ``False`` — Σ is shared across t.
+        name: Discriminator key for the registry (always `"constant"`).
+        is_time_varying: Always `False` — Σ is shared across t.
         sigma_sd_beta: HalfCauchy scale on diagonal SDs.
         tril_offdiag_sigma: Normal SD on off-diagonal correlation factors.
     """
@@ -58,8 +58,8 @@ class Constant(ImpulsoModel):
         """Register the constant-volatility latent vars in the active PyMC model.
 
         Lifts the manual-Cholesky parameterisation from the previous
-        location in ``spec.py:_build_pymc_model``. PyMC variable names
-        (``sigma_sd``, ``tril_offdiag``) match the prior contents byte-for-byte
+        location in `spec.py:_build_pymc_model`. PyMC variable names
+        (`sigma_sd`, `tril_offdiag`) match the prior contents byte-for-byte
         so existing posterior-consuming code keeps working unchanged.
 
         Args:
@@ -94,13 +94,13 @@ class Constant(ImpulsoModel):
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
         """Return the lower-triangular Cholesky factor of Σ for every draw.
 
-        Reads ``posterior["L"]`` directly — the factor is registered as a
-        deterministic in ``build_pymc_latent`` so this method does not
-        re-decompose Σ. For constant volatility, ``t`` is ignored.
+        Reads `posterior["L"]` directly — the factor is registered as a
+        deterministic in `build_pymc_latent` so this method does not
+        re-decompose Σ. For constant volatility, `t` is ignored.
 
         Args:
-            posterior: An xarray Dataset (typically ``idata.posterior``)
-                containing ``L`` of shape (chains, draws, n_vars, n_vars).
+            posterior: An xarray Dataset (typically `idata.posterior`)
+                containing `L` of shape (chains, draws, n_vars, n_vars).
             t: Time index. Ignored.
 
         Returns:
@@ -117,12 +117,13 @@ class Constant(ImpulsoModel):
         """Broadcast the constant Cholesky factor across forecast steps.
 
         For constant volatility there is nothing to simulate — the forecast
-        covariance equals the in-sample covariance. ``rng`` is accepted for
+        covariance equals the in-sample covariance. `rng` is accepted for
         signature parity with stochastic adapters and is ignored.
 
         Args:
-            posterior: An xarray Dataset with ``Sigma`` of shape
-                (chains, draws, n_vars, n_vars).
+            posterior: An xarray Dataset containing `L` of shape
+                (chains, draws, n_vars, n_vars). Read via
+                `Constant.cholesky_at`, which is the canonical accessor.
             steps: Forecast horizon.
             rng: Unused.
 
@@ -139,7 +140,9 @@ class Constant(ImpulsoModel):
         broadcast convenience for the IdentifiedVAR query layer.
 
         Args:
-            posterior: An xarray Dataset with ``Sigma``.
+            posterior: An xarray Dataset containing `L` of shape
+                (chains, draws, n_vars, n_vars). Read via
+                `Constant.cholesky_at`, which is the canonical accessor.
             T: In-sample length (after lag trimming).
 
         Returns:

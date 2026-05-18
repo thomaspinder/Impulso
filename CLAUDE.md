@@ -118,6 +118,9 @@ Shared fixtures available in all test files:
 - `assert` is allowed in tests (`S101` ignored for `tests/*`)
 - `E501` (line length), `E731` (lambda assignment), and `TRY003` (long exception messages) are globally ignored
 - Docstrings follow Google style (Args/Returns sections)
+- Docstring inline code uses **single backticks** (Markdown-native, what
+  mkdocstrings expects): write `` `Foo.bar` ``, not `` ``Foo.bar`` ``.
+  Cross-references are plain text — no RST `:meth:` / `:class:` directives.
 
 ## PyMC / Sampling Gotchas
 
