@@ -10,6 +10,7 @@ import xarray as xr
 from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
+from impulso._ma import compute_ma_phi
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme, VolatilityProcess
 from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
@@ -53,18 +54,8 @@ class IdentifiedVAR(ImpulsoBaseModel):
         Returns:
             Array of shape (C, D, horizon+1, n_vars, n_vars).
         """
-        # Extract A_j matrices: each (C, D, n, n)
         A = [B_draws[:, :, :, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
-
-        n_chains, n_draws = B_draws.shape[:2]
-        Phi = [np.broadcast_to(np.eye(n_vars), (n_chains, n_draws, n_vars, n_vars)).copy()]
-        for h in range(1, horizon + 1):
-            phi_h = np.zeros((n_chains, n_draws, n_vars, n_vars))
-            for j in range(min(h, n_lags)):
-                phi_h += np.einsum("cdij,cdjk->cdik", A[j], Phi[h - j - 1])
-            Phi.append(phi_h)
-
-        return np.stack(Phi, axis=2)
+        return compute_ma_phi(A, horizon)
 
     def _resolve_at(self, at: AtParam) -> int | None:
         """Resolve ``at=`` to an integer ``t`` suitable for ``cholesky_at(t)``.

@@ -5,6 +5,7 @@ import xarray as xr
 from pydantic import Field, PrivateAttr
 
 from impulso._base import ImpulsoModel
+from impulso._ma import compute_ma_phi
 
 
 class Cholesky(ImpulsoModel):
@@ -206,19 +207,12 @@ class SignRestriction(ImpulsoModel):
         if not self._check_restrictions(candidate, var_names, shock_names):
             return False
 
-        # Extract lag coefficient matrices A_1..A_p
         A = [B_draw[:, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
+        Phi = compute_ma_phi(A, self.restriction_horizon)  # (H+1, n, n)
 
-        # MA recursion: Phi_0 = I, Phi_h = sum_{j=1}^{min(h,p)} A_j @ Phi_{h-j}
-        Phi_prev = [np.eye(n_vars)]
+        # Phi[0] (= I) handles the impact check above; iterate h=1..H here.
         for h in range(1, self.restriction_horizon + 1):
-            phi_h = np.zeros((n_vars, n_vars))
-            for j in range(min(h, n_lags)):
-                phi_h += A[j] @ Phi_prev[h - j - 1]
-            Phi_prev.append(phi_h)
-
-            # IRF at horizon h = Phi_h @ candidate
-            irf_h = phi_h @ candidate
+            irf_h = Phi[h] @ candidate
             if not self._check_restrictions(irf_h, var_names, shock_names):
                 return False
 
