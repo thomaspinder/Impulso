@@ -171,6 +171,14 @@ class TestHasExplicitLevel:
 
         assert AR1().has_explicit_level is True
 
+    def test_has_explicit_level_settable_per_instance(self):
+        # Plain instance field (not ClassVar), so future MSV-style adapters can
+        # override per-instance at construction time.
+        from impulso.sv.dynamics import AR1, RandomWalk
+
+        assert RandomWalk(has_explicit_level=True).has_explicit_level is True
+        assert AR1(has_explicit_level=False).has_explicit_level is False
+
 
 class TestStochasticVolatilityIsVolatilityProcess:
     def test_satisfies_protocol(self):
@@ -186,6 +194,16 @@ class TestStochasticVolatilityIsVolatilityProcess:
         from impulso.sv.spec import StochasticVolatility
 
         assert StochasticVolatility().name == "sv"
+
+    def test_is_time_varying_true(self):
+        from impulso.sv.spec import StochasticVolatility
+
+        assert StochasticVolatility().is_time_varying is True
+
+    def test_is_time_varying_settable_per_instance(self):
+        from impulso.sv.spec import StochasticVolatility
+
+        assert StochasticVolatility(is_time_varying=False).is_time_varying is False
 
     def test_name_is_frozen(self):
         from pydantic import ValidationError

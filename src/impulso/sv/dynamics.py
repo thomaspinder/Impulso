@@ -1,6 +1,6 @@
 """Log-volatility dynamics for univariate stochastic volatility models."""
 
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 import xarray as xr
@@ -57,7 +57,7 @@ class RandomWalk(ImpulsoModel):
     """Random-walk log-volatility dynamics (Primiceri 2005)."""
 
     name: Literal["random_walk"] = "random_walk"
-    has_explicit_level: ClassVar[bool] = False
+    has_explicit_level: bool = False
 
     def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any, name_prefix: str = "") -> Any:
         import pymc as pm
@@ -88,7 +88,7 @@ class AR1(ImpulsoModel):
     """AR(1) log-volatility dynamics (Kim-Shephard-Chib 1998)."""
 
     name: Literal["ar1"] = "ar1"
-    has_explicit_level: ClassVar[bool] = True
+    has_explicit_level: bool = True
 
     def build_latent_path(self, prior_params: dict, T: int, sigma_eta: Any, name_prefix: str = "") -> Any:
         import pymc as pm

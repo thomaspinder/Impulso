@@ -187,6 +187,7 @@ class TestVarPassesResidualsToVolatility:
             and returns a trivial constant L so the model still builds."""
 
             name = "capturing"
+            is_time_varying = False
 
             def build_pymc_latent(self, n_vars, T, data=None):
                 captured["n_vars"] = n_vars
