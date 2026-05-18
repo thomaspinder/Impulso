@@ -95,41 +95,21 @@ The rolling standard deviation makes the regime shift obvious. Volatility is ele
 
 ## Model
 
-The random-walk stochastic volatility model is a two-equation state-space system. For the observed series $y_t$,
-
-$$y_t = \mu + u_t, \qquad u_t \sim N\!\left(0,\, \exp(h_t)\right),$$
-
- and for the latent log-volatility $h_t$,
-
-$$h_t = h_{t-1} + \sigma_\eta\, \eta_t, \qquad \eta_t \sim N(0, 1).$$
-
- Here $\mu$ is the unconditional mean of the series, $h_t$ is the log of the conditional variance at date $t$, and $\sigma_\eta$ controls how fast log-volatility can move from one period to the next. The conditional standard deviation at $t$ is $\exp(h_t / 2)$, so a one-unit increase in $h_t$ multiplies the conditional SD by $e^{1/2} \approx 1.65$.
+The random-walk stochastic volatility model is a two-equation state-space system. For the observed series $y_t$, $$y_t = \mu + u_t, \qquad u_t \sim N\!\left(0,\, \exp(h_t)\right),$$ and for the latent log-volatility $h_t$, $$h_t = h_{t-1} + \sigma_\eta\, \eta_t, \qquad \eta_t \sim N(0, 1).$$ Here $\mu$ is the unconditional mean of the series, $h_t$ is the log of the conditional variance at date $t$, and $\sigma_\eta$ controls how fast log-volatility can move from one period to the next. The conditional standard deviation at $t$ is $\exp(h_t / 2)$, so a one-unit increase in $h_t$ multiplies the conditional SD by $e^{1/2} \approx 1.65$.
 
 Modelling log-volatility rather than the variance or the SD directly has two practical advantages. First, $\exp(h_t)$ is strictly positive for any real-valued $h_t$, so the parameterisation cannot wander into infeasible regions. Second, movements in $h_t$ are symmetric: a change of $+0.5$ and a change of $-0.5$ correspond to multiplicative moves of the same magnitude in the SD, which makes the random-walk innovation assumption more plausible.
 
 ### State-space structure and what it implies
 
-The two equations define a **linear Gaussian state-space system** in which the latent state controls the observation *variance* rather than the *mean*. Conditional on the full path $h_{1:T}$ the likelihood factorises,
-
-$$p(y_{1:T} \mid h_{1:T}, \mu) \;=\; \prod_{t=1}^{T} N\!\left(y_t;\, \mu,\, \exp(h_t)\right),$$
-
- and each factor is cheap. The likelihood of the parameters $(\mu, \sigma_\eta)$ *alone* requires integrating the latent path out,
-
-$$p(y_{1:T} \mid \mu, \sigma_\eta) \;=\; \int p(y_{1:T} \mid h_{1:T}, \mu)\, p(h_{1:T} \mid \sigma_\eta)\, dh_{1:T}.$$
-
- This $T$-dimensional integral has no closed form, which is why SV models are fit with MCMC or particle methods rather than direct maximum likelihood. MCMC sidesteps the integral by sampling the joint posterior $p(\mu, \sigma_\eta, h_{1:T} \mid y_{1:T})$ and reading off any marginal we need from the draws.
+The two equations define a **linear Gaussian state-space system** in which the latent state controls the observation *variance* rather than the *mean*. Conditional on the full path $h_{1:T}$ the likelihood factorises, $$p(y_{1:T} \mid h_{1:T}, \mu) \;=\; \prod_{t=1}^{T} N\!\left(y_t;\, \mu,\, \exp(h_t)\right),$$ and each factor is cheap. The likelihood of the parameters $(\mu, \sigma_\eta)$ *alone* requires integrating the latent path out, $$p(y_{1:T} \mid \mu, \sigma_\eta) \;=\; \int p(y_{1:T} \mid h_{1:T}, \mu)\, p(h_{1:T} \mid \sigma_\eta)\, dh_{1:T}.$$ This $T$-dimensional integral has no closed form, which is why SV models are fit with MCMC or particle methods rather than direct maximum likelihood. MCMC sidesteps the integral by sampling the joint posterior $p(\mu, \sigma_\eta, h_{1:T} \mid y_{1:T})$ and reading off any marginal we need from the draws.
 
 Marginally over $h_t$, the observation is a **scale mixture of normals**: $y_t = \mu + \exp(h_t / 2)\,\varepsilon_t$ with $\varepsilon_t \sim N(0, 1)$ independent of $h_t$. Three consequences follow that a fixed-variance model cannot reproduce. The marginal distribution of $y_t$ has heavier tails than a Gaussian. Squared residuals $(y_t - \mu)^2$ are positively autocorrelated — volatility clustering. And a realised large $|y_t|$ is evidence of a large $h_t$, which raises the posterior probability that $|y_{t+1}|$ is also large. These are exactly the stylised facts that motivate the model for macro and financial series.
 
 It is worth contrasting this setup with the GARCH family, which targets the same stylised facts by a different route. In GARCH, the conditional variance is a deterministic function of past observations, $h_t = \omega + \alpha\,(y_{t-1} - \mu)^2 + \beta\,h_{t-1}$, so given $(y_{1:t-1}, \omega, \alpha, \beta)$ the variance at $t$ is a known number and the likelihood factorises without an integral. The SV variance has its *own* innovation $\eta_t$ that is not observed, which makes it a random variable even after conditioning on the full history. That extra source of randomness is what lets SV allow volatility surprises — moments when the conditional variance jumps in a way not foreseeable from past squared returns — and it is also the reason the SV likelihood is intractable in closed form.
 
-The random-walk specification for $h_t$ is non-stationary. Conditional on $h_0$,
+The random-walk specification for $h_t$ is non-stationary. Conditional on $h_0$, $$h_t \mid h_0, \sigma_\eta \;\sim\; N\!\left(h_0,\, t\,\sigma_\eta^2\right),$$ so the unconditional variance of log-volatility grows linearly in $t$. That is the appropriate prior when there is no reason to anchor volatility to a particular level and we want the data to decide how far it drifts. The AR(1) variant introduced later replaces this with a mean-reverting state equation and restores stationarity.
 
-$$h_t \mid h_0, \sigma_\eta \;\sim\; N\!\left(h_0,\, t\,\sigma_\eta^2\right),$$
-
- so the unconditional variance of log-volatility grows linearly in $t$. That is the appropriate prior when there is no reason to anchor volatility to a particular level and we want the data to decide how far it drifts. The AR(1) variant introduced later replaces this with a mean-reverting state equation and restores stationarity.
-
-!!! note "NUTS on the SV likelihood"
+!!! note “NUTS on the SV likelihood”
 
     We sample the SV model with PyMC's NUTS using a non-centered reparameterisation of the latent log-volatility path. Non-centering lets Hamiltonian Monte Carlo traverse the funnel geometry induced by $\sigma_\eta$ without the auxiliary-mixture approximation introduced by Kim, Shephard and Chib (1998) to make the likelihood conditionally Gaussian.
 
@@ -245,7 +225,7 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
         Finished Chains:
         <span id="active-chains">4</span>
     </p>
-    <p>Sampling for 25 seconds</p>
+    <p>Sampling for 27 seconds</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>
@@ -392,11 +372,7 @@ The gap between the two estimators is most striking in the 1970s and early 1980s
 
 ## AR(1) dynamics for log-volatility
 
-The random-walk specification places no anchor on the level of log-volatility: if $\sigma_\eta$ is small the path drifts slowly, if it is large the path wanders. An AR(1) alternative adds explicit mean reversion,
-
-$$h_t = \alpha + \phi\,(h_{t-1} - \alpha) + \sigma_\eta\, \eta_t,$$
-
- with $|\phi| < 1$. This lets the data speak to whether log-volatility tends to return to a long-run level $\alpha$ and, if so, how fast. A persistence parameter $\phi$ posterior concentrated near 1 is consistent with the random-walk approximation being adequate; values meaningfully below 1 indicate stronger mean reversion than a pure random walk allows.
+The random-walk specification places no anchor on the level of log-volatility: if $\sigma_\eta$ is small the path drifts slowly, if it is large the path wanders. An AR(1) alternative adds explicit mean reversion, $$h_t = \alpha + \phi\,(h_{t-1} - \alpha) + \sigma_\eta\, \eta_t,$$ with $|\phi| < 1$. This lets the data speak to whether log-volatility tends to return to a long-run level $\alpha$ and, if so, how fast. A persistence parameter $\phi$ posterior concentrated near 1 is consistent with the random-walk approximation being adequate; values meaningfully below 1 indicate stronger mean reversion than a pure random walk allows.
 
 Instead of the `"ar1"` shorthand used above, we pass an explicit `AR1()` dynamics object. Both forms are equivalent; the object form is the extension point if you want to add a new dynamics (e.g. SVt or SV with leverage) without editing the library — implement the `SVDynamics` protocol and pass an instance here.
 
@@ -599,6 +575,240 @@ fig_fcst.tight_layout()
 ![12-step density forecast from the random-walk SV model.](stochastic-volatility_files/figure-commonmark/sv-forecast-output-1.png)
 
 In principle the fan should widen with horizon: $\mathrm{Var}(h_{T+h}\mid h_T,\sigma_\eta) = h\,\sigma_\eta^2$ grows linearly in $h$, and $\mathrm{Var}(y_{T+h})$ inherits an $\exp(0.5\, h\, \sigma_\eta^2)$ factor on top of $\exp(h_T)$. In practice the visible widening here is modest: the posterior $\sigma_\eta$ for monthly CPI inflation is small, so over twelve steps the forward-dispersion factor on the conditional SD is only a few percent, and the bulk of the fan width comes from posterior uncertainty in $h_T$ itself rather than from forward dispersion. Pushing the horizon out further, or using a series with a larger $\sigma_\eta$, makes the geometric growth easier to see.
+
+## Stochastic volatility inside a VAR
+
+The same `monetary_policy.csv` we loaded earlier already carries a multivariate macro panel (`output`, `prices`, `rate`). To swap the homoscedastic VAR for one with multivariate Clark-style stochastic volatility, pass `volatility="sv"` (or a `StochasticVolatility(...)` instance) when constructing the spec:
+
+``` python
+from impulso import VAR, VARData
+from impulso.identification import Cholesky
+
+var_data = VARData.from_df(df, endog=["output", "prices", "rate"])
+
+if ci:
+    sampler_var = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=7)
+else:
+    sampler_var = NUTSSampler(
+        draws=500,
+        tune=1000,
+        chains=2,
+        cores=1,  # cores=1 avoids the macOS multiprocessing segfault
+        target_accept=0.95,
+        random_seed=7,
+    )
+
+fitted_var = VAR(lags=2, volatility="sv").fit(var_data, sampler=sampler_var)
+```
+
+<style>
+    :root {
+        --column-width-1: 40%; /* Progress column width */
+        --column-width-2: 15%; /* Chain column width */
+        --column-width-3: 15%; /* Divergences column width */
+        --column-width-4: 15%; /* Step Size column width */
+        --column-width-5: 15%; /* Gradients/Draw column width */
+    }
+&#10;    .nutpie {
+        max-width: 800px;
+        margin: 10px auto;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        //color: #333;
+        //background-color: #fff;
+        padding: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-radius: 8px;
+        font-size: 14px; /* Smaller font size for a more compact look */
+    }
+    .nutpie table {
+        width: 100%;
+        border-collapse: collapse; /* Remove any extra space between borders */
+    }
+    .nutpie th, .nutpie td {
+        padding: 8px 10px; /* Reduce padding to make table more compact */
+        text-align: left;
+        border-bottom: 1px solid #888;
+    }
+    .nutpie th {
+        //background-color: #f0f0f0;
+    }
+&#10;    .nutpie th:nth-child(1) { width: var(--column-width-1); }
+    .nutpie th:nth-child(2) { width: var(--column-width-2); }
+    .nutpie th:nth-child(3) { width: var(--column-width-3); }
+    .nutpie th:nth-child(4) { width: var(--column-width-4); }
+    .nutpie th:nth-child(5) { width: var(--column-width-5); }
+&#10;    .nutpie progress {
+        width: 100%;
+        height: 15px; /* Smaller progress bars */
+        border-radius: 5px;
+    }
+    progress::-webkit-progress-bar {
+        background-color: #eee;
+        border-radius: 5px;
+    }
+    progress::-webkit-progress-value {
+        background-color: #5cb85c;
+        border-radius: 5px;
+    }
+    progress::-moz-progress-bar {
+        background-color: #5cb85c;
+        border-radius: 5px;
+    }
+    .nutpie .progress-cell {
+        width: 100%;
+    }
+&#10;    .nutpie p strong { font-size: 16px; font-weight: bold; }
+&#10;    @media (prefers-color-scheme: dark) {
+        .nutpie {
+            //color: #ddd;
+            //background-color: #1e1e1e;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        .nutpie table, .nutpie th, .nutpie td {
+            border-color: #555;
+            color: #ccc;
+        }
+        .nutpie th {
+            background-color: #2a2a2a;
+        }
+        .nutpie progress::-webkit-progress-bar {
+            background-color: #444;
+        }
+        .nutpie progress::-webkit-progress-value {
+            background-color: #3178c6;
+        }
+        .nutpie progress::-moz-progress-bar {
+            background-color: #3178c6;
+        }
+    }
+</style>
+
+<div class="nutpie">
+    <p><strong>Sampler Progress</strong></p>
+    <p>Total Chains: <span id="total-chains">2</span></p>
+    <p>Active Chains: <span id="active-chains">0</span></p>
+    <p>
+        Finished Chains:
+        <span id="active-chains">2</span>
+    </p>
+    <p>Sampling for 5 minutes</p>
+    <p>
+        Estimated Time to Completion:
+        <span id="eta">now</span>
+    </p>
+&#10;    <progress
+        id="total-progress-bar"
+        max="3000"
+        value="3000">
+    </progress>
+    <table>
+        <thead>
+            <tr>
+                <th>Progress</th>
+                <th>Draws</th>
+                <th>Divergences</th>
+                <th>Step Size</th>
+                <th>Gradients/Draw</th>
+            </tr>
+        </thead>
+        <tbody id="chain-details">
+            &#10;                <tr>
+                    <td class="progress-cell">
+                        <progress
+                            max="1500"
+                            value="1500">
+                        </progress>
+                    </td>
+                    <td>1500</td>
+                    <td>241</td>
+                    <td>0.01</td>
+                    <td>457</td>
+                </tr>
+            &#10;                <tr>
+                    <td class="progress-cell">
+                        <progress
+                            max="1500"
+                            value="1500">
+                        </progress>
+                    </td>
+                    <td>1500</td>
+                    <td>183</td>
+                    <td>0.01</td>
+                    <td>174</td>
+                </tr>
+            &#10;            </tr>
+        </tbody>
+    </table>
+</div>
+
+For a constant-volatility VAR, `FittedVAR.sigma()` returns a single covariance matrix per posterior draw, shape `(chains, draws, n_vars, n_vars)`. With `volatility="sv"` it returns a full per-period path:
+
+``` python
+sigma_path = fitted_var.sigma()
+print(sigma_path.shape)  # (chains, draws, T_eff, n_vars, n_vars)
+```
+
+    (2, 500, 732, 3, 3)
+
+The per-variable log-volatility paths live in the posterior under the stacked `h` deterministic, shape `(chains, draws, T_eff, n_vars)`:
+
+``` python
+h = fitted_var.idata.posterior["h"]
+print(h.dims, h.shape)
+```
+
+    ('chain', 'draw', 'h_dim_0', 'h_dim_1') (2, 500, 732, 3)
+
+## Time-varying impulse responses with `at=`
+
+When the volatility is time-varying, the structural impact matrix is too. The `at=` parameter on `impulse_response`, `forecast_error_variance_decomposition`, and `historical_decomposition` selects which date’s Cholesky factor (and hence which structural impact matrix) the computation uses:
+
+- `at="last"` — most recent in-sample period (the default when the volatility is stochastic)
+- `at=t` — a specific integer index into the lag-trimmed sample
+- `at="all"` — every in-sample period; the result carries a `time` dim
+
+For constant-volatility VARs, `at=` is a no-op (the same `L` applies at every date), so existing tutorials that omit it keep working unchanged.
+
+``` python
+identified = fitted_var.set_identification_strategy(
+    Cholesky(ordering=["output", "prices", "rate"])
+)
+```
+
+A single date — the most recent in-sample period:
+
+``` python
+irf_latest = identified.impulse_response(horizon=12, at="last")
+irf_latest_arr = irf_latest.idata.posterior_predictive["irf"]
+print(irf_latest_arr.shape)  # (chains, draws, horizon+1, n_vars, n_vars)
+```
+
+    (2, 500, 13, 3, 3)
+
+A specific historical date. The integer index is into the lag-trimmed sample, so we offset by `n_lags` when resolving from the calendar index:
+
+``` python
+trimmed_index = var_data.index[fitted_var.n_lags :]
+t_1982 = trimmed_index.get_loc("1982-01-01")
+irf_1982 = identified.impulse_response(horizon=12, at=t_1982)
+print(irf_1982.idata.posterior_predictive["irf"].shape)
+```
+
+    (2, 500, 13, 3, 3)
+
+Every in-sample date in one call. The result is a six-dimensional array — `(chains, draws, time, horizon+1, n_vars, n_vars)` — that you usually post-process directly via `irf_all.idata` rather than `.median()` / `.plot()`, which intentionally raise for the time-aware result:
+
+``` python
+irf_all = identified.impulse_response(horizon=12, at="all")
+irf_all_arr = irf_all.idata.posterior_predictive["irf"]
+print(irf_all_arr.shape)
+print(irf_all_arr.dims)
+```
+
+    (2, 500, 732, 13, 3, 3)
+    ('chain', 'draw', 'time', 'horizon', 'response', 'shock')
+
+The same `at=` argument is accepted by `forecast_error_variance_decomposition` and `historical_decomposition` with the same semantics.
 
 ## References
 

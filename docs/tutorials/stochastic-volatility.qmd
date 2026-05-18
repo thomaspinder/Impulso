@@ -245,6 +245,89 @@ fig_fcst.tight_layout()
 
 In principle the fan should widen with horizon: $\mathrm{Var}(h_{T+h}\mid h_T,\sigma_\eta) = h\,\sigma_\eta^2$ grows linearly in $h$, and $\mathrm{Var}(y_{T+h})$ inherits an $\exp(0.5\, h\, \sigma_\eta^2)$ factor on top of $\exp(h_T)$. In practice the visible widening here is modest: the posterior $\sigma_\eta$ for monthly CPI inflation is small, so over twelve steps the forward-dispersion factor on the conditional SD is only a few percent, and the bulk of the fan width comes from posterior uncertainty in $h_T$ itself rather than from forward dispersion. Pushing the horizon out further, or using a series with a larger $\sigma_\eta$, makes the geometric growth easier to see.
 
+## Stochastic volatility inside a VAR
+
+The same `monetary_policy.csv` we loaded earlier already carries a multivariate macro panel (`output`, `prices`, `rate`). To swap the homoscedastic VAR for one with multivariate Clark-style stochastic volatility, pass `volatility="sv"` (or a `StochasticVolatility(...)` instance) when constructing the spec:
+
+```{python}
+from impulso import VAR, VARData
+from impulso.identification import Cholesky
+
+var_data = VARData.from_df(df, endog=["output", "prices", "rate"])
+
+if ci:
+    sampler_var = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=7)
+else:
+    sampler_var = NUTSSampler(
+        draws=500,
+        tune=1000,
+        chains=2,
+        cores=1,  # cores=1 avoids the macOS multiprocessing segfault
+        target_accept=0.95,
+        random_seed=7,
+    )
+
+fitted_var = VAR(lags=2, volatility="sv").fit(var_data, sampler=sampler_var)
+```
+
+For a constant-volatility VAR, `FittedVAR.sigma()` returns a single covariance matrix per posterior draw, shape `(chains, draws, n_vars, n_vars)`. With `volatility="sv"` it returns a full per-period path:
+
+```{python}
+sigma_path = fitted_var.sigma()
+print(sigma_path.shape)  # (chains, draws, T_eff, n_vars, n_vars)
+```
+
+The per-variable log-volatility paths live in the posterior under the stacked `h` deterministic, shape `(chains, draws, T_eff, n_vars)`:
+
+```{python}
+h = fitted_var.idata.posterior["h"]
+print(h.dims, h.shape)
+```
+
+## Time-varying impulse responses with `at=`
+
+When the volatility is time-varying, the structural impact matrix is too. The `at=` parameter on `impulse_response`, `forecast_error_variance_decomposition`, and `historical_decomposition` selects which date's Cholesky factor (and hence which structural impact matrix) the computation uses:
+
+- `at="last"` — most recent in-sample period (the default when the volatility is stochastic)
+- `at=t` — a specific integer index into the lag-trimmed sample
+- `at="all"` — every in-sample period; the result carries a `time` dim
+
+For constant-volatility VARs, `at=` is a no-op (the same `L` applies at every date), so existing tutorials that omit it keep working unchanged.
+
+```{python}
+identified = fitted_var.set_identification_strategy(
+    Cholesky(ordering=["output", "prices", "rate"])
+)
+```
+
+A single date — the most recent in-sample period:
+
+```{python}
+irf_latest = identified.impulse_response(horizon=12, at="last")
+irf_latest_arr = irf_latest.idata.posterior_predictive["irf"]
+print(irf_latest_arr.shape)  # (chains, draws, horizon+1, n_vars, n_vars)
+```
+
+A specific historical date. The integer index is into the lag-trimmed sample, so we offset by `n_lags` when resolving from the calendar index:
+
+```{python}
+trimmed_index = var_data.index[fitted_var.n_lags :]
+t_1982 = trimmed_index.get_loc("1982-01-01")
+irf_1982 = identified.impulse_response(horizon=12, at=t_1982)
+print(irf_1982.idata.posterior_predictive["irf"].shape)
+```
+
+Every in-sample date in one call. The result is a six-dimensional array — `(chains, draws, time, horizon+1, n_vars, n_vars)` — that you usually post-process directly via `irf_all.idata` rather than `.median()` / `.plot()`, which intentionally raise for the time-aware result:
+
+```{python}
+irf_all = identified.impulse_response(horizon=12, at="all")
+irf_all_arr = irf_all.idata.posterior_predictive["irf"]
+print(irf_all_arr.shape)
+print(irf_all_arr.dims)
+```
+
+The same `at=` argument is accepted by `forecast_error_variance_decomposition` and `historical_decomposition` with the same semantics.
+
 ## References
 
 

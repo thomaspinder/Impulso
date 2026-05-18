@@ -286,6 +286,29 @@ class TestImpulseResponseAt:
         # For Constant, every time slice must be identical.
         np.testing.assert_array_equal(irf.values[:, :, 0, :, :, :], irf.values[:, :, -1, :, :, :])
 
+    def test_at_all_with_named_index_does_not_collide(self, synthetic_idata_2v):
+        """Regression: VARData built from a DataFrame whose index has a name
+        (e.g. 'date') used to crash at='all' because xarray inferred the
+        coord's dim from the DatetimeIndex name, conflicting with the
+        declared 'time' dim."""
+        import pandas as pd
+
+        from impulso.data import VARData
+
+        T, n = 30, 2
+        rng = np.random.default_rng(0)
+        y = rng.standard_normal((T, n)) * 0.1
+        named_index = pd.date_range("2000-01-01", periods=T, freq="QS", name="date")
+        var_data_named = VARData(endog=y, endog_names=["y1", "y2"], index=named_index)
+
+        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_named)
+        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
+
+        irf_all = identified.impulse_response(horizon=3, at="all")
+        irf = irf_all.idata.posterior_predictive["irf"]
+        assert "time" in irf.dims
+        assert "date" not in irf.dims
+
 
 class TestFEVDAt:
     def test_at_ignored_for_constant(self, synthetic_idata_2v, var_data_2v):
@@ -316,6 +339,27 @@ class TestFEVDAt:
         assert fevd.shape == (n_chains, n_draws, T_eff, horizon + 1, n_vars, n_vars)
         # For Constant, every time slice must be identical.
         np.testing.assert_array_equal(fevd.values[:, :, 0, :, :, :], fevd.values[:, :, -1, :, :, :])
+
+    def test_at_all_with_named_index_does_not_collide(self, synthetic_idata_2v):
+        """Regression: same as the IRF test above — named DatetimeIndex used to
+        crash at='all' for FEVD as well."""
+        import pandas as pd
+
+        from impulso.data import VARData
+
+        T, n = 30, 2
+        rng = np.random.default_rng(0)
+        y = rng.standard_normal((T, n)) * 0.1
+        named_index = pd.date_range("2000-01-01", periods=T, freq="QS", name="date")
+        var_data_named = VARData(endog=y, endog_names=["y1", "y2"], index=named_index)
+
+        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_named)
+        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
+
+        fevd_all = identified.fevd(horizon=3, at="all")
+        fevd = fevd_all.idata.posterior_predictive["fevd"]
+        assert "time" in fevd.dims
+        assert "date" not in fevd.dims
 
     def test_median_raises_for_at_all(self, synthetic_identified_idata_2v, var_data_2v):
         """median()/hdi()/to_dataframe() must refuse FEVDs with a time dim."""
