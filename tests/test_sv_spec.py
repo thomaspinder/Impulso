@@ -289,6 +289,77 @@ class TestSVBuildPymcLatentDataValidation:
             sv.build_pymc_latent(n_vars=2, T=50, data=bad)
 
 
+class TestSVMultivariatePerVariablePriors:
+    """Each variable's priors come from its own residual column, not a shared
+    series (closes #65)."""
+
+    def test_calls_build_priors_with_per_variable_slice(self, monkeypatch):
+        import pymc as pm
+
+        from impulso.sv import priors as priors_module
+        from impulso.sv.spec import StochasticVolatility
+
+        calls = []
+        original = priors_module.SVDefaultPrior.build_priors
+
+        def spy(self, y):
+            calls.append(np.asarray(y).copy())
+            return original(self, y)
+
+        monkeypatch.setattr(priors_module.SVDefaultPrior, "build_priors", spy)
+
+        sv = StochasticVolatility()
+        rng = np.random.default_rng(0)
+        data = rng.standard_normal((30, 2))
+        with pm.Model():
+            sv.build_pymc_latent(n_vars=2, T=30, data=data)
+
+        assert len(calls) == 2, f"expected 2 per-variable calls, got {len(calls)}"
+        np.testing.assert_array_equal(calls[0], data[:, 0])
+        np.testing.assert_array_equal(calls[1], data[:, 1])
+
+
+class TestSVMultivariateDynamicsAwareLevel:
+    """When the dynamics owns the log-vol level (AR(1) via alpha), the
+    multivariate adapter must not also register a redundant outer mu_i
+    (closes #66)."""
+
+    def test_ar1_dynamics_skips_per_variable_mu(self):
+        import pymc as pm
+
+        from impulso.sv.dynamics import AR1
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility(dynamics=AR1())
+        rng = np.random.default_rng(1)
+        data = rng.standard_normal((30, 2))
+        with pm.Model() as model:
+            sv.build_pymc_latent(n_vars=2, T=30, data=data)
+
+        names = {v.name for v in model.unobserved_RVs}
+        assert "v0_mu" not in names
+        assert "v1_mu" not in names
+        # Alpha is per-variable and owned by the AR(1) dynamics.
+        assert "v0_alpha" in names
+        assert "v1_alpha" in names
+
+    def test_random_walk_dynamics_keeps_per_variable_mu(self):
+        import pymc as pm
+
+        from impulso.sv.dynamics import RandomWalk
+        from impulso.sv.spec import StochasticVolatility
+
+        sv = StochasticVolatility(dynamics=RandomWalk())
+        rng = np.random.default_rng(2)
+        data = rng.standard_normal((30, 2))
+        with pm.Model() as model:
+            sv.build_pymc_latent(n_vars=2, T=30, data=data)
+
+        names = {v.name for v in model.unobserved_RVs}
+        assert "v0_mu" in names
+        assert "v1_mu" in names
+
+
 class TestSVCholeskyAt:
     def test_returns_correct_shape(self, synthetic_sv_idata_2v):
         from impulso.sv.spec import StochasticVolatility
