@@ -156,6 +156,22 @@ class TestSVDynamicsDiscriminator:
             ar.name = "random_walk"  # ty: ignore[invalid-assignment]
 
 
+class TestHasExplicitLevel:
+    """SVDynamics adapters expose whether they own the log-vol level (via an
+    intercept like AR(1)'s alpha) so the multivariate SV adapter can avoid a
+    redundant outer mu_i shift (issue #66)."""
+
+    def test_random_walk_has_no_explicit_level(self):
+        from impulso.sv.dynamics import RandomWalk
+
+        assert RandomWalk().has_explicit_level is False
+
+    def test_ar1_has_explicit_level(self):
+        from impulso.sv.dynamics import AR1
+
+        assert AR1().has_explicit_level is True
+
+
 class TestStochasticVolatilityIsVolatilityProcess:
     def test_satisfies_protocol(self):
         """SV is a VolatilityProcess at runtime (after stub methods land)."""
