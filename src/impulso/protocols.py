@@ -89,6 +89,11 @@ class VolatilityProcess(Protocol):
     """
 
     name: str
+    is_time_varying: bool
+    """Whether Σ_t evolves over time. ``False`` for homoscedastic adapters
+    (``Constant``); ``True`` for stochastic-volatility adapters. Drives
+    branching in `FittedVAR.sigma` and `IdentifiedVAR.historical_decomposition`
+    so neither has to string-sniff the adapter ``name``."""
 
     def build_pymc_latent(
         self,

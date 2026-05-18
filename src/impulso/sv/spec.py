@@ -27,6 +27,7 @@ class StochasticVolatility(ImpulsoBaseModel):
     Attributes:
         name: Discriminator key for the volatility-process registry
             (always ``"sv"``).
+        is_time_varying: Always ``True`` — Σ_t evolves over t.
         dynamics: Log-volatility dynamics. String shorthand (``"random_walk"``
             or ``"ar1"``) or an explicit ``SVDynamics`` instance (e.g.
             ``RandomWalk()``, ``AR1()``).
@@ -34,6 +35,7 @@ class StochasticVolatility(ImpulsoBaseModel):
     """
 
     name: Literal["sv"] = "sv"
+    is_time_varying: bool = True
     dynamics: Literal["random_walk", "ar1"] | SVDynamics = "random_walk"
     prior: Literal["default"] | SVPrior = "default"
 

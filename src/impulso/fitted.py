@@ -73,7 +73,7 @@ class FittedVAR(ImpulsoBaseModel):
             Posterior draws of Σ (or Σ_t for SV) computed from the
             volatility adapter's Cholesky factor as ``L @ L.T``.
         """
-        if getattr(self.volatility, "name", None) == "sv":
+        if self.volatility.is_time_varying:
             T = self.data.endog.shape[0] - self.n_lags
             L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
             # Σ_t = L_t @ L_t.T, broadcast over (chains, draws, T).

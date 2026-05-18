@@ -268,46 +268,16 @@ class TestImpulseResponseAt:
             irf_at_none.idata.posterior_predictive["irf"].values,
         )
 
-    def test_at_all_returns_time_axis(self, synthetic_idata_2v, var_data_2v):
-        """at='all' adds a time dim of correct length to the result."""
+    def test_at_all_raises_for_constant_volatility(self, synthetic_idata_2v, var_data_2v):
+        """``at='all'`` is meaningless under constant Σ — the per-t IRF would
+        be identical at every t. Refuse with a ``ValueError`` pointing the
+        caller at ``at=None`` / ``at='last'``.
+        """
         fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_2v)
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
-        horizon = 5
-        irf_all = identified.impulse_response(horizon=horizon, at="all")
-        irf = irf_all.idata.posterior_predictive["irf"]
-        assert "time" in irf.dims
-        T_eff = var_data_2v.endog.shape[0] - 1  # lags=1
-        n_chains = fitted.idata.posterior.sizes["chain"]
-        n_draws = fitted.idata.posterior.sizes["draw"]
-        n_vars = len(fitted.var_names)
-        assert irf.sizes["time"] == T_eff
-        assert irf.shape == (n_chains, n_draws, T_eff, horizon + 1, n_vars, n_vars)
-        # For Constant, every time slice must be identical.
-        np.testing.assert_array_equal(irf.values[:, :, 0, :, :, :], irf.values[:, :, -1, :, :, :])
-
-    def test_at_all_with_named_index_does_not_collide(self, synthetic_idata_2v):
-        """Regression: VARData built from a DataFrame whose index has a name
-        (e.g. 'date') used to crash at='all' because xarray inferred the
-        coord's dim from the DatetimeIndex name, conflicting with the
-        declared 'time' dim."""
-        import pandas as pd
-
-        from impulso.data import VARData
-
-        T, n = 30, 2
-        rng = np.random.default_rng(0)
-        y = rng.standard_normal((T, n)) * 0.1
-        named_index = pd.date_range("2000-01-01", periods=T, freq="QS", name="date")
-        var_data_named = VARData(endog=y, endog_names=["y1", "y2"], index=named_index)
-
-        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_named)
-        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
-
-        irf_all = identified.impulse_response(horizon=3, at="all")
-        irf = irf_all.idata.posterior_predictive["irf"]
-        assert "time" in irf.dims
-        assert "date" not in irf.dims
+        with pytest.raises(ValueError, match=r"at=None.*at='last'"):
+            identified.impulse_response(horizon=5, at="all")
 
 
 class TestFEVDAt:
@@ -322,58 +292,34 @@ class TestFEVDAt:
             fevd_at_int.idata.posterior_predictive["fevd"].values,
         )
 
-    def test_at_all_returns_time_axis(self, synthetic_idata_2v, var_data_2v):
-        """at='all' adds a time dim of correct length to the result."""
+    def test_at_all_raises_for_constant_volatility(self, synthetic_idata_2v, var_data_2v):
+        """``at='all'`` is meaningless under constant Σ — same reasoning as IRF."""
         fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_2v)
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
-        horizon = 5
-        fevd_all = identified.fevd(horizon=horizon, at="all")
-        fevd = fevd_all.idata.posterior_predictive["fevd"]
-        assert "time" in fevd.dims
-        T_eff = var_data_2v.endog.shape[0] - 1  # lags=1
-        n_chains = fitted.idata.posterior.sizes["chain"]
-        n_draws = fitted.idata.posterior.sizes["draw"]
-        n_vars = len(fitted.var_names)
-        assert fevd.sizes["time"] == T_eff
-        assert fevd.shape == (n_chains, n_draws, T_eff, horizon + 1, n_vars, n_vars)
-        # For Constant, every time slice must be identical.
-        np.testing.assert_array_equal(fevd.values[:, :, 0, :, :, :], fevd.values[:, :, -1, :, :, :])
+        with pytest.raises(ValueError, match=r"at=None.*at='last'"):
+            identified.fevd(horizon=5, at="all")
 
-    def test_at_all_with_named_index_does_not_collide(self, synthetic_idata_2v):
-        """Regression: same as the IRF test above — named DatetimeIndex used to
-        crash at='all' for FEVD as well."""
-        import pandas as pd
-
-        from impulso.data import VARData
-
-        T, n = 30, 2
+    def test_median_raises_for_time_dim_fevd(self):
+        """``FEVDResult.median()/hdi()/to_dataframe()`` must refuse FEVDs that
+        carry a ``time`` dim (only reachable via time-varying volatility now
+        that constant + ``at='all'`` raises at the call site)."""
         rng = np.random.default_rng(0)
-        y = rng.standard_normal((T, n)) * 0.1
-        named_index = pd.date_range("2000-01-01", periods=T, freq="QS", name="date")
-        var_data_named = VARData(endog=y, endog_names=["y1", "y2"], index=named_index)
-
-        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_named)
-        identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
-
-        fevd_all = identified.fevd(horizon=3, at="all")
-        fevd = fevd_all.idata.posterior_predictive["fevd"]
-        assert "time" in fevd.dims
-        assert "date" not in fevd.dims
-
-    def test_median_raises_for_at_all(self, synthetic_identified_idata_2v, var_data_2v):
-        """median()/hdi()/to_dataframe() must refuse FEVDs with a time dim."""
-        from impulso.volatility import Constant
-
-        identified = IdentifiedVAR.model_construct(
-            idata=synthetic_identified_idata_2v,
-            n_lags=1,
-            data=var_data_2v,
-            var_names=["y1", "y2"],
-            volatility=Constant(),
-            scheme=Cholesky(ordering=["y1", "y2"]),
+        T_eff, horizon = 5, 4
+        data = rng.uniform(size=(2, 10, T_eff, horizon + 1, 2, 2))
+        fevd_da = xr.DataArray(
+            data,
+            dims=["chain", "draw", "time", "horizon", "response", "shock"],
+            coords={
+                "response": ["y1", "y2"],
+                "shock": ["y1", "y2"],
+                "horizon": np.arange(horizon + 1),
+            },
+            name="fevd",
         )
-        fevd_all = identified.fevd(horizon=5, at="all")
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
+        fevd_all = FEVDResult.model_construct(idata=idata, horizon=horizon, var_names=["y1", "y2"])
+
         with pytest.raises(NotImplementedError, match="time-varying FEVDs"):
             fevd_all.median()
         with pytest.raises(NotImplementedError, match="time-varying FEVDs"):
@@ -501,6 +447,7 @@ class TestHistoricalDecompositionAt:
 
         class _FakeSV:
             name = "sv"
+            is_time_varying = True
 
             def build_pymc_latent(self, n_vars, T):  # pragma: no cover
                 raise NotImplementedError
@@ -549,6 +496,7 @@ class TestHistoricalDecompositionAt:
 
         class _FakeSV:
             name = "sv"
+            is_time_varying = True
 
             def build_pymc_latent(self, n_vars, T):  # pragma: no cover
                 raise NotImplementedError
