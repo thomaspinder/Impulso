@@ -71,6 +71,18 @@ class TestConstantBuildPymcLatent:
         assert "sigma_sd" in var_names
         assert "tril_offdiag" not in var_names
 
+    def test_registers_L_deterministic(self):
+        """L is exposed as a posterior deterministic so cholesky_at can read it
+        without re-decomposing Σ on every call."""
+        import pymc as pm
+
+        adapter = Constant()
+        with pm.Model() as model:
+            adapter.build_pymc_latent(n_vars=3, T=100)
+
+        det_names = {v.name for v in model.deterministics}
+        assert "L" in det_names
+
     def test_n_vars_2_indexing_and_diagonal(self):
         """Smallest non-trivial off-diagonal case.
 

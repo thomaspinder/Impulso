@@ -78,7 +78,9 @@ class Constant(ImpulsoModel):
                 for j in range(i):
                     L = pt.set_subtensor(L[i, j], tril_vals[idx] * sd[i])
                     idx += 1
-        return L
+        # Expose L as a deterministic so cholesky_at can read it directly
+        # from the posterior instead of re-decomposing Σ on every call.
+        return pm.Deterministic("L", L)
 
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
         """Return the lower-triangular Cholesky factor of Σ for every draw.
