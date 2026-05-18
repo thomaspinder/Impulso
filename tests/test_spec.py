@@ -168,6 +168,68 @@ class TestVarFitWithSV:
         assert "Sigma" not in det_names
 
 
+class TestVarPassesResidualsToVolatility:
+    """VAR computes OLS residuals once and passes them as `data` to
+    volatility.build_pymc_latent — the multivariate SV adapter relies on
+    this to seed per-variable priors (closes #65)."""
+
+    def test_var_threads_ols_residuals_through_volatility_adapter(self, var_data_2v):
+        import numpy as np
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        from impulso.protocols import VolatilityProcess
+
+        captured = {}
+
+        class CapturingVolatility:
+            """VolatilityProcess stand-in that records the `data` it receives
+            and returns a trivial constant L so the model still builds."""
+
+            name = "capturing"
+
+            def build_pymc_latent(self, n_vars, T, data=None):
+                captured["n_vars"] = n_vars
+                captured["T"] = T
+                captured["data"] = None if data is None else data.copy()
+                sd = pm.HalfCauchy("capturing_sd", beta=1.0, shape=n_vars)
+                L = pt.zeros((n_vars, n_vars))
+                L = pt.set_subtensor(L[np.diag_indices(n_vars)], sd)
+                return pm.Deterministic("L", L)
+
+            def cholesky_at(self, posterior, t):
+                return posterior["L"].values
+
+            def cholesky_path(self, posterior, T):
+                L = self.cholesky_at(posterior, t=None)
+                return np.broadcast_to(L[:, :, None, :, :], (*L.shape[:2], T, *L.shape[-2:])).copy()
+
+            def forecast_cholesky_path(self, posterior, steps, rng):
+                return self.cholesky_path(posterior, steps)
+
+        assert isinstance(CapturingVolatility(), VolatilityProcess)
+
+        class CapturingSampler:
+            name = "capture"
+
+            def sample(self, model):
+                raise RuntimeError("stop before sampling")
+
+        with pytest.raises(RuntimeError, match="stop before sampling"):
+            VAR(lags=1, volatility=CapturingVolatility()).fit(var_data_2v, sampler=CapturingSampler())
+
+        n_lags = 1
+        T_eff = var_data_2v.endog.shape[0] - n_lags
+        n_vars = var_data_2v.endog.shape[1]
+
+        assert captured["n_vars"] == n_vars
+        assert captured["T"] == T_eff
+        assert captured["data"] is not None, "VAR did not pass `data` to volatility"
+        assert captured["data"].shape == (T_eff, n_vars)
+        # OLS residuals are demeaned by construction (intercept in X_full).
+        assert np.allclose(captured["data"].mean(axis=0), 0.0, atol=1e-8)
+
+
 class TestVolatilityShorthandSV:
     def test_sv_string_resolves_to_stochastic_volatility(self):
         from impulso.spec import VAR

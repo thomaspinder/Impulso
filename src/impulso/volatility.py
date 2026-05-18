@@ -47,7 +47,12 @@ class Constant(ImpulsoModel):
     sigma_sd_beta: float = Field(2.5, gt=0)
     tril_offdiag_sigma: float = Field(0.5, gt=0)
 
-    def build_pymc_latent(self, n_vars: int, T: int) -> "pt.TensorVariable":
+    def build_pymc_latent(
+        self,
+        n_vars: int,
+        T: int,
+        data: np.ndarray | None = None,
+    ) -> "pt.TensorVariable":
         """Register the constant-volatility latent vars in the active PyMC model.
 
         Lifts the manual-Cholesky parameterisation from the previous
@@ -60,6 +65,8 @@ class Constant(ImpulsoModel):
             T: Number of observations after lag trimming. Ignored for
                 constant volatility — kept in the signature for parity
                 with stochastic adapters.
+            data: Accepted for Protocol parity with stochastic adapters and
+                ignored — Σ is data-independent in the constant case.
 
         Returns:
             Lower-triangular Cholesky factor L of shape (n_vars, n_vars).

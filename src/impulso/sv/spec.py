@@ -103,34 +103,35 @@ class StochasticVolatility(ImpulsoBaseModel):
 
         return model
 
-    def build_pymc_latent(self, n_vars: int, T: int) -> "pt.TensorVariable":
+    def build_pymc_latent(
+        self,
+        n_vars: int,
+        T: int,
+        data: np.ndarray | None = None,
+    ) -> "pt.TensorVariable":
         """Register the Clark-style multivariate SV latents.
 
-        For each ``i`` in ``0..n_vars-1``: registers a log-volatility path
-        ``h_i,t`` following the configured dynamics, plus a per-variable
-        ``sigma_eta_i`` (HalfNormal) and ``mu_i`` (Normal). The shared
-        mixing factor ``R_chol`` (a unit-diagonal lower-triangular
-        ``n_vars x n_vars`` matrix) is registered once via the manual LKJ
-        workaround. Note: pinning the diagonal of a Cholesky factor to 1
-        does **not** make ``R_chol @ R_chol.T`` a correlation matrix; the
-        Gram-matrix diagonal is ``1 + sum_j off[i,j]^2``. The diagonal
-        pin is an *identifiability* device: all volatility scaling lives
-        in ``h``, so ``R_chol`` is identified only up to its
-        off-diagonal mixing entries. See CLAUDE.md for the broader
-        LKJCholeskyCov workaround.
-
-        Convention divergence from the standalone univariate fit:
-
-        - ``_build_pymc_model`` (standalone): likelihood is
-          ``N(mu, exp(h/2))`` — ``mu`` is the conditional mean of ``y``
-          and the latent ``h`` is mean-zero log-vol of innovations.
-        - This adapter (multivariate, Clark-style): ``mu_i`` is folded
-          into the log-vol *level* (``h_i + mu_i``); the conditional
-          mean of ``y`` lives in the VAR's intercept, not here.
+        For each ``i`` in ``0..n_vars-1``: per-variable priors are seeded
+        from ``data[:, i]`` (typically VAR OLS residuals), then a log-vol
+        path ``h_i,t`` is registered via the configured dynamics. The
+        per-variable log-vol *level* comes from the dynamics' own intercept
+        when available (AR(1)'s ``alpha``), else from an outer ``mu_i``
+        (random-walk has no intrinsic level). The shared mixing factor
+        ``R_chol`` (a unit-diagonal lower-triangular ``n_vars x n_vars``
+        matrix) is registered once via the manual LKJ workaround. Note:
+        pinning the diagonal of a Cholesky factor to 1 does **not** make
+        ``R_chol @ R_chol.T`` a correlation matrix; the Gram-matrix
+        diagonal is ``1 + sum_j off[i,j]^2``. The diagonal pin is an
+        *identifiability* device: all volatility scaling lives in ``h``,
+        so ``R_chol`` is identified only up to its off-diagonal mixing
+        entries. See CLAUDE.md for the broader LKJCholeskyCov workaround.
 
         Args:
             n_vars: Number of structural shocks / endogenous variables.
             T: Number of in-sample observations.
+            data: Per-variable series of shape ``(T, n_vars)`` used to
+                seed per-variable priors. Required — the VAR pipeline
+                passes OLS residuals; direct callers should do the same.
 
         Returns:
             ``L_t`` of shape ``(T, n_vars, n_vars)`` where
@@ -139,27 +140,35 @@ class StochasticVolatility(ImpulsoBaseModel):
         import pymc as pm
         import pytensor.tensor as pt
 
-        dynamics = self.resolved_dynamics
-        # The SV prior depends on the observed series only via the data
-        # mean / variance used to set mu_mu, h0_mu, etc. The multivariate
-        # adapter cannot peek at the structural-shock series (it does not
-        # exist at this point in the pipeline), so we use a synthetic
-        # zero-array. This produces a near-pinpoint prior on mu_i
-        # (mu_sigma == 1e-6 floor) and an h0_mu of log(1e-8) ~= -18.4.
-        # These are weakly-influential given the data; a P4 issue tracks
-        # tightening this (see plans/2026-05-10-volatility-process-seam-p3.md).
-        prior_params = self.resolved_prior.build_priors(np.zeros(T))
+        if data is None:
+            raise ValueError(
+                "Multivariate StochasticVolatility.build_pymc_latent requires `data` "
+                "to seed per-variable priors. The VAR pipeline passes OLS residuals; "
+                "direct callers should pass the same."
+            )
+        if data.shape != (T, n_vars):
+            raise ValueError(f"data shape {data.shape} != expected ({T}, {n_vars})")
 
-        # Per-variable log-vol paths.
+        dynamics = self.resolved_dynamics
+
+        # Per-variable log-vol paths with data-informed priors.
         h_paths = []
         for i in range(n_vars):
             prefix = f"v{i}_"
-            mu_i = pm.Normal(f"{prefix}mu", mu=prior_params["mu_mu"], sigma=prior_params["mu_sigma"])
-            sigma_eta_i = pm.HalfNormal(f"{prefix}sigma_eta", sigma=prior_params["sigma_eta_scale"])
-            h_i = dynamics.build_latent_path(prior_params, T, sigma_eta_i, name_prefix=prefix)
-            # Shift by mu_i so the log-vol *level* is mu_i; the VAR intercept
-            # handles the mean of y, so h here is innovation log-vol.
-            h_paths.append(h_i + mu_i)
+            prior_params_i = self.resolved_prior.build_priors(data[:, i])
+            sigma_eta_i = pm.HalfNormal(f"{prefix}sigma_eta", sigma=prior_params_i["sigma_eta_scale"])
+            h_i = dynamics.build_latent_path(prior_params_i, T, sigma_eta_i, name_prefix=prefix)
+            if dynamics.has_explicit_level:
+                # AR(1)'s alpha already carries the log-vol level.
+                h_paths.append(h_i)
+            else:
+                # RW has no intrinsic level; introduce per-variable mu_i.
+                mu_i = pm.Normal(
+                    f"{prefix}mu",
+                    mu=prior_params_i["mu_mu"],
+                    sigma=prior_params_i["mu_sigma"],
+                )
+                h_paths.append(h_i + mu_i)
 
         # h: (T, n_vars) — stacked per-variable log-vol levels.
         h = pt.stack(h_paths, axis=1)

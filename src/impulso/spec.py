@@ -108,6 +108,15 @@ class VAR(ImpulsoBaseModel):
 
         X_exog = data.exog[n_lags:] if data.exog is not None else None
 
+        # OLS residuals seed per-variable SV priors. Constant-volatility adapters
+        # ignore `data`; only stochastic adapters use it.
+        if X_exog is not None:
+            X_full = np.hstack([np.ones((Y.shape[0], 1)), X_lag, X_exog])
+        else:
+            X_full = np.hstack([np.ones((Y.shape[0], 1)), X_lag])
+        B_ols, *_ = np.linalg.lstsq(X_full, Y, rcond=None)
+        resid = Y - X_full @ B_ols
+
         # Build PyMC model
         with pm.Model() as model:
             # Intercept
@@ -133,7 +142,7 @@ class VAR(ImpulsoBaseModel):
             # For constant volatility, L is (n_vars, n_vars) and time-invariant.
             # For stochastic volatility, L is (T, n_vars, n_vars) — per-t.
             volatility = self.resolved_volatility
-            L = volatility.build_pymc_latent(n_vars=n_vars, T=Y.shape[0])
+            L = volatility.build_pymc_latent(n_vars=n_vars, T=Y.shape[0], data=resid)
             # Sigma deterministic is only registered for time-invariant L —
             # for SV, materialising (T, n, n) per draw is wasteful; users can
             # reconstruct per-t Σ via `volatility.cholesky_at(posterior, t)`.

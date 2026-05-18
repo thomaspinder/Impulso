@@ -83,6 +83,18 @@ class TestConstantBuildPymcLatent:
         det_names = {v.name for v in model.deterministics}
         assert "L" in det_names
 
+    def test_accepts_and_ignores_data_kwarg(self):
+        """Constant accepts the `data` kwarg for Protocol parity with
+        stochastic adapters but ignores it (Σ is data-independent)."""
+        import pymc as pm
+
+        adapter = Constant()
+        fake_resid = np.zeros((50, 3))
+        with pm.Model() as model:
+            adapter.build_pymc_latent(n_vars=3, T=50, data=fake_resid)
+
+        assert "L" in {v.name for v in model.deterministics}
+
     def test_n_vars_2_indexing_and_diagonal(self):
         """Smallest non-trivial off-diagonal case.
 
