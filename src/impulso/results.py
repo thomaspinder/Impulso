@@ -118,10 +118,13 @@ class ForecastResult(VARResultBase):
         idata: ArviZ InferenceData with forecast draws.
         steps: Number of forecast steps.
         var_names: Names of forecasted variables.
+        mode: ``"density"`` or ``"mean"`` — which forecast mode produced
+            this result.
     """
 
     steps: int
     var_names: list[str]
+    mode: str = "density"
 
     def median(self) -> pd.DataFrame:
         """Posterior median forecast."""
