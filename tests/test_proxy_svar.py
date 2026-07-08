@@ -349,3 +349,30 @@ class TestProxySVARPipelineSlow:
         irf = ivar.impulse_response(horizon=5, at="last")
         da = irf.idata.posterior_predictive["irf"].sel(shock="target")
         assert (da.isel(horizon=0).sel(response="y1") > 0).all()
+
+
+class TestProxySVARImpactCache:
+    def test_repeated_identify_same_context_hits_cache(self):
+        """Per-t identification (SV path) calls identify once per period
+        with the same posterior/data — the impact direction must be
+        computed once and reused, and results must be identical."""
+        data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
+        scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
+
+        P1 = scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
+        assert scheme._impact_cache is not None
+        cached_d = scheme._impact_cache[1]
+
+        P2 = scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
+        assert scheme._impact_cache[1] is cached_d  # same object, no recompute
+        np.testing.assert_array_equal(P1, P2)
+
+    def test_cache_invalidated_by_new_context(self):
+        data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
+        data2, idata2, _P2, _instrument2, L2 = _make_svar_world(relevance_noise=0.05, seed=9)
+        scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
+
+        scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
+        d_first = scheme._impact_cache[1]
+        scheme.identify(L2, ["y1", "y2"], posterior=idata2.posterior, data=data2, n_lags=1)
+        assert scheme._impact_cache[1] is not d_first

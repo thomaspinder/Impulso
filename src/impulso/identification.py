@@ -299,6 +299,15 @@ class ProxySVAR(ImpulsoBaseModel):
     # immediately afterwards and attaches to the shock matrix attrs.
     _last_diagnostics: dict[str, float] = PrivateAttr(default_factory=dict)
 
+    # Memoised impact direction. The instrument-residual covariance (and
+    # the first-stage diagnostics) depend only on (posterior, data, n_lags)
+    # — not on L — so under time-varying volatility, where the pipeline
+    # calls identify() once per period with the same posterior/data, the
+    # expensive residual reconstruction runs once instead of T times.
+    # Keyed by object identity: valid while the caller holds the same
+    # posterior/data objects, which is exactly the per-t loop's lifetime.
+    _impact_cache: tuple | None = PrivateAttr(default=None)
+
     def identify(
         self,
         L: np.ndarray,
@@ -339,32 +348,37 @@ class ProxySVAR(ImpulsoBaseModel):
             raise ValueError(f"policy_variable {self.policy_variable!r} not in var_names {var_names}")
         policy_idx = var_names.index(self.policy_variable)
 
-        z, u = self._aligned_residuals(posterior, data, n_lags)
+        cache_key = (id(posterior), id(data), n_lags)
+        if self._impact_cache is not None and self._impact_cache[0] == cache_key:
+            d = self._impact_cache[1]
+        else:
+            z, u = self._aligned_residuals(posterior, data, n_lags)
 
-        # Impact direction: per-draw covariance between instrument and
-        # residuals (both demeaned), normalised on the policy variable.
-        z_c = z - z.mean()
-        u_c = u - u.mean(axis=2, keepdims=True)
-        s = np.einsum("t,cdti->cdi", z_c, u_c) / len(z)  # (C, D, n)
-        d = s / s[:, :, policy_idx][:, :, np.newaxis]  # d[policy] = 1
+            # Impact direction: per-draw covariance between instrument and
+            # residuals (both demeaned), normalised on the policy variable.
+            z_c = z - z.mean()
+            u_c = u - u.mean(axis=2, keepdims=True)
+            s = np.einsum("t,cdti->cdi", z_c, u_c) / len(z)  # (C, D, n)
+            d = s / s[:, :, policy_idx][:, :, np.newaxis]  # d[policy] = 1
 
-        # First-stage strength: F of u_policy ~ const + z, per draw.
-        f_draws = self._first_stage_f(z_c, u_c[:, :, :, policy_idx])
-        f_median = float(np.median(f_draws))
-        self._last_diagnostics = {
-            "proxy_first_stage_f_median": f_median,
-            "proxy_first_stage_f_q05": float(np.quantile(f_draws, 0.05)),
-            "proxy_first_stage_f_q95": float(np.quantile(f_draws, 0.95)),
-        }
-        if f_median < 10.0:
-            import warnings
+            # First-stage strength: F of u_policy ~ const + z, per draw.
+            f_draws = self._first_stage_f(z_c, u_c[:, :, :, policy_idx])
+            f_median = float(np.median(f_draws))
+            self._last_diagnostics = {
+                "proxy_first_stage_f_median": f_median,
+                "proxy_first_stage_f_q05": float(np.quantile(f_draws, 0.05)),
+                "proxy_first_stage_f_q95": float(np.quantile(f_draws, 0.95)),
+            }
+            self._impact_cache = (cache_key, d)
+            if f_median < 10.0:
+                import warnings
 
-            warnings.warn(
-                f"Weak instrument: posterior-median first-stage F = {f_median:.2f} < 10. "
-                "The identified impact column is unreliable.",
-                UserWarning,
-                stacklevel=2,
-            )
+                warnings.warn(
+                    f"Weak instrument: posterior-median first-stage F = {f_median:.2f} < 10. "
+                    "The identified impact column is unreliable.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
         # Complete the matrix: q1 = L^{-1} d normalised, extended to an
         # orthonormal basis via a Householder reflection; P = L @ Q gives
