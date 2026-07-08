@@ -1,5 +1,7 @@
 """Identification schemes for structural VAR analysis."""
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import xarray as xr
 from pydantic import Field, PrivateAttr
@@ -7,6 +9,9 @@ from pydantic import Field, PrivateAttr
 from impulso._base import ImpulsoModel
 from impulso._linalg import sigma_from_cholesky
 from impulso._ma import compute_ma_phi
+
+if TYPE_CHECKING:
+    from impulso.data import VARData
 
 
 class Cholesky(ImpulsoModel):
@@ -27,6 +32,8 @@ class Cholesky(ImpulsoModel):
         L: np.ndarray,
         var_names: list[str],
         posterior: "xr.Dataset | None" = None,
+        data: "VARData | None" = None,
+        n_lags: int | None = None,
     ) -> np.ndarray:
         """Apply Cholesky identification.
 
@@ -39,11 +46,13 @@ class Cholesky(ImpulsoModel):
             L: Lower-triangular Cholesky factor, shape (chains, draws, n_vars, n_vars).
             var_names: Variable names in the data's natural order.
             posterior: Unused. Accepted for Protocol uniformity.
+            data: Unused. Accepted for Protocol uniformity.
+            n_lags: Unused. Accepted for Protocol uniformity.
 
         Returns:
             Structural shock matrix, shape (chains, draws, n_vars, n_vars).
         """
-        del posterior  # unused
+        del posterior, data, n_lags  # unused
 
         # Fast path: ordering matches data — identify is a no-op.
         if list(self.ordering) == list(var_names):
@@ -91,6 +100,8 @@ class SignRestriction(ImpulsoModel):
         L: np.ndarray,
         var_names: list[str],
         posterior: "xr.Dataset | None" = None,
+        data: "VARData | None" = None,
+        n_lags: int | None = None,
     ) -> np.ndarray:
         """Apply sign-restriction identification.
 
@@ -101,6 +112,8 @@ class SignRestriction(ImpulsoModel):
                 the multi-horizon check needs the VAR coefficients `B` from
                 the posterior. Ignored for impact-only restrictions
                 (`restriction_horizon == 0`).
+            data: Unused. Accepted for Protocol uniformity.
+            n_lags: Unused. Accepted for Protocol uniformity.
 
         Returns:
             Structural shock matrix, shape (chains, draws, n_vars, n_vars).
@@ -109,6 +122,7 @@ class SignRestriction(ImpulsoModel):
             via the `sign_restriction_acceptance_rate` attribute on the
             wrapping IdentifiedVAR's posterior (set by the pipeline).
         """
+        del data, n_lags  # unused
         from scipy.stats import special_ortho_group
 
         n_chains, n_draws, n_vars, _ = L.shape

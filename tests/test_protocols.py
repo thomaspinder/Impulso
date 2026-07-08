@@ -41,6 +41,8 @@ class TestIdentificationSchemeNewSignature:
 
         sig = inspect.signature(IdentificationScheme.identify)
         params = list(sig.parameters.values())
-        # self, L, var_names, posterior=None
-        assert [p.name for p in params] == ["self", "L", "var_names", "posterior"]
+        # self, L, var_names, posterior=None, data=None, n_lags=None
+        assert [p.name for p in params] == ["self", "L", "var_names", "posterior", "data", "n_lags"]
         assert params[3].default is None
+        assert params[4].default is None
+        assert params[5].default is None

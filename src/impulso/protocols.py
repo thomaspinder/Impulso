@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     import pytensor.tensor as pt
     import xarray as xr
 
+    from impulso.data import VARData
+
 
 @runtime_checkable
 class Prior(Protocol):
@@ -34,6 +36,8 @@ class IdentificationScheme(Protocol):
         L: np.ndarray,
         var_names: list[str],
         posterior: "xr.Dataset | None" = None,
+        data: "VARData | None" = None,
+        n_lags: int | None = None,
     ) -> np.ndarray:
         """Identify the structural shock matrix from a Cholesky factor.
 
@@ -50,6 +54,13 @@ class IdentificationScheme(Protocol):
                 may ignore this argument. Schemes that need `posterior`
                 for context but receive `None` should raise a clear
                 `ValueError`.
+            data: The VARData used at fit time. Optional; provided by the
+                pipeline so schemes that need the observed sample — e.g.
+                `ProxySVAR`, which reconstructs reduced-form residuals and
+                aligns an instrument by date — can reach for it. Schemes
+                that only need L may ignore this argument.
+            n_lags: Lag order of the fitted VAR. Provided alongside `data`
+                because residual reconstruction needs it.
 
         Returns:
             Structural shock matrix array of shape (chains, draws, n_vars, n_vars).
