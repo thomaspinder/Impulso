@@ -83,13 +83,24 @@ class FittedVAR(ImpulsoBaseModel):
     def forecast(
         self,
         steps: int,
+        include_shock_uncertainty: bool = True,
+        seed: int | np.random.Generator | None = None,
         exog_future: np.ndarray | None = None,
     ) -> "ForecastResult":
         """Produce h-step-ahead forecasts from the reduced-form posterior.
 
         Args:
             steps: Number of forecast steps.
-            exog_future: Future exogenous values, shape (steps, k). Required if model has exog.
+            include_shock_uncertainty: If ``True`` (default), draw shock
+                innovations from the volatility process's forecast Cholesky
+                path, giving true posterior-predictive intervals (density
+                forecast).  If ``False``, propagate only the conditional
+                mean — intervals reflect parameter uncertainty only (mean
+                forecast).
+            seed: RNG seed (int) or Generator for reproducible density
+                forecasts.  Ignored when ``include_shock_uncertainty=False``.
+            exog_future: Future exogenous values, shape ``(steps, k)``.
+                Required if model has exog.
 
         Returns:
             ForecastResult with posterior forecast draws.
@@ -103,33 +114,47 @@ class FittedVAR(ImpulsoBaseModel):
         if not self.has_exog and exog_future is not None:
             raise ValueError("exog_future provided but model has no exogenous variables")
 
+        rng = np.random.default_rng(seed) if not isinstance(seed, np.random.Generator) else seed
+
         B_draws = self.coefficients  # (C, D, n_vars, n_vars*n_lags)
         intercept_draws = self.intercepts  # (C, D, n_vars)
         n_chains, n_draws, n_vars, _ = B_draws.shape
 
-        # Last n_lags observations — broadcast to (C, D, n_lags, n)
-        y_hist = self.data.endog[-self.n_lags :]  # (p, n)
+        # Density mode: get forecast Cholesky path for shock innovations.
+        L_path = None
+        if include_shock_uncertainty:
+            if rng is None:
+                rng = np.random.default_rng()
+            L_path = self.volatility.forecast_cholesky_path(
+                self.idata.posterior,
+                steps=steps,
+                rng=rng,
+            )  # (C, D, steps, n_vars, n_vars)
+
+        y_hist = self.data.endog[-self.n_lags :]
         y_buffer = np.broadcast_to(y_hist, (n_chains, n_draws, self.n_lags, n_vars)).copy()
 
         forecasts = np.zeros((n_chains, n_draws, steps, n_vars))
 
         for h in range(steps):
-            # Build lag vector: concatenate y[t-1], y[t-2], ..., y[t-p]
-            x_lag = np.concatenate(
-                [y_buffer[:, :, -(lag + 1), :] for lag in range(self.n_lags)], axis=-1
-            )  # (C, D, n*p)
-
+            x_lag = np.concatenate([y_buffer[:, :, -(lag + 1), :] for lag in range(self.n_lags)], axis=-1)
             y_new = intercept_draws + np.einsum("cdij,cdj->cdi", B_draws, x_lag)
 
             if self.has_exog and exog_future is not None:
-                B_exog = self.idata.posterior["B_exog"].values  # (C, D, n, k)
+                B_exog = self.idata.posterior["B_exog"].values
                 y_new = y_new + np.einsum("cdij,j->cdi", B_exog, exog_future[h])
 
+            # Density mode: add shock innovation eps ~ N(0, Sigma_{T+h}).
+            if L_path is not None:
+                L_h = L_path[:, :, h, :, :]  # (C, D, n_vars, n_vars)
+                eps = rng.standard_normal((n_chains, n_draws, n_vars))
+                shock = np.einsum("cdij,cdj->cdi", L_h, eps)
+                y_new = y_new + shock
+
             forecasts[:, :, h, :] = y_new
-            # Roll buffer forward
             y_buffer = np.concatenate([y_buffer[:, :, 1:, :], y_new[:, :, np.newaxis, :]], axis=2)
 
-        # Package into InferenceData
+        mode = "density" if include_shock_uncertainty else "mean"
         forecast_da = xr.DataArray(
             forecasts,
             dims=["chain", "draw", "step", "variable"],
@@ -137,8 +162,7 @@ class FittedVAR(ImpulsoBaseModel):
             name="forecast",
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
-
-        return ForecastResult(idata=idata, steps=steps, var_names=self.var_names)
+        return ForecastResult(idata=idata, steps=steps, var_names=self.var_names, mode=mode)
 
     def set_identification_strategy(self, scheme: IdentificationScheme) -> "IdentifiedVAR":
         """Apply a structural identification scheme.

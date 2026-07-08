@@ -139,7 +139,7 @@ class TestFittedVARFast:
             data=var_data_2v,
             var_names=["y1", "y2"],
         )
-        result = fitted.forecast(steps=4)
+        result = fitted.forecast(steps=4, include_shock_uncertainty=False)
         med = result.median()
         assert med.shape == (4, 2)
 
@@ -152,7 +152,7 @@ class TestFittedVARFast:
             data=var_data_2v,
             var_names=["y1", "y2"],
         )
-        result = fitted.forecast(steps=4)
+        result = fitted.forecast(steps=4, include_shock_uncertainty=False)
         hdi = result.hdi(prob=0.89)
         assert isinstance(hdi, HDIResult)
         assert hdi.lower.shape == (4, 2)
