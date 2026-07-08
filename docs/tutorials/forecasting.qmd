@@ -22,6 +22,8 @@ logging.getLogger("pytensor").setLevel(logging.ERROR)
 
 Conventional VARs produce point forecasts. A Bayesian VAR produces a full posterior predictive distribution over future paths. This means every forecast comes with calibrated uncertainty — wide bands when the model is unsure, narrow when the data are informative.
 
+That uncertainty has two sources: the model's coefficients are only estimated, and the system is hit by a fresh random shock every period. `forecast()` includes both by default. The [section below](#what-the-bands-include) shows why leaving the shocks out — as much VAR tooling implicitly does — understates uncertainty, badly so at short horizons.
+
 
 ```{python}
 import numpy as np
@@ -82,7 +84,7 @@ print("\nUpper bounds:")
 print(hdi.upper)
 ```
 
-The intervals widen at longer horizons. This is expected: uncertainty compounds over time because each forecast step propagates parameter uncertainty forward.
+The intervals widen at longer horizons. This is expected: two forces compound over time — the random shocks hitting the system accumulate, and parameter uncertainty propagates forward as each forecast step feeds into the next.
 
 ## Visualise the forecast
 
@@ -93,6 +95,61 @@ fig = fcast.plot()
 ```
 
 The fan chart shows the posterior median (line) and 89% HDI (shaded region) for each variable. The bands widen at longer horizons, reflecting compounding uncertainty. GDP growth and the interest rate show the widest bands, consistent with their stronger cross-variable dependencies in the DGP.
+
+## What the bands include
+
+The forecast above is a genuine posterior predictive distribution: it composes *parameter uncertainty* (the coefficients are estimated, not known) with *shock uncertainty* (each future period draws a fresh innovation). This is the default — `include_shock_uncertainty=True`.
+
+Setting `include_shock_uncertainty=False` switches the shocks off and propagates only the posterior over conditional-mean paths. The result is a distribution over what the model *expects* to happen, not over what *will* happen. It is the right object for scenario mechanics, but it is not a predictive distribution — and reporting it as one is a common way to understate forecast uncertainty. Pass `seed` in density mode to make the drawn shocks reproducible.
+
+```{python}
+mean_fcast = fitted.forecast(steps=8, include_shock_uncertainty=False)
+density_fcast = fitted.forecast(steps=8, include_shock_uncertainty=True, seed=42)
+
+mean_hdi = mean_fcast.hdi(prob=0.89)
+density_hdi = density_fcast.hdi(prob=0.89)
+```
+
+Plotting both 89% bands on the same axes shows the gap. The narrow inner band is parameter uncertainty alone; the wider band is the full predictive.
+
+```{python}
+import matplotlib.pyplot as plt
+
+horizons = range(1, 9)
+fig, axes = plt.subplots(1, n_vars, figsize=(12, 4), squeeze=False)
+
+for i, name in enumerate(data.endog_names):
+    ax = axes[0][i]
+    med = density_fcast.median()[name].values
+    ax.fill_between(
+        horizons, density_hdi.lower[name], density_hdi.upper[name],
+        alpha=0.25, color="C0", label="full predictive",
+    )
+    ax.fill_between(
+        horizons, mean_hdi.lower[name], mean_hdi.upper[name],
+        alpha=0.5, color="C1", label="parameter only",
+    )
+    ax.plot(horizons, med, color="black", lw=1)
+    ax.set_title(name)
+    ax.set_xlabel("horizon")
+
+axes[0][0].legend(loc="upper left", fontsize=8)
+fig.tight_layout()
+```
+
+The understatement is worst at the shortest horizons. At `h=1`, parameter uncertainty is small — the data pin the coefficients down — so a mean-only band is almost invisible, yet the true one-step forecast still carries the full shock variance. The ratio of band widths makes this concrete:
+
+```{python}
+width_mean = mean_hdi.upper - mean_hdi.lower
+width_density = density_hdi.upper - density_hdi.lower
+
+ratio = (width_density / width_mean).round(1)
+ratio.index = range(1, 9)
+ratio.index.name = "horizon"
+ratio
+```
+
+Each entry is how many times wider the honest band is than the parameter-only band. The multiple is largest at `h=1` and shrinks as parameter uncertainty grows into the total — the opposite of the intuition that near-term forecasts are the certain ones.
 
 ## Tidy export
 
