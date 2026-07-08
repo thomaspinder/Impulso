@@ -5,6 +5,7 @@ import xarray as xr
 from pydantic import Field, PrivateAttr
 
 from impulso._base import ImpulsoModel
+from impulso._linalg import sigma_from_cholesky
 from impulso._ma import compute_ma_phi
 
 
@@ -49,7 +50,7 @@ class Cholesky(ImpulsoModel):
             return L
 
         # Reordering: reconstruct Sigma, permute, re-decompose.
-        sigma = np.einsum("cdij,cdkj->cdik", L, L)
+        sigma = sigma_from_cholesky(L)
         perm = [var_names.index(v) for v in self.ordering]
         ix0, ix1 = np.ix_(perm, perm)
         sigma_ordered = sigma[:, :, ix0, ix1]

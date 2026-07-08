@@ -23,7 +23,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
     """Immutable structural VAR with identified shocks.
 
     Attributes:
-        idata: InferenceData with structural_shock_matrix in posterior.
+        idata: InferenceData with reduced-form posterior (B, intercept, L, ...).
         n_lags: Lag order.
         data: Original VARData.
         var_names: Endogenous variable names.
@@ -45,8 +45,8 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
     @property
     def shock_names(self) -> list[str]:
-        """Shock coordinate labels from the structural shock matrix."""
-        return list(self.idata.posterior["structural_shock_matrix"].coords["shock"].values)
+        """Shock coordinate labels from the identification scheme."""
+        return self.scheme.shock_coords(n_vars=len(self.var_names))
 
     def _ma_coefficients(self, B_draws: np.ndarray, n_vars: int, n_lags: int, horizon: int) -> np.ndarray:
         """Compute MA coefficient recursion, vectorised over (chains, draws).
@@ -56,6 +56,78 @@ class IdentifiedVAR(ImpulsoBaseModel):
         """
         A = [B_draws[:, :, :, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
         return compute_ma_phi(A, horizon)
+
+    def shock_matrix(self, at: AtParam = None) -> xr.DataArray:
+        """Query the structural shock matrix at a given time index.
+
+        This is the single pathway from the volatility process and
+        identification scheme to a labelled structural shock matrix.
+        IRF, FEVD, and historical decomposition all compute through it.
+        Results are memoised per *at* value on this instance so that all
+        quantities from one ``IdentifiedVAR`` share the same structural
+        draws (deterministic per object, even under ``SignRestriction``).
+
+        Args:
+            at: Time index.  ``None`` or ``"last"`` → most recent slice.
+                An integer ``t`` → that specific time index.
+                ``"all"`` → full time path (adds a ``time`` dim).
+
+        Returns:
+            DataArray with dims ``(chain, draw[, time], response, shock)``.
+
+        Raises:
+            ValueError: If ``at="all"`` under constant volatility.
+        """
+        # Check memoisation cache.
+        cache_attr = f"_shock_matrix_cache_{at!r}"
+        cached = getattr(self, cache_attr, None)
+        if cached is not None:
+            return cached
+
+        shock_coords = self.shock_names
+
+        if at == "all":
+            if not self.volatility.is_time_varying:
+                raise ValueError(
+                    "shock_matrix(at='all') is only meaningful for "
+                    "time-varying volatility. The current volatility "
+                    f"process ({type(self.volatility).__name__}) is "
+                    "time-invariant — use at=None or at='last'."
+                )
+            T = self.data.endog.shape[0] - self.n_lags
+            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
+            P_path = self._identify_per_t(L_path)
+            result = xr.DataArray(
+                P_path,
+                dims=["chain", "draw", "time", "response", "shock"],
+                coords={
+                    "response": self.var_names,
+                    "shock": shock_coords,
+                    "time": ("time", self.data.index[self.n_lags :]),
+                },
+                name="structural_shock_matrix",
+            )
+        else:
+            t = self._resolve_at(at)
+            L = self.volatility.cholesky_at(self.idata.posterior, t=t)
+            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)
+            result = xr.DataArray(
+                P,
+                dims=["chain", "draw", "response", "shock"],
+                coords={
+                    "response": self.var_names,
+                    "shock": shock_coords,
+                },
+                name="structural_shock_matrix",
+            )
+
+        # Attach sign-restriction acceptance rate if available.
+        rate = getattr(self.scheme, "_last_acceptance_rate", None)
+        if isinstance(rate, float) and rate < 1.0:
+            result.attrs["sign_restriction_acceptance_rate"] = rate
+
+        object.__setattr__(self, cache_attr, result)
+        return result
 
     def _resolve_at(self, at: AtParam) -> int | None:
         """Resolve `at=` to an integer `t` suitable for `cholesky_at(t)`.
@@ -113,47 +185,20 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         Args:
             horizon: Number of periods.
-            at: Time index for the structural shock matrix:
-
-                - `None` (default): for SV, equivalent to `"last"`;
-                  for Constant, ignored entirely.
-                - `int`: query the shock matrix at this specific `t`.
-                - `"last"`: most recent time slice.
-                - `"all"`: return IRFs for shocks at every `t` (adds a
-                  `time` dim to the result).
+            at: Time index for the structural shock matrix
+                (see :meth:`shock_matrix` for accepted forms).
 
         Returns:
             IRFResult with IRF posterior draws.
-
-        Raises:
-            ValueError: When `at='all'` is requested for a non-time-varying
-                volatility process (`Constant`). Under constant Σ the per-t
-                IRF is identical for every t, so the time axis carries no
-                information — use `at=None` (default) or `at='last'`.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
         n_vars = B_draws.shape[2]
         Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
+        P = self.shock_matrix(at=at)
 
-        if at == "all":
-            if not self.volatility.is_time_varying:
-                raise ValueError(
-                    "impulse_response(at='all') is only meaningful for "
-                    "time-varying volatility (Σ_t evolves over t). The "
-                    f"current volatility process ({type(self.volatility).__name__}) "
-                    "is time-invariant, so the per-t IRF would be identical at "
-                    "every t. Use at=None (default) or at='last' for a "
-                    "single-time IRF instead."
-                )
-            # Per-t IRFs. T = effective in-sample length after lag trimming.
-            T = self.data.endog.shape[0] - self.n_lags
-            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
-            # L_path: (C, D, T, n, n); P_path: (C, D, T, n, n) by per-t identify.
-            P_path = self._identify_per_t(L_path)
-            # IRF: (C, D, T, H+1, n, n). Broadcast Phi over time and P_path
-            # over horizon.
-            irfs = Phi_arr[:, :, np.newaxis, :, :, :] @ P_path[:, :, :, np.newaxis, :, :]
-
+        if "time" in P.dims:
+            # P: (C, D, T, n, n) → IRF: (C, D, T, H+1, n, n)
+            irfs = Phi_arr[:, :, np.newaxis, :, :, :] @ P.values[:, :, :, np.newaxis, :, :]
             irf_da = xr.DataArray(
                 irfs,
                 dims=["chain", "draw", "time", "horizon", "response", "shock"],
@@ -161,21 +206,13 @@ class IdentifiedVAR(ImpulsoBaseModel):
                     "response": self.var_names,
                     "shock": self.shock_names,
                     "horizon": np.arange(horizon + 1),
-                    # Tuple form forces the coord onto the declared `time` dim;
-                    # otherwise a named DatetimeIndex (e.g. .name == "date")
-                    # would be inferred as its own dim and collide.
-                    "time": ("time", self.data.index[self.n_lags :]),
+                    "time": P.coords["time"],
                 },
                 name="irf",
             )
         else:
-            # Single-time IRF.
-            t = self._resolve_at(at)
-            L = self.volatility.cholesky_at(self.idata.posterior, t=t)
-            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)
-            # IRF = Phi @ P, vectorised over (C, D, H) via broadcasting
-            irfs = Phi_arr @ P[:, :, np.newaxis, :, :]
-
+            # P: (C, D, n, n) → IRF: (C, D, H+1, n, n)
+            irfs = Phi_arr @ P.values[:, :, np.newaxis, :, :]
             irf_da = xr.DataArray(
                 irfs,
                 dims=["chain", "draw", "horizon", "response", "shock"],
@@ -186,7 +223,6 @@ class IdentifiedVAR(ImpulsoBaseModel):
                 },
                 name="irf",
             )
-
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": irf_da}))
         return IRFResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
@@ -195,79 +231,40 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         Args:
             horizon: Number of periods.
-            at: Time index for the structural shock matrix:
-
-                - `None` (default): for SV, equivalent to `"last"`;
-                  for Constant, ignored entirely.
-                - `int`: query the shock matrix at this specific `t`.
-                - `"last"`: most recent time slice.
-                - `"all"`: return FEVDs for shocks at every `t` (adds a
-                  `time` dim to the result).
+            at: Time index for the structural shock matrix
+                (see :meth:`shock_matrix` for accepted forms).
 
         Returns:
             FEVDResult with FEVD posterior draws.
-
-        Raises:
-            ValueError: When `at='all'` is requested for a non-time-varying
-                volatility process (`Constant`). Under constant Σ the per-t
-                FEVD is identical for every t, so the time axis carries no
-                information — use `at=None` (default) or `at='last'`.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
         n_vars = B_draws.shape[2]
         Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
+        P = self.shock_matrix(at=at)
 
-        if at == "all":
-            if not self.volatility.is_time_varying:
-                raise ValueError(
-                    "fevd(at='all') is only meaningful for time-varying "
-                    "volatility (Σ_t evolves over t). The current volatility "
-                    f"process ({type(self.volatility).__name__}) is "
-                    "time-invariant, so the per-t FEVD would be identical at "
-                    "every t. Use at=None (default) or at='last' for a "
-                    "single-time FEVD instead."
-                )
-            # Per-t FEVDs. T = effective in-sample length after lag trimming.
-            T = self.data.endog.shape[0] - self.n_lags
-            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
-            # L_path: (C, D, T, n, n); P_path: (C, D, T, n, n) by per-t identify.
-            P_path = self._identify_per_t(L_path)
-            # Theta: (C, D, T, H+1, n, n). Broadcast Phi over time and P_path
-            # over horizon.
-            Theta = Phi_arr[:, :, np.newaxis, :, :, :] @ P_path[:, :, :, np.newaxis, :, :]
-
-            # FEVD: cumulative MSE contribution, summed over the horizon axis (axis=3).
-            mse_cum = np.cumsum(Theta**2, axis=3)  # (C, D, T, H+1, resp, shock)
-            total = mse_cum.sum(axis=-1, keepdims=True)  # (C, D, T, H+1, resp, 1)
-            fevd = np.where(total > 0, mse_cum / total, 0.0)
-
+        if "time" in P.dims:
+            Theta = Phi_arr[:, :, np.newaxis, :, :, :] @ P.values[:, :, :, np.newaxis, :, :]
+            mse_cum = np.cumsum(Theta**2, axis=3)
+            total = mse_cum.sum(axis=-1, keepdims=True)
+            fevd_arr = np.where(total > 0, mse_cum / total, 0.0)
             fevd_da = xr.DataArray(
-                fevd,
+                fevd_arr,
                 dims=["chain", "draw", "time", "horizon", "response", "shock"],
                 coords={
                     "response": self.var_names,
                     "shock": self.shock_names,
                     "horizon": np.arange(horizon + 1),
-                    # Tuple form: see analogous comment in impulse_response.
-                    "time": ("time", self.data.index[self.n_lags :]),
+                    "time": P.coords["time"],
                 },
                 name="fevd",
             )
         else:
-            # Single-time FEVD.
-            t = self._resolve_at(at)
-            L = self.volatility.cholesky_at(self.idata.posterior, t=t)
-            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)
-            # Theta_h = Phi_h @ P, vectorised via broadcasting
-            Theta = Phi_arr @ P[:, :, np.newaxis, :, :]
-
-            # FEVD: cumulative MSE contribution
-            mse_cum = np.cumsum(Theta**2, axis=2)  # (C, D, H+1, resp, shock)
-            total = mse_cum.sum(axis=-1, keepdims=True)  # (C, D, H+1, resp, 1)
-            fevd = np.where(total > 0, mse_cum / total, 0.0)
-
+            Theta = Phi_arr @ P.values[:, :, np.newaxis, :, :]
+            mse_cum = np.cumsum(Theta**2, axis=2)
+            total = mse_cum.sum(axis=-1, keepdims=True)
+            fevd_arr = np.where(total > 0, mse_cum / total, 0.0)
             fevd_da = xr.DataArray(
-                fevd,
+                fevd_arr,
                 dims=["chain", "draw", "horizon", "response", "shock"],
                 coords={
                     "response": self.var_names,
@@ -276,7 +273,6 @@ class IdentifiedVAR(ImpulsoBaseModel):
                 },
                 name="fevd",
             )
-
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
         return FEVDResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
@@ -290,26 +286,17 @@ class IdentifiedVAR(ImpulsoBaseModel):
         """Compute historical decomposition of observed series.
 
         Historical decomposition is intrinsically time-indexed: it attributes
-        each in-sample observation to past structural shocks. The `at=`
+        each in-sample observation to past structural shocks.  The ``at=``
         parameter controls which Cholesky factor identifies those shocks.
 
         Args:
             start: Optional start date to restrict decomposition.
             end: Optional end date to restrict decomposition.
             cumulative: If True, return cumulative shock contributions.
-            at: Time index for the structural shock matrix:
-
-                - `None` (default) or `"all"`: use `cholesky_path` —
-                  identify the shock at each `t` with its own `L_t`.
-                  For stochastic volatility this is the correct structural
-                  decomposition; for constant volatility `L_t` is the same
-                  for all `t` and the result matches the legacy behaviour.
-                - `int` or `"last"`: identify every shock with a single
-                  `L` queried at the supplied time index. Under stochastic
-                  volatility this is a non-standard hypothetical ("what if
-                  regime `t` had prevailed throughout?") and emits a
-                  `UserWarning`. For constant volatility the result is
-                  identical to the default.
+            at: Time index for the structural shock matrix.
+                ``None`` or ``"all"`` → per-t decomposition (correct for SV,
+                identical to single-L under constant volatility).
+                ``int`` or ``"last"`` → single-L hypothetical (warns under SV).
 
         Returns:
             HistoricalDecompositionResult.
@@ -320,25 +307,22 @@ class IdentifiedVAR(ImpulsoBaseModel):
         y = self.data.endog  # (T, n)
         T = y.shape[0]
         n_lags = self.n_lags
-        T_eff = T - n_lags
 
-        # Build lag matrix: x_lag[t] = [y[t-1], y[t-2], ...] for t in [n_lags, T)
-        x_lag = np.concatenate([y[n_lags - lag : T - lag] for lag in range(1, n_lags + 1)], axis=1)  # (T-p, n*p)
-
-        # Predicted values: intercept + B @ x_lag for all (C, D, t)
+        x_lag = np.concatenate(
+            [y[n_lags - lag : T - lag] for lag in range(1, n_lags + 1)],
+            axis=1,
+        )  # (T-p, n*p)
         y_hat = intercept_draws[:, :, np.newaxis, :] + np.einsum("cdij,tj->cdti", B_draws, x_lag)
-
-        # Reduced-form residuals: (C, D, T-p, n)
-        y_obs = y[n_lags:]  # (T-p, n)
+        y_obs = y[n_lags:]
         resid = y_obs[np.newaxis, np.newaxis, :, :] - y_hat
 
-        # Two regimes for the structural-shock matrix:
-        #   1. Time-invariant Σ (Constant adapter), or SV with an explicit
-        #      single-L hypothetical (at=int / 'last'): identify once,
-        #      invert once, broadcast across t.
-        #   2. Time-varying Σ with default at=None/'all': per-t identify and
-        #      invert (the standard SV structural decomposition).
-        if not self.volatility.is_time_varying or at not in (None, "all"):
+        use_per_t = self.volatility.is_time_varying and at in (None, "all")
+        if use_per_t:
+            P = self.shock_matrix(at="all").values  # (C, D, T_eff, n, n)
+            P_inv = np.linalg.inv(P)
+            structural_resid = np.einsum("cdtij,cdtj->cdti", P_inv, resid)
+            hd = P * structural_resid[:, :, :, np.newaxis, :]
+        else:
             if self.volatility.is_time_varying:
                 warnings.warn(
                     f"historical_decomposition(at={at!r}) under stochastic "
@@ -350,27 +334,16 @@ class IdentifiedVAR(ImpulsoBaseModel):
                     UserWarning,
                     stacklevel=2,
                 )
-            # For Constant the time index is irrelevant; for SV+explicit-at it
-            # is the resolved single time slice. Either way: one identify, one
-            # invert, then broadcast over t via einsum / np.newaxis.
-            t = self._resolve_at(at) if self.volatility.is_time_varying else None
-            L = self.volatility.cholesky_at(self.idata.posterior, t=t)
-            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)  # (C, D, n, n)
-            P_inv = np.linalg.inv(P)  # (C, D, n, n)
-            structural_resid = np.einsum("cdij,cdtj->cdti", P_inv, resid)  # (C, D, T_eff, n)
+            # For constant vol, at='all' is equivalent to at=None (single L).
+            shock_at = None if (at == "all" and not self.volatility.is_time_varying) else at
+            P = self.shock_matrix(at=shock_at).values  # (C, D, n, n)
+            P_inv = np.linalg.inv(P)
+            structural_resid = np.einsum("cdij,cdtj->cdti", P_inv, resid)
             hd = P[:, :, np.newaxis, :, :] * structural_resid[:, :, :, np.newaxis, :]
-        else:
-            # SV per-t structural decomposition.
-            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T_eff)
-            P_path = self._identify_per_t(L_path)  # (C, D, T_eff, n, n)
-            P_inv_path = np.linalg.inv(P_path)
-            structural_resid = np.einsum("cdtij,cdtj->cdti", P_inv_path, resid)
-            hd = P_path * structural_resid[:, :, :, np.newaxis, :]
 
         if cumulative:
             hd = np.cumsum(hd, axis=2)
 
-        # Trim to date range if requested
         idx = self.data.index[n_lags:]
         t_start = 0
         t_end = len(idx)
@@ -386,9 +359,6 @@ class IdentifiedVAR(ImpulsoBaseModel):
             coords={
                 "response": self.var_names,
                 "shock": self.shock_names,
-                # Tuple form forces the coord onto the declared `time` dim;
-                # otherwise a named DatetimeIndex (e.g. .name == "date")
-                # would be inferred as its own dim and collide.
                 "time": ("time", idx[t_start:t_end]),
             },
             name="hd",
