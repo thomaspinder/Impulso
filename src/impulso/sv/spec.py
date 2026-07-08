@@ -253,18 +253,13 @@ class StochasticVolatility(ImpulsoBaseModel):
         steps: int,
         rng: np.random.Generator,
     ) -> np.ndarray:
-        """Forecast the per-t Cholesky factor for `steps` ahead.
+        """Forecast the per-t Cholesky factor for ``steps`` ahead.
 
         Each variable's log-vol is extrapolated independently using the
-        configured dynamics; the correlation Cholesky `R_chol` is held
-        constant (Clark-style assumption).
-
-        `SVDynamics.forecast_log_vol` reads bare posterior keys (`h`,
-        `sigma_eta`, and for AR(1) also `phi`/`alpha`), whereas the
-        multivariate-fit posterior stores per-variable hyperparameters
-        under prefixed names (`v{i}_sigma_eta`, ...). For each variable
-        `i` we build a small slice `Dataset` with renamed keys and
-        delegate the extrapolation to `dynamics.forecast_log_vol`.
+        configured dynamics with ``name_prefix=f"v{i}_"`` so the dynamics
+        reads ``{prefix}h``, ``{prefix}sigma_eta``, and its own
+        hyperparameters directly from the full posterior.  The correlation
+        Cholesky ``R_chol`` is held constant (Clark-style assumption).
 
         Args:
             posterior: Dataset with per-variable log-vol paths (`h`)
@@ -276,8 +271,6 @@ class StochasticVolatility(ImpulsoBaseModel):
         Returns:
             `(chains, draws, steps, n_vars, n_vars)`.
         """
-        import xarray as xr
-
         dynamics = self.resolved_dynamics
 
         h = posterior["h"].values  # (C, D, T, n_vars)
@@ -286,17 +279,13 @@ class StochasticVolatility(ImpulsoBaseModel):
 
         h_forecast = np.zeros((n_chains, n_draws, steps, n_vars))
         for i in range(n_vars):
-            slice_posterior = xr.Dataset({
-                "h": (("chain", "draw", "time"), h[:, :, :, i]),
-                "sigma_eta": (("chain", "draw"), posterior[f"v{i}_sigma_eta"].values),
-            })
-            # AR(1) also reads phi, alpha. For RW, only sigma_eta is needed.
-            for extra_var in ("phi", "alpha"):
-                key = f"v{i}_{extra_var}"
-                if key in posterior:
-                    slice_posterior[extra_var] = (("chain", "draw"), posterior[key].values)
-            h_forecast[:, :, :, i] = dynamics.forecast_log_vol(slice_posterior, steps, rng)
-
-        # Combine: L_t = diag(exp(h_t / 2)) @ R_chol for each forecast step.
-        sigma_t = np.exp(h_forecast / 2)  # (C, D, steps, n_vars)
+            h_forecast[:, :, :, i] = dynamics.forecast_log_vol(
+                posterior,
+                steps,
+                rng,
+                name_prefix=f"v{i}_",
+            )
+        # L_t = diag(exp(h_t / 2)) @ R_chol — ponytail: replaced by
+        # _clark_reconstruct once #89 merges.
+        sigma_t = np.exp(h_forecast / 2)
         return sigma_t[:, :, :, :, None] * R_chol[:, :, None, :, :]

@@ -48,8 +48,14 @@ class SVDynamics(Protocol):
         posterior: xr.Dataset,
         steps: int,
         rng: np.random.Generator,
+        name_prefix: str = "",
     ) -> np.ndarray:
-        """Draw posterior-predictive log-volatility paths, shape (chains, draws, steps)."""
+        """Draw posterior-predictive log-volatility paths, shape (chains, draws, steps).
+
+        ``name_prefix`` is prepended to every posterior key read (e.g.
+        ``name_prefix="v0_"`` reads ``v0_h``, ``v0_sigma_eta``, …).
+        Default empty prefix preserves the univariate naming.
+        """
         ...
 
 
@@ -79,9 +85,10 @@ class RandomWalk(ImpulsoModel):
         posterior: xr.Dataset,
         steps: int,
         rng: np.random.Generator,
+        name_prefix: str = "",
     ) -> np.ndarray:
-        h_draws = posterior["h"].values
-        sigma_eta_draws = posterior["sigma_eta"].values
+        h_draws = posterior[f"{name_prefix}h"].values
+        sigma_eta_draws = posterior[f"{name_prefix}sigma_eta"].values
         n_chains, n_draws, _ = h_draws.shape
         h_last = h_draws[:, :, -1]
 
@@ -130,11 +137,12 @@ class AR1(ImpulsoModel):
         posterior: xr.Dataset,
         steps: int,
         rng: np.random.Generator,
+        name_prefix: str = "",
     ) -> np.ndarray:
-        h_draws = posterior["h"].values
-        sigma_eta_draws = posterior["sigma_eta"].values
-        phi_draws = posterior["phi"].values
-        alpha_draws = posterior["alpha"].values
+        h_draws = posterior[f"{name_prefix}h"].values
+        sigma_eta_draws = posterior[f"{name_prefix}sigma_eta"].values
+        phi_draws = posterior[f"{name_prefix}phi"].values
+        alpha_draws = posterior[f"{name_prefix}alpha"].values
         n_chains, n_draws, _ = h_draws.shape
         h_prev = h_draws[:, :, -1].copy()
 
