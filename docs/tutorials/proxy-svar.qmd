@@ -1,0 +1,278 @@
+---
+title: 'External instruments: proxy-SVAR identification'
+execute:
+  warning: false
+  echo: true
+format:
+  gfm:
+    variant: -smart+pipe_tables+tex_math_dollars
+    wrap: none
+jupyter: python3
+---
+
+```{python}
+#| include: false
+import logging
+import warnings
+
+warnings.filterwarnings("ignore")
+logging.getLogger("pytensor").setLevel(logging.ERROR)
+```
+
+```{python}
+#| tags: [parameters]
+#| include: false
+ci = False
+```
+
+```{python}
+#| echo: false
+#| output: asis
+if ci:
+    print("<!-- impulso:ci-render -->")
+```
+
+The [structural analysis tutorial](structural-analysis.md) identified shocks by imposing restrictions on the model: a causal ordering (Cholesky) or qualitative constraints on responses (sign restrictions). This tutorial covers a third strategy that brings *outside information* instead: an **external instrument**, or *proxy* — a variable observed alongside the data that is correlated with one structural shock and uncorrelated with all others. High-frequency financial surprises around scheduled announcements are the canonical source: within a narrow window around the event, the surprise reveals the shock and little else.
+
+`ProxySVAR` implements this identification scheme. Given any instrument series with a `DatetimeIndex`, it identifies the targeted shock's impact column per posterior draw, so that instrument-covariance uncertainty and VAR-coefficient uncertainty propagate jointly into impulse responses, variance decompositions, and historical decompositions.
+
+As a worked example we replicate the headline result of Känzig (2021, *American Economic Review*), "The Macroeconomic Effects of Oil Supply News": an oil-futures surprise series around OPEC announcements instruments an oil supply news shock in a monthly six-variable VAR. Replicating a published benchmark is the honest way to demonstrate a method — the target is known, and any disagreement has to be explained rather than hidden.
+
+## The method in three lines
+
+Write the reduced-form VAR residuals as mixtures of structural shocks, $u_t = P \varepsilon_t$. An instrument $z_t$ that is *relevant* ($\mathbb{E}[z_t \varepsilon_{1t}] = \phi \neq 0$) and *exogenous* ($\mathbb{E}[z_t \varepsilon_{jt}] = 0$ for $j \neq 1$) gives
+
+$$
+\mathbb{E}[z_t u_t] = P\, \mathbb{E}[z_t \varepsilon_t] = \phi\, p_1 ,
+$$
+
+so the covariance between the instrument and the residuals is *proportional to the impact column* $p_1$ of the targeted shock. Estimate that covariance, normalise the column, and trace the response through the VAR dynamics. No ordering among the endogenous variables is imposed; the instrument does the identification.
+
+Only one column of $P$ is identified. Impulso completes the remaining columns with an arbitrary orthogonal rotation consistent with the shock covariance and labels them `unidentified_*` — and the result layer treats them accordingly: `fevd()` masks their variance shares to NaN, and `historical_decomposition()` collapses them into a single well-defined remainder.
+
+```{python}
+import arviz as az
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from impulso import VAR, VARData
+from impulso.identification import ProxySVAR
+from impulso.samplers import NUTSSampler
+```
+
+## Data
+
+Both series derive from Känzig's public replication repository ([dkaenzig/replicationOilSupplyNews](https://github.com/dkaenzig/replicationOilSupplyNews)), converted to CSV with the transforms used in the paper (logs × 100; the oil price deflated by U.S. CPI):
+
+- **Endogenous (monthly, 1974M01–2017M12):** real oil price, world oil production, world oil inventories, world industrial production, U.S. industrial production, U.S. consumer price index (CPI).
+- **Instrument (1975M01–2017M12):** the composite oil-futures surprise around OPEC announcements (first principal component across futures contracts 1–12). Months without an announcement are zero.
+
+```{python}
+data_df = pd.read_csv("data/kaenzig_data.csv", index_col=0, parse_dates=True)
+instrument = pd.read_csv("data/kaenzig_instrument.csv", index_col=0, parse_dates=True)["oil_surprise"]
+
+var_names_paper = [
+    "Real oil price", "World oil production", "World oil inventories",
+    "World industrial production", "U.S. industrial production", "U.S. CPI",
+]
+data = VARData(endog=data_df.values, endog_names=list(data_df.columns), index=data_df.index)
+
+fig, ax = plt.subplots(figsize=(10, 3))
+ax.plot(instrument.index, instrument.values, lw=0.8)
+ax.set_ylabel("Oil price expectation revision [%]")
+ax.set_title("Oil futures surprises around OPEC announcements")
+plt.tight_layout()
+```
+
+## The published benchmark
+
+To have something concrete to compare against, `_kaenzig_frequentist.py` (alongside this notebook) re-implements the paper's frequentist pipeline in NumPy: OLS VAR(12) in levels, two-stage least squares (2SLS) identification of the impact column, and the paper's moving-block-bootstrap confidence bands with its censoring and recentring conventions.
+
+```{python}
+from _kaenzig_frequentist import first_stage_f, proxy_var_kaenzig, var_ols
+
+nsim = 50 if ci else 1000
+freq = proxy_var_kaenzig(data_df.values, instrument.values, p=12, horizon=50, shock_size=10.0, nsim=nsim, seed=0)
+
+_, U_ols = var_ols(data_df.values, 12)
+print(f"First stage: F = {first_stage_f(instrument.values, U_ols[:, 0]):.2f}, "
+      f"robust F = {first_stage_f(instrument.values, U_ols[:, 0], robust=True):.2f}")
+```
+
+The robust F matches the first stage reported in the paper — the instrument is strong by the conventional F > 10 threshold, though not overwhelmingly so. How a method propagates that identification uncertainty is exactly what this comparison probes.
+
+## The Bayesian route
+
+Same specification: 12 lags, levels, constant, Minnesota prior. One practical note that generalises well beyond this example: 72 near-collinear lag regressors per equation make the posterior badly conditioned for diagonal mass-matrix adaptation, and chains freeze at different points on the likelihood ridge. nutpie's low-rank modified mass matrix — passed through `nuts_sampler_kwargs` — is built for exactly this geometry.
+
+```{python}
+if ci:
+    sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=42)
+else:
+    sampler = NUTSSampler(
+        draws=1000,
+        tune=1500,
+        chains=2,
+        cores=1,
+        target_accept=0.9,
+        random_seed=42,
+        nuts_sampler_kwargs={"low_rank_modified_mass_matrix": True},
+    )
+
+fitted = VAR(lags=12, prior="minnesota").fit(data, sampler=sampler)
+
+summ = az.summary(fitted.idata, var_names=["B"], kind="diagnostics")
+print(f"B coefficients: min ESS = {summ['ess_bulk'].min():.0f}, "
+      f"median ESS = {summ['ess_bulk'].median():.0f}, "
+      f"max r_hat = {summ['r_hat'].max():.3f}")
+print(f"divergences: {int(fitted.idata.sample_stats['diverging'].sum())}")
+```
+
+Identification is one line. `ProxySVAR` reconstructs the reduced-form residuals per posterior draw, aligns the instrument by date (an inner join on the `DatetimeIndex` — months missing from the instrument are dropped), and estimates the impact column from the instrument–residual covariance. `scale=10.0` applies the paper's normalisation: a shock that raises the real oil price by 10% on impact.
+
+```{python}
+scheme = ProxySVAR(
+    instrument=instrument,
+    policy_variable="real_oil_price",
+    shock_name="oil_supply_news",
+    scale=10.0,
+)
+ivar = fitted.set_identification_strategy(scheme)
+irf = ivar.impulse_response(horizon=50)
+```
+
+The scheme attaches first-stage diagnostics to the structural shock matrix — and because the residuals differ draw by draw, instrument relevance is a posterior quantity rather than a single number:
+
+```{python}
+sm = ivar.shock_matrix()
+{k: round(v, 2) for k, v in sm.attrs.items()}
+```
+
+```{python}
+#| fig-width: 6
+#| fig-height: 3.2
+f_draws = scheme.first_stage(fitted.idata.posterior, data, n_lags=12).ravel()
+
+fig, ax = plt.subplots(figsize=(6, 3.2))
+ax.hist(f_draws, bins=40, color="C0", alpha=0.75)
+ax.axvline(10, color="k", ls="--", lw=1, label="F = 10 rule of thumb")
+ax.axvline(np.median(f_draws), color="C1", lw=1.5, label=f"posterior median = {np.median(f_draws):.1f}")
+ax.set_xlabel("First-stage F")
+ax.set_title("Posterior of instrument relevance")
+ax.legend(fontsize=8)
+plt.tight_layout()
+```
+
+## Full posterior vs published bands
+
+One panel per variable: the Impulso posterior median with 68% and 90% credible bands, overlaid on the paper's point estimate with 68% and 90% bootstrap bands.
+
+```{python}
+#| fig-width: 11
+#| fig-height: 7
+irf_draws = irf.idata.posterior_predictive["irf"].sel(shock="oil_supply_news")
+med = irf_draws.median(dim=("chain", "draw")).values
+q = {p: irf_draws.quantile(p, dim=("chain", "draw")).values for p in (0.05, 0.16, 0.84, 0.95)}
+
+horizon = np.arange(51)
+fig, axes = plt.subplots(2, 3, figsize=(11, 7), sharex=True)
+for j, (ax, name) in enumerate(zip(axes.ravel(), var_names_paper)):
+    ax.fill_between(horizon, q[0.05][:, j], q[0.95][:, j], alpha=0.18, color="C0", label="Impulso 90%")
+    ax.fill_between(horizon, q[0.16][:, j], q[0.84][:, j], alpha=0.35, color="C0", label="Impulso 68%")
+    ax.plot(horizon, med[:, j], color="C0", lw=1.8, label="Impulso median")
+    ax.plot(horizon, freq.irf[:, j], color="C1", lw=1.5, ls="--", label="Känzig point")
+    for lo, hi in (freq.bands68, freq.bands90):
+        ax.plot(horizon, lo[:, j], color="C1", lw=0.8, ls=":")
+        ax.plot(horizon, hi[:, j], color="C1", lw=0.8, ls=":")
+    ax.axhline(0, color="k", lw=0.6)
+    ax.set_title(name, fontsize=11)
+    ax.set_xlim(0, 50)
+    if j >= 3:
+        ax.set_xlabel("Months")
+    if j % 3 == 0:
+        ax.set_ylabel("%")
+axes[0, 0].legend(fontsize=7, loc="upper right")
+fig.suptitle("Response to an oil supply news shock raising the real oil price by 10%", y=1.0)
+plt.tight_layout()
+```
+
+Three observations, honestly stated:
+
+- **Shapes match.** The posterior median tracks the published estimates across all six variables, and the paper's point estimate lies inside the 68% credible band almost everywhere.
+- **The full posterior is tighter than the bootstrap**, most visibly at long horizons — prior information doing honest, visible work.
+- **One attributable divergence:** the U.S. CPI response beyond ~30 months stays more persistent than the paper's point estimate. That is the Minnesota prior's random-walk shrinkage — a modelling choice you can see and change — and the published path remains within the bands throughout.
+
+## The same shock under time-varying volatility
+
+Everything above assumed a constant shock covariance. But `ProxySVAR` composes with any volatility process on the `VolatilityProcess` seam — including stochastic volatility, where $\Sigma_t$ evolves over time. The identification logic is unchanged: the instrument pins down the impact column, and the orthogonal completion is recomputed per period from that period's $\Sigma_t$.
+
+This composition — *external-instrument identification read off a time-varying shock covariance* — is not offered by standard proxy-SVAR tooling, which is built around a single covariance estimate.
+
+To keep this notebook renderable we demonstrate the composition on the four-variable core of the system — real oil price, world oil production, U.S. industrial production, U.S. CPI. (The mechanics are identical for the full model, but a six-variable, twelve-lag VAR with 3,000+ latent volatility states does not mix reliably at a tutorial-sized draw budget — a limitation worth stating rather than hiding.)
+
+```{python}
+core = ["real_oil_price", "world_oil_production", "us_ip", "us_cpi"]
+data_sv = VARData(endog=data_df[core].values, endog_names=core, index=data_df.index)
+
+if ci:
+    sv_sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=42)
+else:
+    sv_sampler = NUTSSampler(
+        draws=500,
+        tune=1000,
+        chains=2,
+        cores=1,
+        target_accept=0.9,
+        random_seed=42,
+        nuts_sampler_kwargs={"low_rank_modified_mass_matrix": True},
+    )
+
+fitted_sv = VAR(lags=12, volatility="sv").fit(data_sv, sampler=sv_sampler)
+
+summ_sv = az.summary(fitted_sv.idata, var_names=["B"], kind="diagnostics")
+print(f"B coefficients: min ESS = {summ_sv['ess_bulk'].min():.0f}, "
+      f"max r_hat = {summ_sv['r_hat'].max():.3f}, "
+      f"divergences: {int(fitted_sv.idata.sample_stats['diverging'].sum())}")
+```
+
+With a time-varying $\Sigma_t$, the structural shock matrix is a *path*: `shock_matrix(at="all")` returns one impact matrix per period. The instrument–residual covariance is common across periods; what varies is the scale of the shocks hitting the system. A direct way to see it: identify without the unit-effect rescaling (`scale=None`) and read off the *one-standard-deviation* size of the oil supply news shock period by period.
+
+```{python}
+#| fig-width: 10
+#| fig-height: 3.5
+scheme_sd = ProxySVAR(instrument=instrument, policy_variable="real_oil_price", shock_name="oil_supply_news")
+ivar_sd = fitted_sv.set_identification_strategy(scheme_sd)
+sd_path = ivar_sd.shock_matrix(at="all").sel(response="real_oil_price", shock="oil_supply_news")
+sd_med = sd_path.median(dim=("chain", "draw"))
+sd_lo = sd_path.quantile(0.16, dim=("chain", "draw"))
+sd_hi = sd_path.quantile(0.84, dim=("chain", "draw"))
+
+fig, ax = plt.subplots(figsize=(10, 3.5))
+t = sd_path.coords["time"].values
+ax.fill_between(t, sd_lo, sd_hi, alpha=0.3, color="C0")
+ax.plot(t, sd_med, color="C0", lw=1.2)
+ax.set_ylabel("% oil price impact")
+ax.set_title("One-standard-deviation oil supply news shock, period by period")
+plt.tight_layout()
+```
+
+The oil market's volatility regimes are cleanly resolved: the 1986 OPEC collapse, the 1990–91 Gulf war, the 2008–09 crisis, and the 2014–15 price crash all appear as episodes where a typical supply-news shock moved the oil price several times more than in the quiet mid-1990s. A constant-$\Sigma$ analysis averages this variation away entirely; here it is part of the posterior, identified by the same instrument.
+
+## Practical guard rails
+
+Partial identification has consequences downstream, and the result layer enforces them rather than leaving them as footnotes:
+
+- `fevd()` masks the variance shares of the `unidentified_*` columns to NaN (they depend on an arbitrary rotation); the identified shock's share is valid and reported. Variance decomposition also requires the one-standard-deviation convention — use `scale=None`.
+- `historical_decomposition()` collapses the unidentified columns into a single `unidentified_remainder` — their individual paths are arbitrary, but their sum is exactly the variation the identified shock does not explain.
+- A weak instrument (posterior-median first-stage F below 10) triggers a warning at identification time.
+
+## Reproducing this notebook
+
+The data CSVs ship with the documentation. To regenerate them from the original sources, clone [dkaenzig/replicationOilSupplyNews](https://github.com/dkaenzig/replicationOilSupplyNews) and apply the transforms in its `mainAnalysisOilSupplyNews.m` (logs × 100, real oil price deflated by CPI, instrument column 15 = the principal-component composite). The full render of this notebook performs two MCMC fits and takes roughly fifteen minutes on a laptop.
+
+## References
+
+- Känzig, D. R. (2021). The macroeconomic effects of oil supply news: Evidence from OPEC announcements. *American Economic Review*, 111(4), 1092–1125.
+- Mertens, K., & Ravn, M. O. (2013). The dynamic effects of personal and corporate income tax changes in the United States. *American Economic Review*, 103(4), 1212–1247.
+- Stock, J. H., & Watson, M. W. (2018). Identification and estimation of dynamic causal effects in macroeconomics using external instruments. *The Economic Journal*, 128(610), 917–948.

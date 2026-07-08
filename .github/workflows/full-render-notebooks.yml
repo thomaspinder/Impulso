@@ -14,10 +14,10 @@ permissions:
 jobs:
   full-render:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       matrix:
-        notebook: [quickstart, forecasting, structural-analysis, monetary-policy]
+        notebook: [quickstart, forecasting, structural-analysis, monetary-policy, proxy-svar]
       fail-fast: false
     steps:
       - name: Check out

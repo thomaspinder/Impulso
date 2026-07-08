@@ -125,6 +125,8 @@ jobs:
             ci_param: false
           - notebook: monetary-policy
             ci_param: true
+          - notebook: proxy-svar
+            ci_param: true
       fail-fast: false
     steps:
       - name: Check out
