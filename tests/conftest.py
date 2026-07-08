@@ -113,29 +113,6 @@ def synthetic_idata_2v():
     return az.InferenceData(posterior=posterior)
 
 
-@pytest.fixture
-def synthetic_identified_idata_2v(synthetic_idata_2v):
-    """Synthetic InferenceData with structural_shock_matrix added.
-
-    Applies Cholesky decomposition to each Sigma draw.
-    """
-    sigma = synthetic_idata_2v.posterior["Sigma"].values
-    n_chains, n_draws = sigma.shape[:2]
-
-    P = np.zeros_like(sigma)
-    for c in range(n_chains):
-        for d in range(n_draws):
-            P[c, d] = np.linalg.cholesky(sigma[c, d])
-
-    P_da = xr.DataArray(
-        P,
-        dims=["chain", "draw", "response", "shock"],
-        coords={"response": ["y1", "y2"], "shock": ["y1", "y2"]},
-    )
-    new_posterior = synthetic_idata_2v.posterior.assign(structural_shock_matrix=P_da)
-    return az.InferenceData(posterior=new_posterior)
-
-
 # --------------- SV fixtures ---------------
 
 

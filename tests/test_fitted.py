@@ -189,9 +189,10 @@ class TestFittedVARVolatility:
 
 
 class TestSetIdentificationStrategyRoutesThroughSeam:
-    def test_calls_volatility_cholesky_at(self, var_data_2v):
-        """set_identification_strategy must query volatility.cholesky_at,
-        not read posterior['Sigma'] directly."""
+    @pytest.mark.slow
+    def test_shock_matrix_triggers_cholesky_at(self, var_data_2v):
+        """shock_matrix() queries volatility.cholesky_at lazily.
+        set_identification_strategy no longer calls it eagerly."""
         from unittest.mock import MagicMock
 
         from impulso.identification import Cholesky
@@ -200,21 +201,19 @@ class TestSetIdentificationStrategyRoutesThroughSeam:
 
         sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
         fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
-
-        # Replace the volatility on the fitted spec with a spy.
-        spy = MagicMock(wraps=fitted.volatility)
-        object.__setattr__(fitted, "volatility", spy)
-
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
+        spy = MagicMock(wraps=identified.volatility)
+        object.__setattr__(identified, "volatility", spy)
+
+        sm = identified.shock_matrix()
         spy.cholesky_at.assert_called_once()
-        # Confirm the structural shock matrix made it into the posterior.
-        assert "structural_shock_matrix" in identified.idata.posterior
-        # Lock down the dims/coords contract that downstream IRF/FEVD/HD depend on.
-        ssm = identified.idata.posterior["structural_shock_matrix"]
-        assert ssm.dims == ("chain", "draw", "response", "shock")
-        assert list(ssm.coords["response"].values) == fitted.var_names
-        assert list(ssm.coords["shock"].values) == fitted.var_names
+
+        # structural_shock_matrix no longer stored in the posterior.
+        assert "structural_shock_matrix" not in identified.idata.posterior
+        assert sm.dims == ("chain", "draw", "response", "shock")
+        assert list(sm.coords["response"].values) == fitted.var_names
+        assert list(sm.coords["shock"].values) == fitted.var_names
 
 
 class TestFittedVarSigmaDispatch:
