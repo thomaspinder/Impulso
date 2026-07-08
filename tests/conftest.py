@@ -200,6 +200,8 @@ def synthetic_sv_idata_2v():
     posterior = xr.Dataset({
         "h": (("chain", "draw", "time", "variable"), h),
         "R_chol": (("chain", "draw", "i", "j"), R_chol),
+        "v0_h": (("chain", "draw", "time"), h[:, :, :, 0]),
+        "v1_h": (("chain", "draw", "time"), h[:, :, :, 1]),
         "v0_mu": (("chain", "draw"), rng.standard_normal((n_chains, n_draws))),
         "v1_mu": (("chain", "draw"), rng.standard_normal((n_chains, n_draws))),
         "v0_sigma_eta": (("chain", "draw"), np.abs(rng.standard_normal((n_chains, n_draws)))),
