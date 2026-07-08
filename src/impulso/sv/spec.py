@@ -204,6 +204,30 @@ class StochasticVolatility(ImpulsoBaseModel):
         # with renamed keys before calling forecast_log_vol.
         return L
 
+    @staticmethod
+    def _clark_reconstruct(h: np.ndarray, R_chol: np.ndarray) -> np.ndarray:
+        """Clark reconstruction: L = diag(exp(h / 2)) @ R_chol.
+
+        Private NumPy home for the per-variable-SD-times-mixing-factor
+        computation shared by ``cholesky_at``, ``cholesky_path``, and
+        ``forecast_cholesky_path``.
+
+        Args:
+            h: Log-volatility, shape ``(..., n_vars)`` where ``...`` is
+                any leading batch dimensions (e.g. ``(C, D)`` for a single
+                time slice or ``(C, D, T)`` for a full path).
+            R_chol: Unit-diagonal lower-triangular mixing factor, shape
+                ``(C, D, n_vars, n_vars)``.
+
+        Returns:
+            Cholesky factor ``L`` with shape ``(..., n_vars, n_vars)``.
+        """
+        # Insert singleton axes between R_chol's batch dims and its (n, n)
+        # trailing dims so it broadcasts against h's extra leading axes.
+        extra = h.ndim - (R_chol.ndim - 1)
+        R = R_chol.shape[:-2] + (1,) * extra + R_chol.shape[-2:]
+        return np.exp(h / 2)[..., :, np.newaxis] * R_chol.reshape(R)
+
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
         """Return L_t = diag(exp(h_t / 2)) @ R_chol for the requested t.
 
@@ -224,8 +248,7 @@ class StochasticVolatility(ImpulsoBaseModel):
         if not (0 <= t < h.shape[2]):
             raise ValueError(f"t={t} is out of range for T={h.shape[2]}")
 
-        sigma_t = np.exp(h[:, :, t, :] / 2)  # (C, D, n_vars)
-        return sigma_t[:, :, :, None] * R_chol  # (C, D, n_vars, n_vars)
+        return self._clark_reconstruct(h[:, :, t, :], R_chol)
 
     def cholesky_path(self, posterior: "xr.Dataset", T: int) -> np.ndarray:
         """Return the full L_t path for t in 0..T-1.
@@ -244,8 +267,7 @@ class StochasticVolatility(ImpulsoBaseModel):
         if h.shape[2] != T:
             raise ValueError(f"posterior['h'] has T={h.shape[2]}, requested T={T}")
 
-        sigma_t = np.exp(h / 2)  # (C, D, T, n_vars)
-        return sigma_t[:, :, :, :, None] * R_chol[:, :, None, :, :]  # (C, D, T, n_vars, n_vars)
+        return self._clark_reconstruct(h, R_chol)
 
     def forecast_cholesky_path(
         self,
@@ -297,6 +319,4 @@ class StochasticVolatility(ImpulsoBaseModel):
                     slice_posterior[extra_var] = (("chain", "draw"), posterior[key].values)
             h_forecast[:, :, :, i] = dynamics.forecast_log_vol(slice_posterior, steps, rng)
 
-        # Combine: L_t = diag(exp(h_t / 2)) @ R_chol for each forecast step.
-        sigma_t = np.exp(h_forecast / 2)  # (C, D, steps, n_vars)
-        return sigma_t[:, :, :, :, None] * R_chol[:, :, None, :, :]
+        return self._clark_reconstruct(h_forecast, R_chol)

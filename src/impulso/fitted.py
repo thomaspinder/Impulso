@@ -7,6 +7,7 @@ import numpy as np
 from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
+from impulso._linalg import sigma_from_cholesky
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme, VolatilityProcess
 
@@ -75,11 +76,9 @@ class FittedVAR(ImpulsoBaseModel):
         if self.volatility.is_time_varying:
             T = self.data.endog.shape[0] - self.n_lags
             L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
-            # Σ_t = L_t @ L_t.T, broadcast over (chains, draws, T).
-            return np.einsum("cdtij,cdtkj->cdtik", L_path, L_path)
+            return sigma_from_cholesky(L_path)
         L = self.volatility.cholesky_at(self.idata.posterior, t=None)
-        # Σ = L @ L.T, broadcast over (chains, draws).
-        return np.einsum("cdij,cdkj->cdik", L, L)
+        return sigma_from_cholesky(L)
 
     def forecast(
         self,
