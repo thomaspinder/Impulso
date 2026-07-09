@@ -30,6 +30,13 @@ class NUTSSampler(ImpulsoModel):
         target_accept: Target acceptance rate for NUTS.
         random_seed: Random seed for reproducibility.
         nuts_sampler: NUTS backend. Auto-detects nutpie if installed.
+        nuts_sampler_kwargs: Extra keyword arguments forwarded verbatim to
+            the NUTS backend (`pm.sample(nuts_sampler_kwargs=...)`). Useful
+            for backend-specific adaptation options — e.g. nutpie's
+            `low_rank_modified_mass_matrix=True`, which handles the
+            ill-conditioned posteriors that arise in large VARs with many
+            near-collinear lag regressors, where diagonal mass-matrix
+            adaptation mixes poorly.
     """
 
     draws: int = Field(1000, ge=1)
@@ -39,6 +46,7 @@ class NUTSSampler(ImpulsoModel):
     target_accept: float = Field(0.8, gt=0, lt=1)
     random_seed: int | None = None
     nuts_sampler: Literal["pymc", "nutpie"] = Field(default_factory=_default_nuts_sampler)
+    nuts_sampler_kwargs: dict | None = None
 
     def sample(self, model: pm.Model) -> az.InferenceData:
         """Run NUTS sampling on the given PyMC model.
@@ -58,6 +66,7 @@ class NUTSSampler(ImpulsoModel):
                 target_accept=self.target_accept,
                 random_seed=self.random_seed,
                 nuts_sampler=self.nuts_sampler,
+                nuts_sampler_kwargs=self.nuts_sampler_kwargs or {},
                 idata_kwargs={"log_likelihood": True},
             )
         return idata
