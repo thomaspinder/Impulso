@@ -3,6 +3,8 @@
 
 Conventional VARs produce point forecasts. A Bayesian VAR produces a full posterior predictive distribution over future paths. This means every forecast comes with calibrated uncertainty — wide bands when the model is unsure, narrow when the data are informative.
 
+That uncertainty has two sources: the model’s coefficients are only estimated, and the system is hit by a fresh random shock every period. `forecast()` includes both by default. The [section below](#what-the-bands-include) shows why leaving the shocks out — as much VAR tooling implicitly does — understates uncertainty, badly so at short horizons.
+
 ``` python
 import numpy as np
 import pandas as pd
@@ -178,7 +180,7 @@ fitted
     </table>
 </div>
 
-    FittedVAR(n_lags=1, data=VARData(endog_names=['gdp_growth', 'inflation', 'rate'], exog_names=None), var_names=['gdp_growth', 'inflation', 'rate'], has_exog=False)
+    FittedVAR(n_lags=1, data=VARData(endog_names=['gdp_growth', 'inflation', 'rate'], exog_names=None), var_names=['gdp_growth', 'inflation', 'rate'], volatility=Constant(name='constant', is_time_varying=False, sigma_sd_beta=2.5, tril_offdiag_sigma=0.5))
 
 ## Point forecasts
 
@@ -191,14 +193,14 @@ fcast.median()
 
 |     | gdp_growth | inflation | rate      |
 |-----|------------|-----------|-----------|
-| 0   | -0.013904  | 0.072168  | -0.053514 |
-| 1   | -0.009715  | 0.041279  | -0.027897 |
-| 2   | -0.006648  | 0.020815  | -0.014629 |
-| 3   | -0.005040  | 0.008232  | -0.008310 |
-| 4   | -0.003237  | -0.000271 | -0.005325 |
-| 5   | -0.001996  | -0.005426 | -0.003812 |
-| 6   | -0.001585  | -0.008575 | -0.003110 |
-| 7   | -0.001419  | -0.010643 | -0.002580 |
+| 0   | -0.012656  | 0.069556  | -0.052775 |
+| 1   | -0.013128  | 0.032538  | -0.030248 |
+| 2   | -0.008212  | 0.019128  | -0.010819 |
+| 3   | -0.000685  | 0.004069  | -0.010505 |
+| 4   | -0.005153  | -0.004712 | -0.010715 |
+| 5   | -0.009687  | -0.018979 | -0.008123 |
+| 6   | -0.011980  | -0.028681 | -0.003874 |
+| 7   | -0.010367  | -0.019014 | -0.002091 |
 
 Each row is a forecast horizon (1 through 8 quarters ahead). The values converge toward the unconditional mean of the process as the horizon increases — a hallmark of stationary VARs.
 
@@ -217,27 +219,27 @@ print(hdi.upper)
 
     Lower bounds:
        gdp_growth  inflation      rate
-    0   -0.029950   0.053070 -0.071551
-    1   -0.035203   0.015770 -0.049894
-    2   -0.034322  -0.007591 -0.037466
-    3   -0.034431  -0.022282 -0.030866
-    4   -0.037699  -0.032357 -0.027206
-    5   -0.037708  -0.038754 -0.028479
-    6   -0.037572  -0.038684 -0.025764
-    7   -0.037351  -0.041122 -0.024178
+    0   -0.176323  -0.092290 -0.205369
+    1   -0.205131  -0.157166 -0.202808
+    2   -0.221412  -0.181536 -0.184941
+    3   -0.206683  -0.193314 -0.198503
+    4   -0.206406  -0.207065 -0.198302
+    5   -0.236575  -0.218074 -0.180260
+    6   -0.226494  -0.234259 -0.212227
+    7   -0.222014  -0.257147 -0.189988
 
     Upper bounds:
        gdp_growth  inflation      rate
-    0    0.003275   0.089627 -0.037677
-    1    0.013563   0.067530 -0.006803
-    2    0.023137   0.051853  0.008579
-    3    0.027775   0.041415  0.014705
-    4    0.027247   0.033236  0.018755
-    5    0.028361   0.028338  0.017704
-    6    0.029564   0.028623  0.020326
-    7    0.030857   0.026834  0.021439
+    0    0.144030   0.223678  0.095839
+    1    0.190039   0.215089  0.157698
+    2    0.203153   0.224199  0.179956
+    3    0.207867   0.225057  0.181995
+    4    0.230420   0.207368  0.175023
+    5    0.196664   0.200923  0.179835
+    6    0.187660   0.198234  0.158418
+    7    0.198557   0.178922  0.177154
 
-The intervals widen at longer horizons. This is expected: uncertainty compounds over time because each forecast step propagates parameter uncertainty forward.
+The intervals widen at longer horizons. This is expected: two forces compound over time — the random shocks hitting the system accumulate, and parameter uncertainty propagates forward as each forecast step feeds into the next.
 
 ## Visualise the forecast
 
@@ -251,6 +253,75 @@ fig = fcast.plot()
 
 The fan chart shows the posterior median (line) and 89% HDI (shaded region) for each variable. The bands widen at longer horizons, reflecting compounding uncertainty. GDP growth and the interest rate show the widest bands, consistent with their stronger cross-variable dependencies in the DGP.
 
+## What the bands include
+
+The forecast above is a genuine posterior predictive distribution: it composes *parameter uncertainty* (the coefficients are estimated, not known) with *shock uncertainty* (each future period draws a fresh innovation). This is the default — `include_shock_uncertainty=True`.
+
+Setting `include_shock_uncertainty=False` switches the shocks off and propagates only the posterior over conditional-mean paths. The result is a distribution over what the model *expects* to happen, not over what *will* happen. It is the right object for scenario mechanics, but it is not a predictive distribution — and reporting it as one is a common way to understate forecast uncertainty. Pass `seed` in density mode to make the drawn shocks reproducible.
+
+``` python
+mean_fcast = fitted.forecast(steps=8, include_shock_uncertainty=False)
+density_fcast = fitted.forecast(steps=8, include_shock_uncertainty=True, seed=42)
+
+mean_hdi = mean_fcast.hdi(prob=0.89)
+density_hdi = density_fcast.hdi(prob=0.89)
+```
+
+Plotting both 89% bands on the same axes shows the gap. The narrow inner band is parameter uncertainty alone; the wider band is the full predictive.
+
+``` python
+import matplotlib.pyplot as plt
+
+horizons = range(1, 9)
+fig, axes = plt.subplots(1, n_vars, figsize=(12, 4), squeeze=False)
+
+for i, name in enumerate(data.endog_names):
+    ax = axes[0][i]
+    med = density_fcast.median()[name].values
+    ax.fill_between(
+        horizons, density_hdi.lower[name], density_hdi.upper[name],
+        alpha=0.25, color="C0", label="full predictive",
+    )
+    ax.fill_between(
+        horizons, mean_hdi.lower[name], mean_hdi.upper[name],
+        alpha=0.5, color="C1", label="parameter only",
+    )
+    ax.plot(horizons, med, color="black", lw=1)
+    ax.set_title(name)
+    ax.set_xlabel("horizon")
+
+axes[0][0].legend(loc="upper left", fontsize=8)
+fig.tight_layout()
+```
+
+![](forecasting_files/figure-commonmark/cell-9-output-1.png)
+
+The understatement is worst at the shortest horizons. At `h=1`, parameter uncertainty is small — the data pin the coefficients down — so a mean-only band is almost invisible, yet the true one-step forecast still carries the full shock variance. The ratio of band widths makes this concrete:
+
+``` python
+width_mean = mean_hdi.upper - mean_hdi.lower
+width_density = density_hdi.upper - density_hdi.lower
+
+ratio = (width_density / width_mean).round(1)
+ratio.index = range(1, 9)
+ratio.index.name = "horizon"
+ratio
+```
+
+|         | gdp_growth | inflation | rate |
+|---------|------------|-----------|------|
+| horizon |            |           |      |
+| 1       | 9.9        | 9.0       | 9.1  |
+| 2       | 7.6        | 7.7       | 8.2  |
+| 3       | 6.9        | 7.1       | 8.1  |
+| 4       | 7.1        | 6.6       | 8.3  |
+| 5       | 7.0        | 6.0       | 7.7  |
+| 6       | 6.7        | 6.3       | 8.2  |
+| 7       | 6.5        | 6.5       | 8.2  |
+| 8       | 6.3        | 6.1       | 8.1  |
+
+Each entry is how many times wider the honest band is than the parameter-only band. The multiple is largest at `h=1` and shrinks as parameter uncertainty grows into the total — the opposite of the intuition that near-term forecasts are the certain ones.
+
 ## Tidy export
 
 For downstream analysis or dashboarding, `.to_dataframe()` returns the median forecast in a tidy DataFrame format.
@@ -262,14 +333,14 @@ fcast.to_dataframe()
 |      | gdp_growth | inflation | rate      |
 |------|------------|-----------|-----------|
 | step |            |           |           |
-| 0    | -0.013904  | 0.072168  | -0.053514 |
-| 1    | -0.009715  | 0.041279  | -0.027897 |
-| 2    | -0.006648  | 0.020815  | -0.014629 |
-| 3    | -0.005040  | 0.008232  | -0.008310 |
-| 4    | -0.003237  | -0.000271 | -0.005325 |
-| 5    | -0.001996  | -0.005426 | -0.003812 |
-| 6    | -0.001585  | -0.008575 | -0.003110 |
-| 7    | -0.001419  | -0.010643 | -0.002580 |
+| 0    | -0.012656  | 0.069556  | -0.052775 |
+| 1    | -0.013128  | 0.032538  | -0.030248 |
+| 2    | -0.008212  | 0.019128  | -0.010819 |
+| 3    | -0.000685  | 0.004069  | -0.010505 |
+| 4    | -0.005153  | -0.004712 | -0.010715 |
+| 5    | -0.009687  | -0.018979 | -0.008123 |
+| 6    | -0.011980  | -0.028681 | -0.003874 |
+| 7    | -0.010367  | -0.019014 | -0.002091 |
 
 ## Summary
 
