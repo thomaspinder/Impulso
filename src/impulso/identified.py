@@ -110,7 +110,9 @@ class IdentifiedVAR(ImpulsoBaseModel):
         else:
             t = self._resolve_at(at)
             L = self.volatility.cholesky_at(self.idata.posterior, t=t)
-            P = self.scheme.identify(L, self.var_names, posterior=self.idata.posterior)
+            P = self.scheme.identify(
+                L, self.var_names, posterior=self.idata.posterior, data=self.data, n_lags=self.n_lags
+            )
             result = xr.DataArray(
                 P,
                 dims=["chain", "draw", "response", "shock"],
@@ -125,6 +127,12 @@ class IdentifiedVAR(ImpulsoBaseModel):
         rate = getattr(self.scheme, "_last_acceptance_rate", None)
         if isinstance(rate, float) and rate < 1.0:
             result.attrs["sign_restriction_acceptance_rate"] = rate
+
+        # Attach any scheme-specific diagnostics (e.g. ProxySVAR first-stage
+        # strength) the same way — identify() stashes them, we surface them.
+        diagnostics = getattr(self.scheme, "_last_diagnostics", None)
+        if diagnostics:
+            result.attrs.update(diagnostics)
 
         object.__setattr__(self, cache_attr, result)
         return result
@@ -176,7 +184,11 @@ class IdentifiedVAR(ImpulsoBaseModel):
         P_path = np.zeros_like(L_path)
         for t in range(T):
             P_path[:, :, t, :, :] = self.scheme.identify(
-                L_path[:, :, t, :, :], self.var_names, posterior=self.idata.posterior
+                L_path[:, :, t, :, :],
+                self.var_names,
+                posterior=self.idata.posterior,
+                data=self.data,
+                n_lags=self.n_lags,
             )
         return P_path
 
@@ -301,20 +313,10 @@ class IdentifiedVAR(ImpulsoBaseModel):
         Returns:
             HistoricalDecompositionResult.
         """
-        B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
-        intercept_draws = self.idata.posterior["intercept"].values  # (C, D, n)
+        from impulso._residuals import reduced_form_residuals
 
-        y = self.data.endog  # (T, n)
-        T = y.shape[0]
         n_lags = self.n_lags
-
-        x_lag = np.concatenate(
-            [y[n_lags - lag : T - lag] for lag in range(1, n_lags + 1)],
-            axis=1,
-        )  # (T-p, n*p)
-        y_hat = intercept_draws[:, :, np.newaxis, :] + np.einsum("cdij,tj->cdti", B_draws, x_lag)
-        y_obs = y[n_lags:]
-        resid = y_obs[np.newaxis, np.newaxis, :, :] - y_hat
+        resid = reduced_form_residuals(self.idata.posterior, self.data, n_lags)
 
         use_per_t = self.volatility.is_time_varying and at in (None, "all")
         if use_per_t:
