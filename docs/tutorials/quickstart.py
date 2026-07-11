@@ -116,7 +116,7 @@ ic.summary()
 # ## Specify the model
 #
 # `VAR(lags=1, prior="minnesota")` creates a model specification. The Minnesota prior,
-# introduced by Doan, Litterman, and Sims (1984), shrinks each variable's own lags toward
+# introduced by {cite:t}`doan1984`, shrinks each variable's own lags toward
 # a random walk and cross-variable lags toward zero. This regularisation is especially
 # valuable when the number of parameters grows quadratically with the number of variables
 # and linearly with lags. For more detail, see the

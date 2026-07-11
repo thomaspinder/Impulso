@@ -21,9 +21,15 @@ extensions = [
     "sphinx.ext.napoleon",  # Google-style docstrings
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
+    "sphinxcontrib.bibtex",
     "sphinx_copybutton",
     "sphinx_design",
 ]
+
+# -- Bibliography (sphinxcontrib-bibtex) -------------------------------------
+bibtex_bibfiles = ["references.bib"]
+bibtex_reference_style = "author_year"  # {cite:t} -> Uhlig (2005)
+bibtex_default_style = "unsrt"
 
 templates_path = ["_templates"]
 
