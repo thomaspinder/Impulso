@@ -26,10 +26,20 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
+
+# Tutorials are jupytext py:percent notebooks; MyST-NB reads them via jupytext.
+source_suffix = {
+    ".md": "myst-nb",
+    ".ipynb": "myst-nb",
+    ".py": "myst-nb",
+}
+nb_custom_formats = {".py": ["jupytext.reads", {"fmt": "py:percent"}]}
+
 exclude_patterns = [
     "_build",
     "Thumbs.db",
     ".DS_Store",
+    "conf.py",  # this config module is not a document
     "**.ipynb_checkpoints",
     "agents/**",  # internal agent docs, not part of the site
     "adr/**",  # architecture decision records live in-repo, not on the site
