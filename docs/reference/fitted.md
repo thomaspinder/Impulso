@@ -1,5 +1,11 @@
 # FittedVAR
 
 ```{eval-rst}
-.. automodule:: impulso.fitted
+.. currentmodule:: impulso.fitted
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   FittedVAR
 ```

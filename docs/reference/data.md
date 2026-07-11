@@ -1,5 +1,11 @@
 # Data
 
 ```{eval-rst}
-.. automodule:: impulso.data
+.. currentmodule:: impulso.data
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   VARData
 ```

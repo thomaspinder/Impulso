@@ -216,3 +216,4 @@ __marimo__/
 
 /.quarto/
 **/*.quarto_ipynb
+docs/reference/generated/

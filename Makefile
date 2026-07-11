@@ -51,9 +51,13 @@ docs-test: docs-ci ## Alias for docs-ci: fail on any warning
 docs-serve: docs ## Serve the built docs locally on :8000
 	@uv run --group docs python -m http.server 8000 --directory docs/_build/html
 
+.PHONY: docs-linkcheck
+docs-linkcheck: ## Check external links in the docs resolve (no notebook execution)
+	@uv run --group docs sphinx-build -b linkcheck -D nb_execution_mode=off docs docs/_build/linkcheck
+
 .PHONY: docs-clean
 docs-clean: ## Remove built docs (keeps the notebook exec cache)
-	@rm -rf docs/_build/html docs/_build/doctrees
+	@rm -rf docs/_build/html docs/_build/doctrees docs/reference/generated
 
 .PHONY: help
 help:

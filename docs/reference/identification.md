@@ -1,5 +1,12 @@
 # Identification Schemes
 
 ```{eval-rst}
-.. automodule:: impulso.identification
+.. currentmodule:: impulso.identification
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   Cholesky
+   SignRestriction
 ```

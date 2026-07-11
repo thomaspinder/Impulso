@@ -39,6 +39,9 @@ make docs-serve
 # Build docs in smoke mode, warnings-as-errors (the CI gate)
 make docs-ci   # (docs-test is an alias)
 
+# Check external links resolve (no notebook execution)
+make docs-linkcheck
+
 # Multi-version test (Python 3.11-3.14)
 uv run tox
 ```
@@ -47,7 +50,7 @@ uv run tox
 
 - **Source**: `src/impulso/` — library code, built as a wheel via Hatchling
 - **Tests**: `tests/` — pytest with `--cov`, 90% coverage target (codecov.yaml)
-- **Docs**: `docs/` — Sphinx + MyST-NB (`docs/conf.py`), tutorials as executable **jupytext `py:percent` `.py` notebooks** (read via `nb_custom_formats`), prose/reference pages as MyST `.md`. Docstrings auto-rendered via Sphinx `autodoc`/`autosummary` + `napoleon`. Notebooks execute at build via jupyter-cache; no outputs are committed. Theme: `pydata-sphinx-theme`. Tutorial `.py` files are excluded from ruff (they are notebooks, not library code).
+- **Docs**: `docs/` — Sphinx + MyST-NB (`docs/conf.py`), tutorials as executable **jupytext `py:percent` `.py` notebooks** (read via `nb_custom_formats`), prose/reference pages as MyST `.md`. Docstrings auto-rendered via Sphinx `autosummary` (summary tables + per-object pages generated under `docs/reference/generated/`, gitignored; custom stub templates in `docs/_templates/autosummary/` emit MyST) + `napoleon`. `sphinx-codeautolink` links API names in tutorial code to the reference; `sphinxcontrib-bibtex` powers `{cite}` (bib in `docs/references.bib`); `sphinx-sitemap` emits `sitemap.xml`; `numfig` + labelled `$$…$$ (label)` equations cross-referenced with `` {eq}`label` ``. Notebooks execute at build via jupyter-cache; no outputs are committed. Theme: `pydata-sphinx-theme`. Tutorial `.py` files are excluded from ruff (they are notebooks, not library code).
 
 ### Core Pipeline
 

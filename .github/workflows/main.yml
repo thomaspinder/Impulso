@@ -108,6 +108,22 @@ jobs:
         with:
           path: docs/_build/html
 
+  docs-linkcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install docs dependencies
+        run: uv sync --frozen --group docs
+
+      - name: Check external links (no notebook execution)
+        run: uv run --group docs sphinx-build -b linkcheck -D nb_execution_mode=off docs docs/_build/linkcheck
+
   deploy-docs-preview:
     if: github.event_name == 'pull_request'
     needs: build-docs

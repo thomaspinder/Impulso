@@ -1,5 +1,11 @@
 # Priors
 
 ```{eval-rst}
-.. automodule:: impulso.priors
+.. currentmodule:: impulso.priors
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   MinnesotaPrior
 ```

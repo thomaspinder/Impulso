@@ -1,5 +1,19 @@
 # VAR Specification
 
 ```{eval-rst}
-.. automodule:: impulso.spec
+.. currentmodule:: impulso.spec
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   VAR
+
+.. currentmodule:: impulso
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   select_lag_order
 ```
