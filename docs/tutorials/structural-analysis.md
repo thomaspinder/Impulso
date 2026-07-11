@@ -252,7 +252,7 @@ fitted
         Finished Chains:
         <span id="active-chains">4</span>
     </p>
-    <p>Sampling for 15 seconds</p>
+    <p>Sampling for now</p>
     <p>
         Estimated Time to Completion:
         <span id="eta">now</span>
@@ -282,7 +282,7 @@ fitted
                     </td>
                     <td>3500</td>
                     <td>0</td>
-                    <td>0.45</td>
+                    <td>0.42</td>
                     <td>15</td>
                 </tr>
             &#10;                <tr>
@@ -294,7 +294,7 @@ fitted
                     </td>
                     <td>3500</td>
                     <td>0</td>
-                    <td>0.44</td>
+                    <td>0.48</td>
                     <td>15</td>
                 </tr>
             &#10;                <tr>
@@ -306,8 +306,8 @@ fitted
                     </td>
                     <td>3500</td>
                     <td>0</td>
-                    <td>0.45</td>
-                    <td>7</td>
+                    <td>0.50</td>
+                    <td>15</td>
                 </tr>
             &#10;                <tr>
                     <td class="progress-cell">
@@ -318,7 +318,7 @@ fitted
                     </td>
                     <td>3500</td>
                     <td>0</td>
-                    <td>0.47</td>
+                    <td>0.41</td>
                     <td>15</td>
                 </tr>
             &#10;            </tr>
@@ -326,7 +326,7 @@ fitted
     </table>
 </div>
 
-    FittedVAR(n_lags=2, data=VARData(endog_names=['pressure', 'wind', 'temperature', 'humidity'], exog_names=None), var_names=['pressure', 'wind', 'temperature', 'humidity'], has_exog=False)
+    FittedVAR(n_lags=2, data=VARData(endog_names=['pressure', 'wind', 'temperature', 'humidity'], exog_names=None), var_names=['pressure', 'wind', 'temperature', 'humidity'], volatility=Constant(name='constant', is_time_varying=False, sigma_sd_beta=2.5, tril_offdiag_sigma=0.5))
 
 ## Cholesky identification
 
@@ -344,7 +344,7 @@ identified = fitted.set_identification_strategy(Cholesky(ordering=["pressure", "
 identified
 ```
 
-    IdentifiedVAR(n_lags=2, data=VARData(endog_names=['pressure', 'wind', 'temperature', 'humidity'], exog_names=None), var_names=['pressure', 'wind', 'temperature', 'humidity'])
+    IdentifiedVAR(n_lags=2, data=VARData(endog_names=['pressure', 'wind', 'temperature', 'humidity'], exog_names=None), var_names=['pressure', 'wind', 'temperature', 'humidity'], volatility=Constant(name='constant', is_time_varying=False, sigma_sd_beta=2.5, tril_offdiag_sigma=0.5), scheme=Cholesky(ordering=['pressure', 'wind', 'temperature', 'humidity']))
 
 ## Impulse response functions
 

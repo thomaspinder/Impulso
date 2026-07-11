@@ -13,7 +13,7 @@ At a high-level, the Cholesky decomposition imposes a recursive ordering among t
 
 By running both identification strategies on the same data, we can see observe how assumptions drive conclusions: how the ordering matters, why the *price puzzle* appears (the counterintuitive finding that prices *rise* after an estimated monetary tightening) and what it signals, and why wider bands under sign restrictions are not a failure but an honest accounting of what the data alone can tell us.
 
-!!! note “Impulse Response Function”
+!!! note "Impulse Response Function"
 
     A central analytical object in this notebook is the impulse response function (IRF): the dynamic path of each variable following a one-time, one-unit structural shock, traced out over subsequent periods. IRFs answer questions like “if the central bank unexpectedly raises rates today, what happens to output over the next four years?”
 
@@ -42,7 +42,7 @@ Whilst GDP is measured quarterly, industrial production (`output`) offers a more
 
 The sample we’ll be using here runs from January 1965 to December 2007. The start date captures the period when the Fed began actively setting short-term interest rates as its primary policy tool. The end date is deliberate: from December 2008 onward, the funds rate sat at the *zero lower bound* (effectively zero), thus leaving no room for conventional rate cuts and subsequently breaking the identification of monetary policy shocks via interest rate movements. You cannot identify a “surprise tightening” when the rate cannot move. Industrial production and CPI enter the VAR as $100 \times \log(\cdot)$, so a one-unit change is approximately a one-percent change. The federal funds rate enters in levels (percentage points).
 
-!!! note “Differencing”
+!!! note "Differencing"
 
     We do not difference the data. [Sims, Stock, and Watson (1990)](https://www.princeton.edu/~mwatson/papers/Sims_Stock_Watson_Ecta_1990.pdf) showed that Bayesian inference in levels VARs is valid regardless of whether the series have unit roots, and differencing can distort impulse responses when variables are cointegrated.
 
@@ -76,7 +76,11 @@ fig.tight_layout()
 
 ## Reduced-form VAR estimation
 
-The reduced-form VAR($p$) model is: $$y_t = c + A_1 y_{t-1} + A_2 y_{t-2} + \cdots + A_p y_{t-p} + u_t, \qquad u_t \sim N(0, \Sigma_u)$$where $y_t = (\text{output}_t, \text{prices}_t, \text{rate}_t)'$ is the $3 \times 1$ vector of endogenous variables, $c$ is a vector of intercepts, and $A_1, \ldots, A_p$ are $3 \times 3$ coefficient matrices. Each $A_j$ captures how the variables at lag $j$ feed back into the current period. The term $u_t$ is the reduced-form residual and quantifies what is left over after the systematic linear dependence on past values has been accounted for.
+The reduced-form VAR($p$) model is:
+
+$$y_t = c + A_1 y_{t-1} + A_2 y_{t-2} + \cdots + A_p y_{t-p} + u_t, \qquad u_t \sim N(0, \Sigma_u)$$
+
+where $y_t = (\text{output}_t, \text{prices}_t, \text{rate}_t)'$ is the $3 \times 1$ vector of endogenous variables, $c$ is a vector of intercepts, and $A_1, \ldots, A_p$ are $3 \times 3$ coefficient matrices. Each $A_j$ captures how the variables at lag $j$ feed back into the current period. The term $u_t$ is the reduced-form residual and quantifies what is left over after the systematic linear dependence on past values has been accounted for.
 
 The $\Sigma_u$ matrix allows us to capture correlation of residuals across. Consequently, the off-diagonal elements of $\Sigma_u$ tell us tell us how any two series covary. However, they do not tell us which caused which and it is precisely this ambiguity that is addressed in the identification problem.
 
@@ -315,30 +319,15 @@ az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
     </table>
 </div>
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |                | mcse_mean | mcse_sd | ess_bulk | ess_tail | r_hat |
 |----------------|-----------|---------|----------|----------|-------|
-| intercept\[0\] | 0.008     | 0.005   | 4909.0   | 7214.0   | 1.00  |
-| intercept\[1\] | 0.004     | 0.002   | 2981.0   | 5753.0   | 1.01  |
-| intercept\[2\] | 0.009     | 0.005   | 3626.0   | 6619.0   | 1.00  |
-
-</div>
+| intercept\[0\] | 0.008     | 0.005   | 4408.0   | 6881.0   | 1.0   |
+| intercept\[1\] | 0.005     | 0.002   | 2555.0   | 6573.0   | 1.0   |
+| intercept\[2\] | 0.009     | 0.005   | 3447.0   | 6336.0   | 1.0   |
 
 The sampler has converged well: no divergences, R-hat close to 1, and effective sample sizes comfortably above 1000.
 
-!!! note “Prior Sensitivity”
+!!! note "Prior Sensitivity"
 
     A note on prior sensitivity: we use the default Minnesota prior hyperparameters from impulso throughout this notebook. The tightness $\lambda_1$, cross-variable shrinkage $\lambda_2$, and lag decay $\lambda_3$ (introduced above) all affect the posterior and hence the impulse responses. A full prior sensitivity analysis involving varying $\lambda_1$ across a range like 0.05 to 0.5 would be a valuable robustness exercise, but we defer it here to keep the focus on identification. The reader should be aware that the choice of prior is an additional modelling decision on top of the identification strategy, and in principle both should be subjected to sensitivity analysis in applied work.
 
@@ -346,11 +335,15 @@ The sampler has converged well: no divergences, R-hat close to 1, and effective 
 
 We now have posterior draws of the reduced-form parameters: the coefficient matrices $A_1, \ldots, A_p$ and the residual covariance $\Sigma_u$. The reduced-form residuals $u_t$ are correlated across equations, but we want to recover the *structural* shocks $\varepsilon_t$. Unlike the reduced-form residuals, these structural are orthogonal latent variables from which we can elicit a causal interpretation.
 
-Throughout this notebook, the term *“structural”* is used to mean *“given a causal interpretation by the identifying assumptions.”*. The structural model assumes:$$u_t = B_0 \, \varepsilon_t, \qquad \varepsilon_t \sim N(0, I_n)$$where $B_0$ is the $n \times n$ structural impact matrix. Column $j$ of $B_0$ describes how a one-standard-deviation structural shock $j$ moves each variable on impact. The orthogonality assumption $\text{Var}(\varepsilon_t) = I_n$ means the structural shocks are uncorrelated and unit-variance, so all the interesting structure lives in $B_0$.
+Throughout this notebook, the term *“structural”* is used to mean *“given a causal interpretation by the identifying assumptions.”*. The structural model assumes:
+
+$$u_t = B_0 \, \varepsilon_t, \qquad \varepsilon_t \sim N(0, I_n)$$
+
+where $B_0$ is the $n \times n$ structural impact matrix. Column $j$ of $B_0$ describes how a one-standard-deviation structural shock $j$ moves each variable on impact. The orthogonality assumption $\text{Var}(\varepsilon_t) = I_n$ means the structural shocks are uncorrelated and unit-variance, so all the interesting structure lives in $B_0$.
 
 Since $\Sigma_u = \text{Var}(u_t) = B_0 \, B_0'$, we can, in principle, recover $B_0$ from $\Sigma_u$. But here is the problem: for $n = 3$ variables, the symmetric matrix $\Sigma_u$ has $n(n+1)/2 = 6$ unique elements. The matrix $B_0$ has $n^2 = 9$ free entries. Six equations, nine unknowns. We are three restrictions short. Without additional restrictions, there are infinitely many matrices $B_0$ that satisfy $\Sigma_u = B_0 B_0'$. If $B_0$ is one solution, then $B_0 Q$ is another for any orthogonal matrix $Q$ since $B_0 Q (B_0 Q)' = B_0 Q Q' B_0' = B_0 B_0' = \Sigma_u$. The data cannot tell these apart. The choice of $Q$ is, precisely, the identification problem.
 
-!!! note “A note on Orthogonalisation”
+!!! note "A note on Orthogonalisation"
 
     It is worth pausing on why this works. An orthogonal matrix $Q$ satisfies $Q Q' = I_n$ i.e., it is a rotation that preserves lengths and angles. When we form $B_0 Q$, we are rotating the columns of $B_0$, the implication of which is that we are redistributing the structural shocks into new linear combinations without changing the covariance they imply. Every such rotation gives a different economic story (different shocks, different impulse responses) that is equally consistent with the observed data.
 
@@ -358,7 +351,11 @@ The identification problem is not a generic “too many unknowns” issue; it is
 
 ## Cholesky identification
 
-The Cholesky decomposition factors $\Sigma_u$ into $L L'$ where $L$ is lower triangular with positive diagonal entries. Setting $B_0 = L$ gives us a structural impact matrix where the zeros above the diagonal carry specific economic meaning determined by the variable ordering. Our baseline ordering is: output, prices, rate. Written out, $B_0$ looks like:$$B_0 = \begin{pmatrix} * & 0 & 0 \\ * & * & 0 \\ * & * & * \end{pmatrix}$$Read column by column. The first column is the “output shock”: it can move all three variables on impact. The second column is the “price shock”: it can move prices and the rate, but not output as there is a zero in position $(1,2)$. The third column is the “rate shock” (our monetary policy shock): it can only move the rate on impact, not output or prices, again because there are zeros in positions $(1,3)$ and $(2,3)$. What does this mean economically? The zeros say that output and prices are “sluggish” within the month and cannot respond contemporaneously to a monetary policy shock. The Fed, by contrast, sits in the last row and can see and respond to everything. This is a timing assumption: it takes at least one month for a change in the funds rate to show up in industrial production or consumer prices, but the Federal Open Market Committee (FOMC) - the body that sets the funds rate - can observe current economic conditions and adjust policy within the month. The monetary policy shock itself is the residual variation in the funds rate equation after removing the predicted response to current output and prices (i.e., the part not explained by the linear model). If the Fed raises rates by more than its usual reaction to the current state of the economy, the excess is the *“shock”*. This is a defensible set of assumptions for monthly data, but it is not the only defensible set. The three zeros are doing real work, and different orderings will give different answers.
+The Cholesky decomposition factors $\Sigma_u$ into $L L'$ where $L$ is lower triangular with positive diagonal entries. Setting $B_0 = L$ gives us a structural impact matrix where the zeros above the diagonal carry specific economic meaning determined by the variable ordering. Our baseline ordering is: output, prices, rate. Written out, $B_0$ looks like:
+
+$$B_0 = \begin{pmatrix} * & 0 & 0 \\ * & * & 0 \\ * & * & * \end{pmatrix}$$
+
+Read column by column. The first column is the “output shock”: it can move all three variables on impact. The second column is the “price shock”: it can move prices and the rate, but not output as there is a zero in position $(1,2)$. The third column is the “rate shock” (our monetary policy shock): it can only move the rate on impact, not output or prices, again because there are zeros in positions $(1,3)$ and $(2,3)$. What does this mean economically? The zeros say that output and prices are “sluggish” within the month and cannot respond contemporaneously to a monetary policy shock. The Fed, by contrast, sits in the last row and can see and respond to everything. This is a timing assumption: it takes at least one month for a change in the funds rate to show up in industrial production or consumer prices, but the Federal Open Market Committee (FOMC) - the body that sets the funds rate - can observe current economic conditions and adjust policy within the month. The monetary policy shock itself is the residual variation in the funds rate equation after removing the predicted response to current output and prices (i.e., the part not explained by the linear model). If the Fed raises rates by more than its usual reaction to the current state of the economy, the excess is the *“shock”*. This is a defensible set of assumptions for monthly data, but it is not the only defensible set. The three zeros are doing real work, and different orderings will give different answers.
 
 ``` python
 ordering_a = ["output", "prices", "rate"]
@@ -501,7 +498,7 @@ print(
 )
 ```
 
-    Acceptance rate: 100.0%
+    Acceptance rate: N/A
 
 <details class="code-fold">
 <summary>Code</summary>
@@ -586,9 +583,9 @@ for h in [0, 6, 12]:
     print(f"h={h:>2}: acceptance rate = {ar:.1%}")
 ```
 
-    h= 0: acceptance rate = 100.0%
-    h= 6: acceptance rate = 100.0%
-    h=12: acceptance rate = 100.0%
+    h= 0: acceptance rate = nan%
+    h= 6: acceptance rate = nan%
+    h=12: acceptance rate = nan%
 
 <details class="code-fold">
 <summary>Code</summary>
@@ -750,26 +747,11 @@ pd.DataFrame(band_rows)
 
 </details>
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-&#10;    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-&#10;    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-
 |  | Horizon (months) | Cholesky 68% width | Sign Restr. 68% width | Ratio (SR / Chol) |
 |----|----|----|----|----|
-| 0 | 12 | 0.163 | 1.026 | 6.3x |
-| 1 | 24 | 0.234 | 0.809 | 3.5x |
-| 2 | 48 | 0.304 | 0.532 | 1.7x |
-
-</div>
+| 0 | 12 | 0.162 | 1.021 | 6.3x |
+| 1 | 24 | 0.235 | 0.802 | 3.4x |
+| 2 | 48 | 0.307 | 0.526 | 1.7x |
 
 The table above makes the precision-versus-honesty tradeoff concrete. At every horizon, the sign restriction credible band for the output response is substantially wider than the Cholesky band. This additional width is not noise or computational imprecision. It is identification uncertainty: the range of structural models that are all consistent with the data and the sign restrictions. The Cholesky bands are narrower because the three zero restrictions eliminate all but one decomposition per posterior draw. Whether that precision reflects genuine knowledge or false confidence depends entirely on whether the zero restrictions are correct.
 
