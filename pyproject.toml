@@ -43,17 +43,20 @@ dev = [
     "ty>=0.0.14",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.14",
-    "mkdocstrings[python]>=1.0.2",
     "jupyter>=1.0",
     "ipywidgets>=8.1.8",
     "nutpie>=0.13",
-    "zensical>=0.0.28",
     "tabulate>=0.10.0",
-    "papermill>=2.7.0",
     "typing-extensions>=4.12",
 ]
 docs = [
     "statsmodels>=0.14.6",
+    "sphinx>=8.1",
+    "myst-nb>=1.2",
+    "pydata-sphinx-theme>=0.16",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-design>=0.6",
+    "ipykernel>=6.29",
 ]
 
 [build-system]
@@ -138,6 +141,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+# Sphinx requires a module-level `copyright` variable (shadows a builtin).
+"docs/conf.py" = ["A001"]
+# One-shot migration tool: invokes the quarto/jupytext CLIs by name.
+"scripts/qmd_to_myst.py" = ["S603", "S607"]
 
 [tool.ruff.format]
 preview = true
