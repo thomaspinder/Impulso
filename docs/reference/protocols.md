@@ -1,3 +1,5 @@
 # Protocols
 
-::: impulso.protocols
+```{eval-rst}
+.. automodule:: impulso.protocols
+```

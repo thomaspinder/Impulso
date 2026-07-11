@@ -36,23 +36,24 @@ publish: ## Publish a release to PyPI.
 .PHONY: build-and-publish
 build-and-publish: build publish ## Build and publish.
 
-.PHONY: docs-render
-docs-render: ## Render Quarto notebooks to markdown
-	@QUARTO_PYTHON=.venv/bin/python quarto render
-	@uv run python scripts/postprocess_qmd.py docs/tutorials/*.md
+.PHONY: docs
+docs: ## Build the Sphinx/MyST-NB docs (executes + caches notebooks)
+	@uv run --group docs sphinx-build -b html docs docs/_build/html
 
-.PHONY: docs-render-ci
-docs-render-ci: ## Render notebooks in CI mode (fast, minimal sampling)
-	@QUARTO_PYTHON=.venv/bin/python quarto render --profile ci -P ci:true
-	@uv run python scripts/postprocess_qmd.py docs/tutorials/*.md
+.PHONY: docs-ci
+docs-ci: ## Build docs in smoke mode, warnings-as-errors (CI gate)
+	@IMPULSO_DOCS_CI=1 uv run --group docs sphinx-build -W --keep-going -b html docs docs/_build/html
 
 .PHONY: docs-test
-docs-test: docs-render ## Test if documentation can be built without warnings or errors
-	@uv run zensical build
+docs-test: docs-ci ## Alias for docs-ci: fail on any warning
 
-.PHONY: docs
-docs: docs-render ## Build and serve the documentation
-	@uv run zensical serve
+.PHONY: docs-serve
+docs-serve: docs ## Serve the built docs locally on :8000
+	@uv run --group docs python -m http.server 8000 --directory docs/_build/html
+
+.PHONY: docs-clean
+docs-clean: ## Remove built docs (keeps the notebook exec cache)
+	@rm -rf docs/_build/html docs/_build/doctrees
 
 .PHONY: help
 help:

@@ -1,5 +1,6 @@
 """Sampler specifications for posterior inference."""
 
+import os
 from typing import Literal
 
 import arviz as az
@@ -19,6 +20,15 @@ def _default_nuts_sampler() -> Literal["pymc", "nutpie"]:
         return "nutpie"
 
 
+def _default_progressbar() -> bool:
+    """Show the sampler progress bar, except during documentation builds.
+
+    Sphinx sets ``IMPULSO_DOCS_BUILD=1`` so rendered notebooks do not embed the
+    live progress widget. Normal usage is unaffected.
+    """
+    return os.environ.get("IMPULSO_DOCS_BUILD") != "1"
+
+
 class NUTSSampler(ImpulsoModel):
     """NUTS sampler configuration for PyMC.
 
@@ -30,6 +40,8 @@ class NUTSSampler(ImpulsoModel):
         target_accept: Target acceptance rate for NUTS.
         random_seed: Random seed for reproducibility.
         nuts_sampler: NUTS backend. Auto-detects nutpie if installed.
+        progressbar: Show the sampler progress bar. Defaults to True, but off
+            during documentation builds (``IMPULSO_DOCS_BUILD=1``).
     """
 
     draws: int = Field(1000, ge=1)
@@ -39,6 +51,7 @@ class NUTSSampler(ImpulsoModel):
     target_accept: float = Field(0.8, gt=0, lt=1)
     random_seed: int | None = None
     nuts_sampler: Literal["pymc", "nutpie"] = Field(default_factory=_default_nuts_sampler)
+    progressbar: bool = Field(default_factory=_default_progressbar)
 
     def sample(self, model: pm.Model) -> az.InferenceData:
         """Run NUTS sampling on the given PyMC model.
@@ -58,6 +71,7 @@ class NUTSSampler(ImpulsoModel):
                 target_accept=self.target_accept,
                 random_seed=self.random_seed,
                 nuts_sampler=self.nuts_sampler,
+                progressbar=self.progressbar,
                 idata_kwargs={"log_likelihood": True},
             )
         return idata

@@ -1,3 +1,5 @@
 # VAR Specification
 
-::: impulso.spec
+```{eval-rst}
+.. automodule:: impulso.spec
+```

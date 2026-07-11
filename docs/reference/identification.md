@@ -1,3 +1,5 @@
 # Identification Schemes
 
-::: impulso.identification
+```{eval-rst}
+.. automodule:: impulso.identification
+```

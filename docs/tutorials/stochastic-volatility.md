@@ -1,6 +1,18 @@
+---
+jupytext:
+  text_representation:
+    extension: .md
+    format_name: myst
+    format_version: 0.13
+    jupytext_version: 1.17.3
+kernelspec:
+  name: python3
+  language: python
+  display_name: Python 3
+  path: /Users/thomaspinder/Library/Jupyter/kernels/python3
+---
+
 # Stochastic volatility: modelling time-varying uncertainty
-
-
 ## Why time-varying volatility matters
 
 U.S. monthly CPI inflation is not a single well-behaved process. Look at any plot of the series from 1965 onward and two regimes jump out. The 1970s and early 1980s were a period of high and erratic inflation driven by oil shocks, wage-price dynamics, and a Federal Reserve that had not yet committed to disinflation. From the mid-1980s through the early 2000s the picture changed. Inflation settled at a lower level and its month-to-month variability collapsed. This calmer period is usually called the *Great Moderation*. A constant-variance model fitted over the full sample will average across these regimes, overstating the noise in quiet periods and understating it in turbulent ones.
@@ -9,7 +21,24 @@ Stochastic volatility (SV) models address this directly. Rather than assuming a 
 
 In this notebook we fit two SV specifications to US CPI inflation: a random-walk log-volatility model, which places no anchor on the volatility level, and an AR(1) variant, which pulls log-volatility toward a long-run mean. We then use the fitted model to generate a density forecast whose width reflects genuine uncertainty about future volatility, not just about the conditional mean.
 
-``` python
+```{code-cell}
+:tags: [remove-cell]
+import logging
+import warnings
+
+warnings.filterwarnings("ignore")
+logging.getLogger("pytensor").setLevel(logging.ERROR)
+```
+
+```{code-cell}
+:tags: [remove-cell]
+import os
+
+# Smoke-render flag: set IMPULSO_DOCS_CI=1 to shrink MCMC for fast CI builds.
+ci = os.environ.get("IMPULSO_DOCS_CI") == "1"
+```
+
+```{code-cell}
 import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,7 +52,7 @@ from impulso.sv import AR1, SVData, StochasticVolatility
 
 We reuse the monthly macro dataset shipped with the monetary-policy tutorial. The file starts in January 1965 and runs to the latest available month, and includes a CPI-like `prices` column expressed as $100 \times \log(\text{CPI})$. Month-on-month inflation, in percentage points, is the first difference of that column.
 
-``` python
+```{code-cell}
 df = pd.read_csv("data/monetary_policy.csv", parse_dates=["date"], index_col="date")
 inflation = (100.0 * np.log(df["prices"])).diff().dropna()
 inflation.name = "inflation"
@@ -35,33 +64,12 @@ print("\nLast five:")
 print(inflation.tail())
 ```
 
-    Observations: 733
-    Range: 1965-02 to 2026-03
-
-    First five:
-    date
-    1965-02-01    0.000000
-    1965-03-01    0.027839
-    1965-04-01    0.064824
-    1965-05-01    0.092282
-    1965-06-01    0.119403
-    Name: inflation, dtype: float64
-
-    Last five:
-    date
-    2025-11-01    0.043571
-    2025-12-01    0.051395
-    2026-01-01    0.029492
-    2026-02-01    0.046053
-    2026-03-01    0.148632
-    Name: inflation, dtype: float64
-
 The resulting series is monthly CPI inflation in percent. It starts in February 1965, one month after the raw CPI series begins, and runs through the most recent CPI release.
 
-<details class="code-fold">
-<summary>Code</summary>
-
-``` python
+```{code-cell}
+# | code-fold: true
+# | label: raw-inflation
+# | fig-cap: "US monthly CPI inflation and a 12-month rolling standard deviation."
 rolling_window = 12
 rolling_sd = inflation.rolling(rolling_window).std()
 
@@ -87,10 +95,6 @@ axes[1].grid(alpha=0.3)
 fig.tight_layout()
 ```
 
-</details>
-
-![US monthly CPI inflation and a 12-month rolling standard deviation.](stochastic-volatility_files/figure-commonmark/raw-inflation-output-1.png)
-
 The rolling standard deviation makes the regime shift obvious. Volatility is elevated in the 1970s, spikes around the early-1980s disinflation, and then settles into a much narrower band from the mid-1980s onward. A rolling window is a useful diagnostic but it is a crude estimator: the window is fixed, the weights are flat, and the implied volatility at date $t$ uses data from $t - 11$ through $t$ with no pooling toward a prior or adjacent periods. The SV model will give us a smoother, probabilistically coherent volatility path.
 
 ## Model
@@ -109,7 +113,7 @@ It is worth contrasting this setup with the GARCH family, which targets the same
 
 The random-walk specification for $h_t$ is non-stationary. Conditional on $h_0$, $$h_t \mid h_0, \sigma_\eta \;\sim\; N\!\left(h_0,\, t\,\sigma_\eta^2\right),$$ so the unconditional variance of log-volatility grows linearly in $t$. That is the appropriate prior when there is no reason to anchor volatility to a particular level and we want the data to decide how far it drifts. The AR(1) variant introduced later replaces this with a mean-reverting state equation and restores stationarity.
 
-!!! note “NUTS on the SV likelihood”
+!!! note "NUTS on the SV likelihood"
 
     We sample the SV model with PyMC's NUTS using a non-centered reparameterisation of the latent log-volatility path. Non-centering lets Hamiltonian Monte Carlo traverse the funnel geometry induced by $\sigma_\eta$ without the auxiliary-mixture approximation introduced by Kim, Shephard and Chib (1998) to make the likelihood conditionally Gaussian.
 
@@ -117,7 +121,7 @@ The random-walk specification for $h_t$ is non-stationary. Conditional on $h_0$,
 
 We wrap the inflation series in an `SVData` container and fit a `StochasticVolatility` model with random-walk log-vol dynamics.
 
-``` python
+```{code-cell}
 data = SVData.from_series(inflation, name="inflation")
 
 if ci:
@@ -135,184 +139,22 @@ else:
 fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
 ```
 
-<style>
-    :root {
-        --column-width-1: 40%; /* Progress column width */
-        --column-width-2: 15%; /* Chain column width */
-        --column-width-3: 15%; /* Divergences column width */
-        --column-width-4: 15%; /* Step Size column width */
-        --column-width-5: 15%; /* Gradients/Draw column width */
-    }
-&#10;    .nutpie {
-        max-width: 800px;
-        margin: 10px auto;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        //color: #333;
-        //background-color: #fff;
-        padding: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border-radius: 8px;
-        font-size: 14px; /* Smaller font size for a more compact look */
-    }
-    .nutpie table {
-        width: 100%;
-        border-collapse: collapse; /* Remove any extra space between borders */
-    }
-    .nutpie th, .nutpie td {
-        padding: 8px 10px; /* Reduce padding to make table more compact */
-        text-align: left;
-        border-bottom: 1px solid #888;
-    }
-    .nutpie th {
-        //background-color: #f0f0f0;
-    }
-&#10;    .nutpie th:nth-child(1) { width: var(--column-width-1); }
-    .nutpie th:nth-child(2) { width: var(--column-width-2); }
-    .nutpie th:nth-child(3) { width: var(--column-width-3); }
-    .nutpie th:nth-child(4) { width: var(--column-width-4); }
-    .nutpie th:nth-child(5) { width: var(--column-width-5); }
-&#10;    .nutpie progress {
-        width: 100%;
-        height: 15px; /* Smaller progress bars */
-        border-radius: 5px;
-    }
-    progress::-webkit-progress-bar {
-        background-color: #eee;
-        border-radius: 5px;
-    }
-    progress::-webkit-progress-value {
-        background-color: #5cb85c;
-        border-radius: 5px;
-    }
-    progress::-moz-progress-bar {
-        background-color: #5cb85c;
-        border-radius: 5px;
-    }
-    .nutpie .progress-cell {
-        width: 100%;
-    }
-&#10;    .nutpie p strong { font-size: 16px; font-weight: bold; }
-&#10;    @media (prefers-color-scheme: dark) {
-        .nutpie {
-            //color: #ddd;
-            //background-color: #1e1e1e;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        }
-        .nutpie table, .nutpie th, .nutpie td {
-            border-color: #555;
-            color: #ccc;
-        }
-        .nutpie th {
-            background-color: #2a2a2a;
-        }
-        .nutpie progress::-webkit-progress-bar {
-            background-color: #444;
-        }
-        .nutpie progress::-webkit-progress-value {
-            background-color: #3178c6;
-        }
-        .nutpie progress::-moz-progress-bar {
-            background-color: #3178c6;
-        }
-    }
-</style>
-
-<div class="nutpie">
-    <p><strong>Sampler Progress</strong></p>
-    <p>Total Chains: <span id="total-chains">4</span></p>
-    <p>Active Chains: <span id="active-chains">0</span></p>
-    <p>
-        Finished Chains:
-        <span id="active-chains">4</span>
-    </p>
-    <p>Sampling for 27 seconds</p>
-    <p>
-        Estimated Time to Completion:
-        <span id="eta">now</span>
-    </p>
-&#10;    <progress
-        id="total-progress-bar"
-        max="18000"
-        value="18000">
-    </progress>
-    <table>
-        <thead>
-            <tr>
-                <th>Progress</th>
-                <th>Draws</th>
-                <th>Divergences</th>
-                <th>Step Size</th>
-                <th>Gradients/Draw</th>
-            </tr>
-        </thead>
-        <tbody id="chain-details">
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.02</td>
-                    <td>511</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.02</td>
-                    <td>511</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.02</td>
-                    <td>511</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.02</td>
-                    <td>511</td>
-                </tr>
-            &#10;            </tr>
-        </tbody>
-    </table>
-</div>
-
 ## The posterior volatility path
 
 `fitted.volatility()` returns a `VolatilityResult` whose `.plot()` method shows the posterior median of $\exp(h_t / 2)$ together with a highest-density interval.
 
-``` python
+```{code-cell}
+# | label: vol-path
+# | fig-cap: "Posterior conditional SD of US CPI inflation from the random-walk SV fit."
 fig = fitted.volatility().plot()
 fig.tight_layout()
 ```
 
-![Posterior conditional SD of US CPI inflation from the random-walk SV fit.](stochastic-volatility_files/figure-commonmark/vol-path-output-1.png)
-
 To see how the volatility path lines up with the macroeconomic narrative we overlay NBER recession dates that fall within the sample. These are the recessions dated by the NBER Business Cycle Dating Committee from 1965 onward.
 
-``` python
+```{code-cell}
+# | label: vol-path-nber
+# | fig-cap: "Posterior conditional SD with NBER recessions shaded."
 fig = fitted.volatility().plot()
 ax = plt.gcf().axes[0]
 nber_recessions = [
@@ -330,15 +172,15 @@ for start, end in nber_recessions:
 fig.tight_layout()
 ```
 
-![Posterior conditional SD with NBER recessions shaded.](stochastic-volatility_files/figure-commonmark/vol-path-nber-output-1.png)
-
 The posterior volatility is elevated throughout the 1970s and peaks during the 1973-75 and 1980-82 recessions. From the mid-1980s onward the conditional SD drops to roughly a third of its 1970s level — the Great Moderation signature that a constant-variance model could not capture — with only mild bumps around the 1990-91 and 2001 recessions. The 2007-09 financial crisis produces a visible uptick, and the 2020 COVID shock and the post-2021 inflation surge push the conditional SD back toward levels not seen since the early 1980s.
 
 ## Posterior SD versus rolling SD
 
 How does the SV posterior compare with the naive 12-month rolling estimator we plotted earlier? We overlay them on the same axes.
 
-``` python
+```{code-cell}
+# | label: vol-vs-rolling
+# | fig-cap: "Posterior median conditional SD from the SV model (blue) versus a 12-month rolling SD (grey)."
 posterior_sd = fitted.volatility().median()
 
 fig, ax = plt.subplots(figsize=(9, 4))
@@ -364,8 +206,6 @@ ax.set_title("SV posterior SD vs rolling SD — US CPI inflation")
 fig.tight_layout()
 ```
 
-![Posterior median conditional SD from the SV model (blue) versus a 12-month rolling SD (grey).](stochastic-volatility_files/figure-commonmark/vol-vs-rolling-output-1.png)
-
 Both estimators agree on the overall shape: high in the 1970s and early 1980s, low from the mid-1980s onward. The SV posterior is visibly smoother and avoids the sharp step changes the rolling estimator produces when a single unusual month enters or leaves the window. The posterior also pools information across the full sample through the random-walk prior on $h_t$, whereas the rolling SD uses only the most recent 12 observations.
 
 The gap between the two estimators is most striking in the 1970s and early 1980s, and it almost vanishes in 2008 and 2020. That asymmetry is not about volatility at all — it is about how each estimator treats the *mean*. The rolling SD subtracts a *local* 12-month average before squaring, so slow drift in the level of inflation is absorbed into the mean and never shows up as variance. The SV model has a single *global* $\mu$, so every observation is residualised against one constant over the whole sample. When inflation ran at roughly 1% a month for years at a stretch, those deviations from the full-sample mean were enormous, and $\exp(h_t/2)$ had to stretch to accommodate them. The spikes in 2008 and 2020 were short and the level around them was close to the long-run mean, so a local window and a global constant see almost the same residuals and the two lines coincide.
@@ -374,9 +214,9 @@ The gap between the two estimators is most striking in the 1970s and early 1980s
 
 The random-walk specification places no anchor on the level of log-volatility: if $\sigma_\eta$ is small the path drifts slowly, if it is large the path wanders. An AR(1) alternative adds explicit mean reversion, $$h_t = \alpha + \phi\,(h_{t-1} - \alpha) + \sigma_\eta\, \eta_t,$$ with $|\phi| < 1$. This lets the data speak to whether log-volatility tends to return to a long-run level $\alpha$ and, if so, how fast. A persistence parameter $\phi$ posterior concentrated near 1 is consistent with the random-walk approximation being adequate; values meaningfully below 1 indicate stronger mean reversion than a pure random walk allows.
 
-Instead of the `"ar1"` shorthand used above, we pass an explicit `AR1()` dynamics object. Both forms are equivalent; the object form is the extension point if you want to add a new dynamics (e.g. SVt or SV with leverage) without editing the library — implement the `SVDynamics` protocol and pass an instance here.
+Instead of the `"ar1"` shorthand used above, we pass an explicit `AR1()` dynamics object. Both forms are equivalent; the object form is the extension point if you want to add a new dynamics (e.g. SVt or SV with leverage) without editing the library — implement the `SVDynamics` protocol and pass an instance here.
 
-``` python
+```{code-cell}
 if ci:
     sampler_ar1 = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=321)
 else:
@@ -394,185 +234,19 @@ fig_ar1 = fitted_ar1.volatility().plot()
 fig_ar1.tight_layout()
 ```
 
-<style>
-    :root {
-        --column-width-1: 40%; /* Progress column width */
-        --column-width-2: 15%; /* Chain column width */
-        --column-width-3: 15%; /* Divergences column width */
-        --column-width-4: 15%; /* Step Size column width */
-        --column-width-5: 15%; /* Gradients/Draw column width */
-    }
-&#10;    .nutpie {
-        max-width: 800px;
-        margin: 10px auto;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        //color: #333;
-        //background-color: #fff;
-        padding: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border-radius: 8px;
-        font-size: 14px; /* Smaller font size for a more compact look */
-    }
-    .nutpie table {
-        width: 100%;
-        border-collapse: collapse; /* Remove any extra space between borders */
-    }
-    .nutpie th, .nutpie td {
-        padding: 8px 10px; /* Reduce padding to make table more compact */
-        text-align: left;
-        border-bottom: 1px solid #888;
-    }
-    .nutpie th {
-        //background-color: #f0f0f0;
-    }
-&#10;    .nutpie th:nth-child(1) { width: var(--column-width-1); }
-    .nutpie th:nth-child(2) { width: var(--column-width-2); }
-    .nutpie th:nth-child(3) { width: var(--column-width-3); }
-    .nutpie th:nth-child(4) { width: var(--column-width-4); }
-    .nutpie th:nth-child(5) { width: var(--column-width-5); }
-&#10;    .nutpie progress {
-        width: 100%;
-        height: 15px; /* Smaller progress bars */
-        border-radius: 5px;
-    }
-    progress::-webkit-progress-bar {
-        background-color: #eee;
-        border-radius: 5px;
-    }
-    progress::-webkit-progress-value {
-        background-color: #5cb85c;
-        border-radius: 5px;
-    }
-    progress::-moz-progress-bar {
-        background-color: #5cb85c;
-        border-radius: 5px;
-    }
-    .nutpie .progress-cell {
-        width: 100%;
-    }
-&#10;    .nutpie p strong { font-size: 16px; font-weight: bold; }
-&#10;    @media (prefers-color-scheme: dark) {
-        .nutpie {
-            //color: #ddd;
-            //background-color: #1e1e1e;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        }
-        .nutpie table, .nutpie th, .nutpie td {
-            border-color: #555;
-            color: #ccc;
-        }
-        .nutpie th {
-            background-color: #2a2a2a;
-        }
-        .nutpie progress::-webkit-progress-bar {
-            background-color: #444;
-        }
-        .nutpie progress::-webkit-progress-value {
-            background-color: #3178c6;
-        }
-        .nutpie progress::-moz-progress-bar {
-            background-color: #3178c6;
-        }
-    }
-</style>
-
-<div class="nutpie">
-    <p><strong>Sampler Progress</strong></p>
-    <p>Total Chains: <span id="total-chains">4</span></p>
-    <p>Active Chains: <span id="active-chains">0</span></p>
-    <p>
-        Finished Chains:
-        <span id="active-chains">4</span>
-    </p>
-    <p>Sampling for now</p>
-    <p>
-        Estimated Time to Completion:
-        <span id="eta">now</span>
-    </p>
-&#10;    <progress
-        id="total-progress-bar"
-        max="18000"
-        value="18000">
-    </progress>
-    <table>
-        <thead>
-            <tr>
-                <th>Progress</th>
-                <th>Draws</th>
-                <th>Divergences</th>
-                <th>Step Size</th>
-                <th>Gradients/Draw</th>
-            </tr>
-        </thead>
-        <tbody id="chain-details">
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.09</td>
-                    <td>127</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.09</td>
-                    <td>127</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.08</td>
-                    <td>127</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="4500"
-                            value="4500">
-                        </progress>
-                    </td>
-                    <td>4500</td>
-                    <td>0</td>
-                    <td>0.09</td>
-                    <td>127</td>
-                </tr>
-            &#10;            </tr>
-        </tbody>
-    </table>
-</div>
-
-![](stochastic-volatility_files/figure-commonmark/cell-11-output-3.png)
-
 The AR(1) volatility path should look qualitatively similar to the random-walk version on the bulk of the sample. The two disagree mostly at the tails, where the AR(1) prior pulls the path toward $\alpha$ while the random walk lets it drift. Inspecting the posterior of $\phi$ is the quickest way to decide whether that mean reversion is informative: if the mass sits very close to 1, the two specifications are almost indistinguishable.
 
 ## Density forecasts
 
 With the random-walk SV fit we can generate a density forecast. For each posterior draw we simulate forward 12 months by evolving $h_{T+h}$ as $h_T + \sum_{s=1}^{h} \sigma_\eta \eta_s$ and then drawing $y_{T+h} = \mu + \exp(h_{T+h}/2)\, \varepsilon_{T+h}$.
 
-``` python
+```{code-cell}
+# | label: sv-forecast
+# | fig-cap: "12-step density forecast from the random-walk SV model."
 forecast = fitted.forecast(steps=12)
 fig_fcst = forecast.plot()
 fig_fcst.tight_layout()
 ```
-
-![12-step density forecast from the random-walk SV model.](stochastic-volatility_files/figure-commonmark/sv-forecast-output-1.png)
 
 In principle the fan should widen with horizon: $\mathrm{Var}(h_{T+h}\mid h_T,\sigma_\eta) = h\,\sigma_\eta^2$ grows linearly in $h$, and $\mathrm{Var}(y_{T+h})$ inherits an $\exp(0.5\, h\, \sigma_\eta^2)$ factor on top of $\exp(h_T)$. In practice the visible widening here is modest: the posterior $\sigma_\eta$ for monthly CPI inflation is small, so over twelve steps the forward-dispersion factor on the conditional SD is only a few percent, and the bulk of the fan width comes from posterior uncertainty in $h_T$ itself rather than from forward dispersion. Pushing the horizon out further, or using a series with a larger $\sigma_\eta$, makes the geometric growth easier to see.
 
@@ -580,7 +254,7 @@ In principle the fan should widen with horizon: $\mathrm{Var}(h_{T+h}\mid h_T,\s
 
 The same `monetary_policy.csv` we loaded earlier already carries a multivariate macro panel (`output`, `prices`, `rate`). To swap the homoscedastic VAR for one with multivariate Clark-style stochastic volatility, pass `volatility="sv"` (or a `StochasticVolatility(...)` instance) when constructing the spec:
 
-``` python
+```{code-cell}
 from impulso import VAR, VARData
 from impulso.identification import Cholesky
 
@@ -601,167 +275,23 @@ else:
 fitted_var = VAR(lags=2, volatility="sv").fit(var_data, sampler=sampler_var)
 ```
 
-<style>
-    :root {
-        --column-width-1: 40%; /* Progress column width */
-        --column-width-2: 15%; /* Chain column width */
-        --column-width-3: 15%; /* Divergences column width */
-        --column-width-4: 15%; /* Step Size column width */
-        --column-width-5: 15%; /* Gradients/Draw column width */
-    }
-&#10;    .nutpie {
-        max-width: 800px;
-        margin: 10px auto;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        //color: #333;
-        //background-color: #fff;
-        padding: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border-radius: 8px;
-        font-size: 14px; /* Smaller font size for a more compact look */
-    }
-    .nutpie table {
-        width: 100%;
-        border-collapse: collapse; /* Remove any extra space between borders */
-    }
-    .nutpie th, .nutpie td {
-        padding: 8px 10px; /* Reduce padding to make table more compact */
-        text-align: left;
-        border-bottom: 1px solid #888;
-    }
-    .nutpie th {
-        //background-color: #f0f0f0;
-    }
-&#10;    .nutpie th:nth-child(1) { width: var(--column-width-1); }
-    .nutpie th:nth-child(2) { width: var(--column-width-2); }
-    .nutpie th:nth-child(3) { width: var(--column-width-3); }
-    .nutpie th:nth-child(4) { width: var(--column-width-4); }
-    .nutpie th:nth-child(5) { width: var(--column-width-5); }
-&#10;    .nutpie progress {
-        width: 100%;
-        height: 15px; /* Smaller progress bars */
-        border-radius: 5px;
-    }
-    progress::-webkit-progress-bar {
-        background-color: #eee;
-        border-radius: 5px;
-    }
-    progress::-webkit-progress-value {
-        background-color: #5cb85c;
-        border-radius: 5px;
-    }
-    progress::-moz-progress-bar {
-        background-color: #5cb85c;
-        border-radius: 5px;
-    }
-    .nutpie .progress-cell {
-        width: 100%;
-    }
-&#10;    .nutpie p strong { font-size: 16px; font-weight: bold; }
-&#10;    @media (prefers-color-scheme: dark) {
-        .nutpie {
-            //color: #ddd;
-            //background-color: #1e1e1e;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        }
-        .nutpie table, .nutpie th, .nutpie td {
-            border-color: #555;
-            color: #ccc;
-        }
-        .nutpie th {
-            background-color: #2a2a2a;
-        }
-        .nutpie progress::-webkit-progress-bar {
-            background-color: #444;
-        }
-        .nutpie progress::-webkit-progress-value {
-            background-color: #3178c6;
-        }
-        .nutpie progress::-moz-progress-bar {
-            background-color: #3178c6;
-        }
-    }
-</style>
-
-<div class="nutpie">
-    <p><strong>Sampler Progress</strong></p>
-    <p>Total Chains: <span id="total-chains">2</span></p>
-    <p>Active Chains: <span id="active-chains">0</span></p>
-    <p>
-        Finished Chains:
-        <span id="active-chains">2</span>
-    </p>
-    <p>Sampling for 5 minutes</p>
-    <p>
-        Estimated Time to Completion:
-        <span id="eta">now</span>
-    </p>
-&#10;    <progress
-        id="total-progress-bar"
-        max="3000"
-        value="3000">
-    </progress>
-    <table>
-        <thead>
-            <tr>
-                <th>Progress</th>
-                <th>Draws</th>
-                <th>Divergences</th>
-                <th>Step Size</th>
-                <th>Gradients/Draw</th>
-            </tr>
-        </thead>
-        <tbody id="chain-details">
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="1500"
-                            value="1500">
-                        </progress>
-                    </td>
-                    <td>1500</td>
-                    <td>241</td>
-                    <td>0.01</td>
-                    <td>457</td>
-                </tr>
-            &#10;                <tr>
-                    <td class="progress-cell">
-                        <progress
-                            max="1500"
-                            value="1500">
-                        </progress>
-                    </td>
-                    <td>1500</td>
-                    <td>183</td>
-                    <td>0.01</td>
-                    <td>174</td>
-                </tr>
-            &#10;            </tr>
-        </tbody>
-    </table>
-</div>
-
 For a constant-volatility VAR, `FittedVAR.sigma()` returns a single covariance matrix per posterior draw, shape `(chains, draws, n_vars, n_vars)`. With `volatility="sv"` it returns a full per-period path:
 
-``` python
+```{code-cell}
 sigma_path = fitted_var.sigma()
 print(sigma_path.shape)  # (chains, draws, T_eff, n_vars, n_vars)
 ```
 
-    (2, 500, 732, 3, 3)
-
 The per-variable log-volatility paths live in the posterior under the stacked `h` deterministic, shape `(chains, draws, T_eff, n_vars)`:
 
-``` python
+```{code-cell}
 h = fitted_var.idata.posterior["h"]
 print(h.dims, h.shape)
 ```
 
-    ('chain', 'draw', 'h_dim_0', 'h_dim_1') (2, 500, 732, 3)
-
 ## Time-varying impulse responses with `at=`
 
-When the volatility is time-varying, the structural impact matrix is too. The `at=` parameter on `impulse_response`, `fevd`, and `historical_decomposition` selects which date’s Cholesky factor (and hence which structural impact matrix) the computation uses:
+When the volatility is time-varying, the structural impact matrix is too. The `at=` parameter on `impulse_response`, `fevd`, and `historical_decomposition` selects which date's Cholesky factor (and hence which structural impact matrix) the computation uses:
 
 - `at="last"` — most recent in-sample period (the default when the volatility is stochastic)
 - `at=t` — a specific integer index into the lag-trimmed sample
@@ -769,7 +299,7 @@ When the volatility is time-varying, the structural impact matrix is too. The `a
 
 For constant-volatility VARs, `at=` is a no-op (the same `L` applies at every date), so existing tutorials that omit it keep working unchanged.
 
-``` python
+```{code-cell}
 identified = fitted_var.set_identification_strategy(
     Cholesky(ordering=["output", "prices", "rate"])
 )
@@ -777,40 +307,34 @@ identified = fitted_var.set_identification_strategy(
 
 A single date — the most recent in-sample period:
 
-``` python
+```{code-cell}
 irf_latest = identified.impulse_response(horizon=12, at="last")
 irf_latest_arr = irf_latest.idata.posterior_predictive["irf"]
 print(irf_latest_arr.shape)  # (chains, draws, horizon+1, n_vars, n_vars)
 ```
 
-    (2, 500, 13, 3, 3)
-
 A specific historical date. The integer index is into the lag-trimmed sample, so we offset by `n_lags` when resolving from the calendar index:
 
-``` python
+```{code-cell}
 trimmed_index = var_data.index[fitted_var.n_lags :]
 t_1982 = trimmed_index.get_loc("1982-01-01")
 irf_1982 = identified.impulse_response(horizon=12, at=t_1982)
 print(irf_1982.idata.posterior_predictive["irf"].shape)
 ```
 
-    (2, 500, 13, 3, 3)
-
 Every in-sample date in one call. The result is a six-dimensional array — `(chains, draws, time, horizon+1, n_vars, n_vars)` — that you usually post-process directly via `irf_all.idata` rather than `.median()` / `.plot()`, which intentionally raise for the time-aware result:
 
-``` python
+```{code-cell}
 irf_all = identified.impulse_response(horizon=12, at="all")
 irf_all_arr = irf_all.idata.posterior_predictive["irf"]
 print(irf_all_arr.shape)
 print(irf_all_arr.dims)
 ```
 
-    (2, 500, 732, 13, 3, 3)
-    ('chain', 'draw', 'time', 'horizon', 'response', 'shock')
-
 The same `at=` argument is accepted by `fevd` and `historical_decomposition` with the same semantics.
 
 ## References
+
 
 - Carriero, A., Clark, T. E., and Marcellino, M. (2016). Common drifting volatility in large Bayesian VARs. *Journal of Applied Econometrics*, 31(2), 375-404.
 - Clark, T. E. (2011). Real-time density forecasts from Bayesian vector autoregressions with stochastic volatility. *Journal of Business and Economic Statistics*, 29(3), 327-341.

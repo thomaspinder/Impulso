@@ -1,3 +1,5 @@
 # FittedVAR
 
-::: impulso.fitted
+```{eval-rst}
+.. automodule:: impulso.fitted
+```

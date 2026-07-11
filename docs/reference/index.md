@@ -1,5 +1,19 @@
 # API Reference
 
-Complete auto-generated reference for all Impulso modules.
+Complete auto-generated reference for all Impulso modules, rendered from the
+source docstrings by Sphinx autodoc.
 
-*Reference pages will be added as modules are implemented.*
+```{toctree}
+:maxdepth: 1
+
+data
+spec
+priors
+samplers
+fitted
+identified
+identification
+results
+protocols
+plotting
+```

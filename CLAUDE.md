@@ -30,17 +30,14 @@ uv run ty check
 # Lint/format only
 uv run ruff check . && uv run ruff format .
 
-# Render Quarto notebooks to markdown
-make docs-render
-
-# Render notebooks in CI mode (fast, ~30s, minimal MCMC)
-make docs-render-ci
-
-# Build and serve docs locally (renders notebooks first)
+# Build docs (Sphinx + MyST-NB executes notebooks, caches results)
 make docs
 
-# Test docs build (renders notebooks first)
-make docs-test
+# Serve the built docs locally on :8000
+make docs-serve
+
+# Build docs in smoke mode, warnings-as-errors (the CI gate)
+make docs-ci   # (docs-test is an alias)
 
 # Multi-version test (Python 3.11-3.14)
 uv run tox
@@ -50,7 +47,7 @@ uv run tox
 
 - **Source**: `src/impulso/` — library code, built as a wheel via Hatchling
 - **Tests**: `tests/` — pytest with `--cov`, 90% coverage target (codecov.yaml)
-- **Docs**: `docs/` — Zensical (zensical.toml), tutorials as Quarto .qmd files, docstrings auto-rendered via mkdocstrings
+- **Docs**: `docs/` — Sphinx + MyST-NB (`docs/conf.py`), tutorials as executable MyST `.md` notebooks (jupytext header + `kernelspec`), docstrings auto-rendered via Sphinx `autodoc`/`autosummary` + `napoleon`. Notebooks execute at build via jupyter-cache; no outputs are committed. Theme: `pydata-sphinx-theme`.
 
 ### Core Pipeline
 
@@ -99,7 +96,7 @@ All domain models inherit from one of these. Use `object.__setattr__` only for i
 - **Linter/Formatter**: Ruff — line length 120, target py311, auto-fix enabled
 - **Type checker**: ty (configured for `.venv`, Python 3.11). Ignores `unresolved-attribute`, `not-subscriptable`, and `invalid-argument-type` due to ArviZ/PyMC/pandas dynamic attrs.
 - **Prek**: Ruff checks + standard hooks (trailing whitespace, TOML/YAML/JSON validation)
-- **CI**: GitHub Actions runs quality, tests (3.11–3.14), and docs checks on push/PR. Heavy notebooks (monetary-policy) use a `ci` parameter for fast smoke rendering in PR CI. Rendered `.md` + `_files/` are committed to the repo. Full rendering runs weekly and on release via `full-render-notebooks.yml`.
+- **CI**: GitHub Actions runs quality, tests (3.11–3.14), and a docs build on push/PR. The `build-docs` job smoke-renders on PRs (fast, `IMPULSO_DOCS_CI=1`) and full-renders on push to `main` (real MCMC), restoring the jupyter-cache between runs. No rendered `.md` or figures are committed — notebooks execute at build time. A scheduled/on-release full render runs via `full-render-notebooks.yml`. Tutorials read `IMPULSO_DOCS_CI` (smoke draws) and Sphinx sets `IMPULSO_DOCS_BUILD=1` (disables the sampler progress bar).
 
 ## Test Fixtures (`conftest.py`)
 
