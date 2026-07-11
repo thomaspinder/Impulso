@@ -90,7 +90,7 @@ spec = VAR(lags=1, prior="minnesota")
 spec
 ```
 
-    VAR(lags=1, max_lags=None, prior='minnesota')
+    VAR(lags=1, max_lags=None, prior='minnesota', volatility='constant')
 
 ## Estimate the model
 
@@ -242,7 +242,7 @@ fitted
     </table>
 </div>
 
-    FittedVAR(n_lags=1, data=VARData(endog_names=['gdp_growth', 'inflation', 'rate'], exog_names=None), var_names=['gdp_growth', 'inflation', 'rate'], has_exog=False)
+    FittedVAR(n_lags=1, data=VARData(endog_names=['gdp_growth', 'inflation', 'rate'], exog_names=None), var_names=['gdp_growth', 'inflation', 'rate'], volatility=Constant(name='constant', is_time_varying=False, sigma_sd_beta=2.5, tril_offdiag_sigma=0.5))
 
 ## Inspect the posterior
 

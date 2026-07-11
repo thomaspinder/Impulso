@@ -24,6 +24,7 @@ nav = [
     "tutorials/forecasting.md",
     "tutorials/structural-analysis.md",
     "tutorials/monetary-policy.md",
+    "tutorials/proxy-svar.md",
   ]},
   { "How-To Guides" = [
     "how-to/index.md",
