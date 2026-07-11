@@ -27,9 +27,11 @@
 #
 # By running both identification strategies on the same data, we can see observe how assumptions drive conclusions: how the ordering matters, why the *price puzzle* appears (the counterintuitive finding that prices *rise* after an estimated monetary tightening) and what it signals, and why wider bands under sign restrictions are not a failure but an honest accounting of what the data alone can tell us.
 #
-# !!! note "Impulse Response Function"
+# :::{admonition} Impulse Response Function
+# :class: note
 #
-#     A central analytical object in this notebook is the impulse response function (IRF): the dynamic path of each variable following a one-time, one-unit structural shock, traced out over subsequent periods. IRFs answer questions like “if the central bank unexpectedly raises rates today, what happens to output over the next four years?”
+# A central analytical object in this notebook is the impulse response function (IRF): the dynamic path of each variable following a one-time, one-unit structural shock, traced out over subsequent periods. IRFs answer questions like “if the central bank unexpectedly raises rates today, what happens to output over the next four years?”
+# :::
 
 # %% tags=["remove-cell"]
 import logging
@@ -57,7 +59,7 @@ from impulso.samplers import NUTSSampler
 # %% [markdown]
 # ## Data
 #
-# We use the three-variable system that forms the basis of many monetary policy structural VAR (SVAR) models ([Sims (1980)](https://www.jstor.org/stable/1912017)):
+# We use the three-variable system that forms the basis of many monetary policy structural VAR (SVAR) models ({cite:t}`sims1980`):
 #
 # | Variable | FRED code | What it measures | Transformation |
 # |----------|-----------|-----------------|----------------|
@@ -69,9 +71,11 @@ from impulso.samplers import NUTSSampler
 #
 # The sample we'll be using here runs from January 1965 to December 2007. The start date captures the period when the Fed began actively setting short-term interest rates as its primary policy tool. The end date is deliberate: from December 2008 onward, the funds rate sat at the *zero lower bound* (effectively zero), thus leaving no room for conventional rate cuts and subsequently breaking the identification of monetary policy shocks via interest rate movements. You cannot identify a "surprise tightening" when the rate cannot move. Industrial production and CPI enter the VAR as $100 \times \log(\cdot)$, so a one-unit change is approximately a one-percent change. The federal funds rate enters in levels (percentage points).
 #
-# !!! note "Differencing"
+# :::{admonition} Differencing
+# :class: note
 #
-#     We do not difference the data. [Sims, Stock, and Watson (1990)](https://www.princeton.edu/~mwatson/papers/Sims_Stock_Watson_Ecta_1990.pdf) showed that Bayesian inference in levels VARs is valid regardless of whether the series have unit roots, and differencing can distort impulse responses when variables are cointegrated.
+# We do not difference the data. {cite:t}`simsStockWatson1990` showed that Bayesian inference in levels VARs is valid regardless of whether the series have unit roots, and differencing can distort impulse responses when variables are cointegrated.
+# :::
 
 # %%
 # | code-fold: true
@@ -105,7 +109,7 @@ fig.tight_layout()
 #
 # We estimate this model with a Minnesota prior. The idea behind Minnesota is simple: most macroeconomic time series look roughly like random walks, so a good starting point is to shrink each variable's own first lag toward 1 and everything else toward 0. Cross-variable lags get shrunk harder than own lags, and higher lags get shrunk harder than lower ones. The prior is governed by three key hyperparameters: the *overall tightness* $\lambda_1$ which determines how strongly all coefficients are shrunk toward the prior. Larger values give the data more influence, whilst smaller values increase the prior's influence on the posterior. The *cross-variable shrinkage* $\lambda_2$ is the strength of the shrinkage applied to cross-variable lags. Finally, the *lag decay* $\lambda_3$  measures the rate of increasing shrinkage that is applied as the lags' order increases. This regularisation is important for monthly VARs with many lags, where the number of free parameters (here $3 \times 3 \times 12 = 108$ in the $A$ matrices alone, plus 3 intercepts) can overwhelm the data.
 #
-# The standard choice for monthly monetary policy VARs is 12 lags as this allows the model to capture up to one year of dynamic feedback. We follow this convention for comparability with published results ([Christiano, Eichenbaum, and Evans, 1999](https://faculty.wcas.northwestern.edu/lchrist/research/Handbook/paper2.pdf); [Uhlig, 2005](https://www.sciencedirect.com/science/article/abs/pii/S0304393205000073)).
+# The standard choice for monthly monetary policy VARs is 12 lags as this allows the model to capture up to one year of dynamic feedback. We follow this convention for comparability with published results ({cite:p}`christiano1999,uhlig2005`).
 
 # %%
 if ci:
@@ -128,10 +132,11 @@ az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
 # %% [markdown]
 # The sampler has converged well: no divergences, R-hat close to 1, and effective sample sizes comfortably above 1000.
 #
-# !!! note "Prior Sensitivity"
+# :::{admonition} Prior Sensitivity
+# :class: note
 #
-#     A note on prior sensitivity: we use the default Minnesota prior hyperparameters from impulso throughout this notebook. The tightness $\lambda_1$, cross-variable shrinkage $\lambda_2$, and lag decay $\lambda_3$ (introduced above) all affect the posterior and hence the impulse responses. A full prior sensitivity analysis involving varying $\lambda_1$ across a range like 0.05 to 0.5 would be a valuable robustness exercise, but we defer it here to keep the focus on identification. The reader should be aware that the choice of prior is an additional modelling decision on top of the identification strategy, and in principle both should be subjected to sensitivity analysis in applied work.
-#
+# A note on prior sensitivity: we use the default Minnesota prior hyperparameters from impulso throughout this notebook. The tightness $\lambda_1$, cross-variable shrinkage $\lambda_2$, and lag decay $\lambda_3$ (introduced above) all affect the posterior and hence the impulse responses. A full prior sensitivity analysis involving varying $\lambda_1$ across a range like 0.05 to 0.5 would be a valuable robustness exercise, but we defer it here to keep the focus on identification. The reader should be aware that the choice of prior is an additional modelling decision on top of the identification strategy, and in principle both should be subjected to sensitivity analysis in applied work.
+# :::
 # ## The identification problem
 #
 # We now have posterior draws of the reduced-form parameters: the coefficient matrices $A_1, \ldots, A_p$ and the residual covariance $\Sigma_u$. The reduced-form residuals $u_t$ are correlated across equations, but we want to recover the *structural* shocks $\varepsilon_t$. Unlike the reduced-form residuals, these structural are orthogonal latent variables from which we can elicit a causal interpretation.
@@ -140,10 +145,11 @@ az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
 #
 # Since $\Sigma_u = \text{Var}(u_t) = B_0 \, B_0'$, we can, in principle, recover $B_0$ from $\Sigma_u$. But here is the problem: for $n = 3$ variables, the symmetric matrix $\Sigma_u$ has $n(n+1)/2 = 6$ unique elements. The matrix $B_0$ has $n^2 = 9$ free entries. Six equations, nine unknowns. We are three restrictions short. Without additional restrictions, there are infinitely many matrices $B_0$ that satisfy $\Sigma_u = B_0 B_0'$. If $B_0$ is one solution, then $B_0 Q$ is another for any orthogonal matrix $Q$ since $B_0 Q (B_0 Q)' = B_0 Q Q' B_0' = B_0 B_0' = \Sigma_u$. The data cannot tell these apart. The choice of $Q$ is, precisely, the identification problem.
 #
-# !!! note "A note on Orthogonalisation"
+# :::{admonition} A note on Orthogonalisation
+# :class: note
 #
-#     It is worth pausing on why this works. An orthogonal matrix $Q$ satisfies $Q Q' = I_n$ i.e., it is a rotation that preserves lengths and angles. When we form $B_0 Q$, we are rotating the columns of $B_0$, the implication of which is that we are redistributing the structural shocks into new linear combinations without changing the covariance they imply. Every such rotation gives a different economic story (different shocks, different impulse responses) that is equally consistent with the observed data.
-#
+# It is worth pausing on why this works. An orthogonal matrix $Q$ satisfies $Q Q' = I_n$ i.e., it is a rotation that preserves lengths and angles. When we form $B_0 Q$, we are rotating the columns of $B_0$, the implication of which is that we are redistributing the structural shocks into new linear combinations without changing the covariance they imply. Every such rotation gives a different economic story (different shocks, different impulse responses) that is equally consistent with the observed data.
+# :::
 # The identification problem is not a generic "too many unknowns" issue; it is specifically a *rotational* indeterminacy, and the two strategies below differ in how they resolve it: Cholesky pins the rotation to the identity by choosing the unique lower-triangular factor, while sign restrictions accept all rotations that satisfy qualitative constraints.
 #
 # ## Cholesky identification
@@ -249,7 +255,7 @@ fig.tight_layout()
 # 4. Check whether the impulse responses implied by $\tilde{B}_0$ satisfy the sign conditions at all required horizons. If the restriction horizon is $h > 0$, we also need the moving-average (MA) coefficient matrices $\Phi_1, \ldots, \Phi_h$. These are computed recursively from the VAR coefficients: $\Phi_s = \sum_{j=1}^{\min(s,p)} A_j \Phi_{s-j}$ with $\Phi_0 = I_n$. The matrix $\Phi_s \tilde{B}_0$ then gives the structural impulse response at horizon $s$, and we check that it satisfies the sign conditions for $s = 0, 1, \ldots, h$.
 # 5. If the conditions hold, keep $\tilde{B}_0$. If not, draw another $Q$ and try again.
 #
-# The result is not a single $B_0$ but a set of them, and the posterior distribution over impulse responses is correspondingly wider. This additional width reflects identification uncertainty: many structural models are consistent with the same reduced-form evidence and the same qualitative sign beliefs.Our baseline restrictions follow [Uhlig, (2005)](https://www.sciencedirect.com/science/article/abs/pii/S0304393205000073):
+# The result is not a single $B_0$ but a set of them, and the posterior distribution over impulse responses is correspondingly wider. This additional width reflects identification uncertainty: many structural models are consistent with the same reduced-form evidence and the same qualitative sign beliefs. Our baseline restrictions follow {cite:t}`uhlig2005`:
 #
 # | Variable | Restriction | Rationale |
 # |----------|-------------|-----------|
@@ -324,7 +330,7 @@ fig.tight_layout()
 # %% [markdown]
 # The three panels above show how each variable responds to the identified monetary policy shock under sign restrictions with $h = 6$.
 #
-# In the upper panel, the median response is slightly positive for the first few months, then turns negative, reaching about -0.25 by month 48. But look at the credible bands: they span from roughly +0.75 to -0.60 in the first year. The data, combined with only two sign restrictions, cannot tell us whether output rises or falls in the short run. This is exactly what Uhlig (2005) found: the output response to a monetary contraction is ambiguous under these restrictions. The sign restrictions on prices and the interest rate alone are not enough to pin down the monetary transmission mechanism.
+# In the upper panel, the median response is slightly positive for the first few months, then turns negative, reaching about -0.25 by month 48. But look at the credible bands: they span from roughly +0.75 to -0.60 in the first year. The data, combined with only two sign restrictions, cannot tell us whether output rises or falls in the short run. This is exactly what {cite:t}`uhlig2005` found: the output response to a monetary contraction is ambiguous under these restrictions. The sign restrictions on prices and the interest rate alone are not enough to pin down the monetary transmission mechanism.
 #
 # Considering the prices (middle panel), the CPI response is negative by construction, hovering around -0.15 to -0.20. There is no price puzzle here, but that is not a victory for the model. We *imposed* that prices cannot rise. The absence of the puzzle is an assumption, not a finding.
 #
@@ -536,7 +542,4 @@ pd.DataFrame(band_rows)
 #
 # ## References
 #
-# - Christiano, L. J., Eichenbaum, M., and Evans, C. L. (1999). Monetary policy shocks: What have we learned and to what end? In *Handbook of Macroeconomics*, Vol. 1A, 65-148.
-# - Sims, C. A. (1980). Macroeconomics and reality. *Econometrica*, 48(1), 1-48.
-# - Sims, C. A., Stock, J. H., and Watson, M. W. (1990). Inference in linear time series models with some unit roots. *Econometrica*, 58(1), 113-144.
-# - Uhlig, H. (2005). What are the effects of monetary policy on output? Results from an agnostic identification procedure. *Journal of Monetary Economics*, 52(2), 381-419.
+# The works cited above are collected on the [project bibliography](../references.md) page.

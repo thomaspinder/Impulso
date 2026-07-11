@@ -111,10 +111,11 @@ fig.tight_layout()
 #
 # The random-walk specification for $h_t$ is non-stationary. Conditional on $h_0$, $$h_t \mid h_0, \sigma_\eta \;\sim\; N\!\left(h_0,\, t\,\sigma_\eta^2\right),$$ so the unconditional variance of log-volatility grows linearly in $t$. That is the appropriate prior when there is no reason to anchor volatility to a particular level and we want the data to decide how far it drifts. The AR(1) variant introduced later replaces this with a mean-reverting state equation and restores stationarity.
 #
-# !!! note "NUTS on the SV likelihood"
+# :::{admonition} NUTS on the SV likelihood
+# :class: note
 #
-#     We sample the SV model with PyMC's NUTS using a non-centered reparameterisation of the latent log-volatility path. Non-centering lets Hamiltonian Monte Carlo traverse the funnel geometry induced by $\sigma_\eta$ without the auxiliary-mixture approximation introduced by Kim, Shephard and Chib (1998) to make the likelihood conditionally Gaussian.
-#
+# We sample the SV model with PyMC's NUTS using a non-centered reparameterisation of the latent log-volatility path. Non-centering lets Hamiltonian Monte Carlo traverse the funnel geometry induced by $\sigma_\eta$ without the auxiliary-mixture approximation introduced by Kim, Shephard and Chib (1998) to make the likelihood conditionally Gaussian.
+# :::
 # ## Fitting the random-walk SV model
 #
 # We wrap the inflation series in an `SVData` container and fit a `StochasticVolatility` model with random-walk log-vol dynamics.
