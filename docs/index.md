@@ -51,9 +51,9 @@ pip install impulso
 
 ## Learn more
 
-- [Quickstart tutorial](tutorials/quickstart.md) — fit your first Bayesian VAR
-- [Forecasting tutorial](tutorials/forecasting.md) — produce probabilistic forecasts
-- [Structural analysis tutorial](tutorials/structural-analysis.md) — impulse responses and variance decompositions
+- [Quickstart tutorial](tutorials/quickstart.py) — fit your first Bayesian VAR
+- [Forecasting tutorial](tutorials/forecasting.py) — produce probabilistic forecasts
+- [Structural analysis tutorial](tutorials/structural-analysis.py) — impulse responses and variance decompositions
 - [API Reference](reference/index.md) — complete module documentation
 
 ```{toctree}

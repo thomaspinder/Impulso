@@ -47,7 +47,7 @@ uv run tox
 
 - **Source**: `src/impulso/` — library code, built as a wheel via Hatchling
 - **Tests**: `tests/` — pytest with `--cov`, 90% coverage target (codecov.yaml)
-- **Docs**: `docs/` — Sphinx + MyST-NB (`docs/conf.py`), tutorials as executable MyST `.md` notebooks (jupytext header + `kernelspec`), docstrings auto-rendered via Sphinx `autodoc`/`autosummary` + `napoleon`. Notebooks execute at build via jupyter-cache; no outputs are committed. Theme: `pydata-sphinx-theme`.
+- **Docs**: `docs/` — Sphinx + MyST-NB (`docs/conf.py`), tutorials as executable **jupytext `py:percent` `.py` notebooks** (read via `nb_custom_formats`), prose/reference pages as MyST `.md`. Docstrings auto-rendered via Sphinx `autodoc`/`autosummary` + `napoleon`. Notebooks execute at build via jupyter-cache; no outputs are committed. Theme: `pydata-sphinx-theme`. Tutorial `.py` files are excluded from ruff (they are notebooks, not library code).
 
 ### Core Pipeline
 
