@@ -1,3 +1,5 @@
 # Data
 
-::: impulso.data
+```{eval-rst}
+.. automodule:: impulso.data
+```

@@ -55,3 +55,13 @@ pip install impulso
 - [Forecasting tutorial](tutorials/forecasting.md) — produce probabilistic forecasts
 - [Structural analysis tutorial](tutorials/structural-analysis.md) — impulse responses and variance decompositions
 - [API Reference](reference/index.md) — complete module documentation
+
+```{toctree}
+:hidden:
+:maxdepth: 2
+
+tutorials/index
+how-to/index
+explanation/index
+reference/index
+```

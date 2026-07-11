@@ -1,3 +1,5 @@
 # Priors
 
-::: impulso.priors
+```{eval-rst}
+.. automodule:: impulso.priors
+```

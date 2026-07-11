@@ -1,3 +1,5 @@
 # Plotting
 
-::: impulso.plotting
+```{eval-rst}
+.. automodule:: impulso.plotting
+```

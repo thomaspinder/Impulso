@@ -1,3 +1,5 @@
 # IdentifiedVAR
 
-::: impulso.identified
+```{eval-rst}
+.. automodule:: impulso.identified
+```

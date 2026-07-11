@@ -2,4 +2,10 @@
 
 Background theory and design decisions behind Impulso.
 
-*Explanations will be added as features are implemented.*
+```{toctree}
+:maxdepth: 1
+
+bayesian-var
+minnesota-prior
+identification
+```

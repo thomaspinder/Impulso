@@ -2,4 +2,11 @@
 
 Practical recipes for solving specific problems with Impulso.
 
-*Guides will be added as features are implemented.*
+```{toctree}
+:maxdepth: 1
+
+data-preparation
+custom-priors
+lag-selection
+sign-restrictions
+```

@@ -14,11 +14,7 @@ permissions:
 jobs:
   full-render:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      matrix:
-        notebook: [quickstart, forecasting, structural-analysis, monetary-policy]
-      fail-fast: false
+    timeout-minutes: 90
     steps:
       - name: Check out
         uses: actions/checkout@v7
@@ -26,13 +22,14 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
-      - name: Install Quarto
-        uses: quarto-dev/quarto-actions/setup@v2
+      - name: Install docs dependencies
+        run: uv sync --frozen --group docs
 
-      - name: Render notebook (full, no CI flag)
-        run: quarto render docs/tutorials/${{ matrix.notebook }}.qmd
-        env:
-          QUARTO_PYTHON: .venv/bin/python
+      - name: Register Jupyter kernel
+        run: uv run python -m ipykernel install --user --name python3 --display-name "Python 3"
+
+      - name: Full render (real MCMC, warnings as errors)
+        run: uv run sphinx-build -W --keep-going -b html docs docs/_build/html
 
   open-issue-on-failure:
     runs-on: ubuntu-latest

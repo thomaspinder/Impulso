@@ -1,3 +1,5 @@
 # Samplers
 
-::: impulso.samplers
+```{eval-rst}
+.. automodule:: impulso.samplers
+```

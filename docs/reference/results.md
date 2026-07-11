@@ -1,3 +1,5 @@
 # Results
 
-::: impulso.results
+```{eval-rst}
+.. automodule:: impulso.results
+```

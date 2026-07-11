@@ -30,9 +30,11 @@ identified = fitted.set_identification_strategy(scheme)
 irf = identified.impulse_response(horizon=20)
 ```
 
-!!! tip "Practical tuning advice"
-    - More restrictions = fewer valid rotations found per draw. If
-      identification is too tight, consider relaxing some constraints.
-    - Increase `n_rotations` if many draws fail to find a valid rotation
-      (the default fallback is plain Cholesky).
-    - Set `random_seed` for reproducibility.
+:::{admonition} Practical tuning advice
+:class: tip
+- More restrictions = fewer valid rotations found per draw. If
+  identification is too tight, consider relaxing some constraints.
+- Increase `n_rotations` if many draws fail to find a valid rotation
+  (the default fallback is plain Cholesky).
+- Set `random_seed` for reproducibility.
+:::
