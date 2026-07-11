@@ -128,11 +128,12 @@ if ci:
 else:
     sampler = NUTSSampler(
         draws=1500,
-        tune=3000,
+        tune=1500,
         chains=4,
         cores=4,
         target_accept=0.95,
         random_seed=123,
+        nuts_sampler="nutpie",
     )
 
 fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
@@ -221,11 +222,12 @@ if ci:
 else:
     sampler_ar1 = NUTSSampler(
         draws=1500,
-        tune=3000,
+        tune=1500,
         chains=4,
         cores=4,
         target_accept=0.95,
         random_seed=321,
+        nuts_sampler="nutpie",
     )
 
 fitted_ar1 = StochasticVolatility(dynamics=AR1()).fit(data, sampler=sampler_ar1)

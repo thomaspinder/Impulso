@@ -86,20 +86,30 @@ jobs:
         run: uv run python -m ipykernel install --user --name python3 --display-name "Python 3"
 
       - name: Restore notebook execution cache
+        # Unique key per run so the cache is ALWAYS re-saved (actions/cache
+        # refuses to overwrite an existing key). Combined with jupyter-cache's
+        # own content-hash invalidation, this makes the cache accumulate every
+        # successfully executed notebook instead of freezing partial progress.
         uses: actions/cache@v4
         with:
-          path: docs/_build/.jupyter_cache
-          key: jupyter-cache-${{ hashFiles('docs/tutorials/*.py', 'uv.lock', 'src/impulso/**/*.py') }}
+          path: |
+            docs/_build/.jupyter_cache
+            docs/_build/.jupyter_cache_ci
+          key: jupyter-cache-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             jupyter-cache-
 
       - name: Build documentation
         run: |
           if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "Production build: full-fidelity render (real MCMC)."
-            uv run sphinx-build -W --keep-going -b html docs docs/_build/html
+            echo "Production build: full-fidelity render (real MCMC), resilient."
+            # Not -W here: the deploy must not be blocked by a warning or a
+            # single slow/failed MCMC notebook. Cached notebooks render real
+            # figures; anything that fails execution renders an error cell but
+            # the site still deploys. The PR build below stays strict.
+            IMPULSO_DOCS_RESILIENT=1 uv run sphinx-build --keep-going -b html docs docs/_build/html
           else
-            echo "PR build: fast smoke render."
+            echo "PR build: fast smoke render (strict)."
             make docs-ci
           fi
 

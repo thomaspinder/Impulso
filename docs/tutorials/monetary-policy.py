@@ -117,9 +117,9 @@ if ci:
 else:
     sampler = NUTSSampler(
         draws=1500,
-        tune=3000,
-        chains=8,
-        cores=8,
+        tune=1500,
+        chains=4,
+        cores=4,
         random_seed=123,
         target_accept=0.9,
         nuts_sampler="nutpie",
