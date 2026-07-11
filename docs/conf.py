@@ -104,27 +104,19 @@ intersphinx_mapping = {
 }
 
 # -- HTML output -------------------------------------------------------------
-html_theme = "pydata_sphinx_theme"
+html_theme = "shibuya"
 html_title = "impulso"
 html_baseurl = "https://thomaspinder.github.io/impulso/"  # for sitemap + canonical
 sitemap_url_scheme = "{link}"
 html_static_path = ["stylesheets"]
 html_css_files = ["extra.css"]
 html_theme_options = {
-    "icon_links": [
-        {
-            "name": "GitHub",
-            "url": "https://github.com/thomaspinder/impulso",
-            "icon": "fa-brands fa-github",
-        },
-        {
-            "name": "PyPI",
-            "url": "https://pypi.org/project/impulso",
-            "icon": "fa-brands fa-python",
-        },
+    "accent_color": "crimson",  # radix name closest to the brand #870d14
+    "color_mode": "auto",  # follow the reader's light/dark preference
+    "github_url": "https://github.com/thomaspinder/impulso",
+    "nav_links": [
+        {"title": "PyPI", "url": "https://pypi.org/project/impulso"},
     ],
-    "use_edit_page_button": True,
-    "navigation_with_keys": True,
 }
 html_context = {
     "github_user": "thomaspinder",
