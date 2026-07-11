@@ -21,15 +21,31 @@ extensions = [
     "sphinx.ext.napoleon",  # Google-style docstrings
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
+    "sphinxcontrib.bibtex",
     "sphinx_copybutton",
     "sphinx_design",
 ]
 
+# -- Bibliography (sphinxcontrib-bibtex) -------------------------------------
+bibtex_bibfiles = ["references.bib"]
+bibtex_reference_style = "author_year"  # {cite:t} -> Uhlig (2005)
+bibtex_default_style = "unsrt"
+
 templates_path = ["_templates"]
+
+# Tutorials are jupytext py:percent notebooks; MyST-NB reads them via jupytext.
+source_suffix = {
+    ".md": "myst-nb",
+    ".ipynb": "myst-nb",
+    ".py": "myst-nb",
+}
+nb_custom_formats = {".py": ["jupytext.reads", {"fmt": "py:percent"}]}
+
 exclude_patterns = [
     "_build",
     "Thumbs.db",
     ".DS_Store",
+    "conf.py",  # this config module is not a document
     "**.ipynb_checkpoints",
     "agents/**",  # internal agent docs, not part of the site
     "adr/**",  # architecture decision records live in-repo, not on the site

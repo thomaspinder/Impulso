@@ -57,6 +57,8 @@ docs = [
     "sphinx-copybutton>=0.5.2",
     "sphinx-design>=0.6",
     "ipykernel>=6.29",
+    "jupytext>=1.16",
+    "sphinxcontrib-bibtex>=2.6",
 ]
 
 [build-system]
@@ -96,6 +98,8 @@ markers = [
 target-version = "py311"
 line-length = 120
 fix = true
+# Tutorials are jupytext py:percent notebooks, not library code.
+extend-exclude = ["docs/tutorials/*.py"]
 
 [tool.ruff.lint]
 select = [

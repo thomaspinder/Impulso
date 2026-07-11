@@ -89,7 +89,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: docs/_build/.jupyter_cache
-          key: jupyter-cache-${{ hashFiles('docs/tutorials/*.md', 'uv.lock', 'src/impulso/**/*.py') }}
+          key: jupyter-cache-${{ hashFiles('docs/tutorials/*.py', 'uv.lock', 'src/impulso/**/*.py') }}
           restore-keys: |
             jupyter-cache-
 
