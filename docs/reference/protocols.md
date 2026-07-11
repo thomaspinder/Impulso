@@ -1,5 +1,14 @@
 # Protocols
 
 ```{eval-rst}
-.. automodule:: impulso.protocols
+.. currentmodule:: impulso.protocols
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   Prior
+   Sampler
+   IdentificationScheme
+   VolatilityProcess
 ```

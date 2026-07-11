@@ -59,6 +59,8 @@ docs = [
     "ipykernel>=6.29",
     "jupytext>=1.16",
     "sphinxcontrib-bibtex>=2.6",
+    "sphinx-codeautolink>=0.15",
+    "sphinx-sitemap>=2.6",
 ]
 
 [build-system]

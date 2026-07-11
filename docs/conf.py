@@ -24,6 +24,8 @@ extensions = [
     "sphinxcontrib.bibtex",
     "sphinx_copybutton",
     "sphinx_design",
+    "sphinx_codeautolink",  # link API names in example code to the reference
+    "sphinx_sitemap",  # emit sitemap.xml
 ]
 
 # -- Bibliography (sphinxcontrib-bibtex) -------------------------------------
@@ -38,6 +40,7 @@ source_suffix = {
     ".md": "myst-nb",
     ".ipynb": "myst-nb",
     ".py": "myst-nb",
+    ".rst": "restructuredtext",  # autosummary-generated API stubs
 }
 nb_custom_formats = {".py": ["jupytext.reads", {"fmt": "py:percent"}]}
 
@@ -82,6 +85,14 @@ autodoc_typehints = "description"
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 
+# -- Numbered figures, tables and equations ----------------------------------
+numfig = True
+math_eqref_format = "Eq. {number}"
+
+# -- sphinx-codeautolink -----------------------------------------------------
+# Adds a "Examples using …" backreference block to each documented object.
+codeautolink_autodoc_inject = True
+
 # -- Intersphinx -------------------------------------------------------------
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
@@ -95,6 +106,8 @@ intersphinx_mapping = {
 # -- HTML output -------------------------------------------------------------
 html_theme = "pydata_sphinx_theme"
 html_title = "impulso"
+html_baseurl = "https://thomaspinder.github.io/impulso/"  # for sitemap + canonical
+sitemap_url_scheme = "{link}"
 html_static_path = ["stylesheets"]
 html_css_files = ["extra.css"]
 html_theme_options = {

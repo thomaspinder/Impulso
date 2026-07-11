@@ -1,5 +1,11 @@
 # IdentifiedVAR
 
 ```{eval-rst}
-.. automodule:: impulso.identified
+.. currentmodule:: impulso.identified
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   IdentifiedVAR
 ```

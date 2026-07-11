@@ -1,5 +1,11 @@
 # Samplers
 
 ```{eval-rst}
-.. automodule:: impulso.samplers
+.. currentmodule:: impulso.samplers
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   NUTSSampler
 ```
