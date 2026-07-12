@@ -10,6 +10,7 @@ These tutorials walk you through Impulso's core workflow: fitting a Bayesian VAR
 | [Structural Shocks and Their Effects](structural-analysis.py) | Cholesky identification, impulse responses, FEVD, historical decomposition |
 | [Monetary Policy Analysis](monetary-policy.py) | Policy reaction functions, scenario analysis |
 | [Stochastic Volatility](stochastic-volatility.py) | Time-varying residual volatility via univariate SV: fit, interpret, and forecast |
+| [Oil Supply News with an External Instrument](proxy-svar.py) | Proxy-SVAR identification, external instruments, Känzig (2021) replication |
 
 Start with the **Quickstart** if you're new to Impulso. The Forecasting and Structural Analysis tutorials build on concepts introduced there.
 
@@ -22,4 +23,5 @@ forecasting
 structural-analysis
 monetary-policy
 stochastic-volatility
+proxy-svar
 ```
