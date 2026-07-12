@@ -71,8 +71,23 @@ myst_heading_anchors = 3  # auto-slug headings so in-page [](#anchor) links reso
 # Execute notebooks and cache results in a gitignored cache. Source .md carry
 # no outputs; a cell re-runs only when its code changes.
 nb_execution_mode = "cache"
+# Smoke (IMPULSO_DOCS_CI=1) and full renders execute the SAME notebook source
+# but with very different MCMC — yet jupyter-cache keys on source alone, so a
+# shared cache lets a tiny smoke run (draws=10) poison the full-fidelity build.
+# Separate the cache directories so the two modes can never overwrite one
+# another (locally or in CI).
+_smoke_render = os.environ.get("IMPULSO_DOCS_CI") == "1"
+nb_execution_cache_path = os.path.join(
+    os.path.dirname(__file__),
+    "_build",
+    ".jupyter_cache_ci" if _smoke_render else ".jupyter_cache",
+)
 nb_execution_timeout = 1800  # heavy MCMC tutorials
-nb_execution_raise_on_error = True
+# Strict by default (PR gate + local): a failed cell fails the build. On the
+# deploy path (IMPULSO_DOCS_RESILIENT=1) we do NOT raise, so one slow/broken
+# MCMC notebook cannot block the whole site — it renders an error cell while
+# every other page (and the last-good cached output) still deploys.
+nb_execution_raise_on_error = os.environ.get("IMPULSO_DOCS_RESILIENT") != "1"
 nb_merge_streams = True
 
 # -- Autodoc / autosummary ---------------------------------------------------
