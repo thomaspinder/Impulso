@@ -64,10 +64,7 @@ print(inflation.tail())
 # %% [markdown]
 # The resulting series is monthly CPI inflation in percent. It starts in February 1965, one month after the raw CPI series begins, and runs through the most recent CPI release.
 
-# %%
-# | code-fold: true
-# | label: raw-inflation
-# | fig-cap: "US monthly CPI inflation and a 12-month rolling standard deviation."
+# %% mystnb={"figure": {"caption": "US monthly CPI inflation and a 12-month rolling standard deviation.", "name": "raw-inflation"}} tags=["remove-input"]
 rolling_window = 12
 rolling_sd = inflation.rolling(rolling_window).std()
 
@@ -143,18 +140,14 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
 #
 # `fitted.volatility()` returns a `VolatilityResult` whose `.plot()` method shows the posterior median of $\exp(h_t / 2)$ together with a highest-density interval.
 
-# %%
-# | label: vol-path
-# | fig-cap: "Posterior conditional SD of US CPI inflation from the random-walk SV fit."
+# %% mystnb={"figure": {"caption": "Posterior conditional SD of US CPI inflation from the random-walk SV fit.", "name": "vol-path"}}
 fig = fitted.volatility().plot()
 fig.tight_layout()
 
 # %% [markdown]
 # To see how the volatility path lines up with the macroeconomic narrative we overlay NBER recession dates that fall within the sample. These are the recessions dated by the NBER Business Cycle Dating Committee from 1965 onward.
 
-# %%
-# | label: vol-path-nber
-# | fig-cap: "Posterior conditional SD with NBER recessions shaded."
+# %% mystnb={"figure": {"caption": "Posterior conditional SD with NBER recessions shaded.", "name": "vol-path-nber"}}
 fig = fitted.volatility().plot()
 ax = plt.gcf().axes[0]
 nber_recessions = [
@@ -178,9 +171,7 @@ fig.tight_layout()
 #
 # How does the SV posterior compare with the naive 12-month rolling estimator we plotted earlier? We overlay them on the same axes.
 
-# %%
-# | label: vol-vs-rolling
-# | fig-cap: "Posterior median conditional SD from the SV model (blue) versus a 12-month rolling SD (grey)."
+# %% mystnb={"figure": {"caption": "Posterior median conditional SD from the SV model (blue) versus a 12-month rolling SD (grey).", "name": "vol-vs-rolling"}}
 posterior_sd = fitted.volatility().median()
 
 fig, ax = plt.subplots(figsize=(9, 4))
@@ -241,9 +232,7 @@ fig_ar1.tight_layout()
 #
 # With the random-walk SV fit we can generate a density forecast. For each posterior draw we simulate forward 12 months by evolving $h_{T+h}$ as $h_T + \sum_{s=1}^{h} \sigma_\eta \eta_s$ and then drawing $y_{T+h} = \mu + \exp(h_{T+h}/2)\, \varepsilon_{T+h}$.
 
-# %%
-# | label: sv-forecast
-# | fig-cap: "12-step density forecast from the random-walk SV model."
+# %% mystnb={"figure": {"caption": "12-step density forecast from the random-walk SV model.", "name": "sv-forecast"}}
 forecast = fitted.forecast(steps=12)
 fig_fcst = forecast.plot()
 fig_fcst.tight_layout()

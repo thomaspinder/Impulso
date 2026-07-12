@@ -77,10 +77,7 @@ from impulso.samplers import NUTSSampler
 # We do not difference the data. {cite:t}`simsStockWatson1990` showed that Bayesian inference in levels VARs is valid regardless of whether the series have unit roots, and differencing can distort impulse responses when variables are cointegrated.
 # :::
 
-# %%
-# | code-fold: true
-# | label: data-series
-# | fig-cap: "The three time series of output, prices, and rate."
+# %% mystnb={"figure": {"caption": "The three time series of output, prices, and rate.", "name": "data-series"}} tags=["remove-input"]
 df = pd.read_csv("data/monetary_policy.csv", index_col="date", parse_dates=True)
 df = df.loc[:"2007-12"]
 df.describe().round(2)
@@ -194,8 +191,7 @@ ordering_c = ["rate", "output", "prices"]
 identified_chol_c = fitted.set_identification_strategy(Cholesky(ordering=ordering_c))
 irf_chol_c = identified_chol_c.impulse_response(horizon=48)
 
-# %%
-# | code-fold: true
+# %% tags=["remove-input"]
 
 response_vars = ["output", "prices", "rate"]
 response_labels = {
@@ -292,8 +288,7 @@ print(
     else f"Acceptance rate: {acceptance_rate}"
 )
 
-# %%
-# | code-fold: true
+# %% tags=["remove-input"]
 
 irf_sr_h6 = identified_sr_h6.impulse_response(horizon=48)
 irf_sr_data = irf_sr_h6.idata.posterior_predictive["irf"]
@@ -369,8 +364,7 @@ for h in [0, 6, 12]:
     }
     print(f"h={h:>2}: acceptance rate = {ar:.1%}")
 
-# %%
-# | code-fold: true
+# %% tags=["remove-input"]
 
 fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
@@ -405,8 +399,7 @@ fig.tight_layout()
 #
 # We now place the Cholesky baseline (ordering A) and the sign restriction baseline ($h = 6$) side by side. This is the payoff of running both approaches on the same data: we can see directly how different identifying assumptions lead to different conclusions about the same economic question.
 
-# %%
-# | code-fold: true
+# %% tags=["remove-input"]
 
 fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
@@ -492,8 +485,7 @@ for i, resp in enumerate(response_vars):
 axes[-1].set_xlabel("Months")
 fig.tight_layout()
 
-# %%
-# | code-fold: true
+# %% tags=["remove-input"]
 
 band_rows = []
 for horizon_month in [12, 24, 48]:
