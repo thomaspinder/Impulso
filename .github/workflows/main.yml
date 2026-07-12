@@ -90,7 +90,7 @@ jobs:
         # refuses to overwrite an existing key). Combined with jupyter-cache's
         # own content-hash invalidation, this makes the cache accumulate every
         # successfully executed notebook instead of freezing partial progress.
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             docs/_build/.jupyter_cache
