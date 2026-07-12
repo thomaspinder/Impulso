@@ -52,6 +52,10 @@ exclude_patterns = [
     "**.ipynb_checkpoints",
     "agents/**",  # internal agent docs, not part of the site
     "adr/**",  # architecture decision records live in-repo, not on the site
+    # Underscore-prefixed .py in tutorials are helper modules imported by a
+    # notebook at runtime, not notebooks themselves — keep MyST-NB from
+    # collecting them as standalone documents (they'd warn as orphan pages).
+    "tutorials/_*.py",
 ]
 
 # -- MyST / MyST-NB ----------------------------------------------------------

@@ -238,8 +238,52 @@ class IdentifiedVAR(ImpulsoBaseModel):
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": irf_da}))
         return IRFResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
+    def _fevd_guard(self, fevd_arr: np.ndarray) -> np.ndarray:
+        """Mask FEVD shares that are not identified.
+
+        Columns labelled ``unidentified_*`` (partial identification —
+        `ProxySVAR`, or `SignRestriction` naming fewer shocks than
+        variables) are rotation-arbitrary: their individual variance
+        shares depend on an arbitrary orthogonal completion and carry no
+        economic content. They are masked to NaN rather than reported.
+        The identified columns' shares remain valid — the denominator
+        (total forecast-error variance) is rotation-invariant.
+
+        Additionally warns when the scheme applies a unit-effect
+        rescaling (a `scale` attribute set to a float, as in
+        `ProxySVAR(scale=...)`): variance shares are only interpretable
+        under the one-standard-deviation convention.
+        """
+        import warnings
+
+        masked = [i for i, s in enumerate(self.shock_names) if s.startswith("unidentified_")]
+        if masked:
+            warnings.warn(
+                f"FEVD shares for {len(masked)} unidentified shock column(s) are "
+                "rotation-arbitrary and have been masked to NaN. Only the named "
+                "shock columns carry identified variance shares.",
+                UserWarning,
+                stacklevel=3,
+            )
+            fevd_arr = fevd_arr.copy()
+            fevd_arr[..., masked] = np.nan
+        if getattr(self.scheme, "scale", None) is not None:
+            warnings.warn(
+                "The identification scheme applies a unit-effect rescaling "
+                "(scale is set); FEVD shares assume one-standard-deviation "
+                "shocks and are not interpretable under this normalisation. "
+                "Re-identify with scale=None for variance decomposition.",
+                UserWarning,
+                stacklevel=3,
+            )
+        return fevd_arr
+
     def fevd(self, horizon: int = 20, at: AtParam = None) -> FEVDResult:
         """Compute forecast error variance decomposition.
+
+        Under partial identification (any shock column labelled
+        ``unidentified_*``), the shares of the unidentified columns are
+        masked to NaN — see :meth:`_fevd_guard`.
 
         Args:
             horizon: Number of periods.
@@ -259,6 +303,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             mse_cum = np.cumsum(Theta**2, axis=3)
             total = mse_cum.sum(axis=-1, keepdims=True)
             fevd_arr = np.where(total > 0, mse_cum / total, 0.0)
+            fevd_arr = self._fevd_guard(fevd_arr)
             fevd_da = xr.DataArray(
                 fevd_arr,
                 dims=["chain", "draw", "time", "horizon", "response", "shock"],
@@ -275,6 +320,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             mse_cum = np.cumsum(Theta**2, axis=2)
             total = mse_cum.sum(axis=-1, keepdims=True)
             fevd_arr = np.where(total > 0, mse_cum / total, 0.0)
+            fevd_arr = self._fevd_guard(fevd_arr)
             fevd_da = xr.DataArray(
                 fevd_arr,
                 dims=["chain", "draw", "horizon", "response", "shock"],
@@ -300,6 +346,15 @@ class IdentifiedVAR(ImpulsoBaseModel):
         Historical decomposition is intrinsically time-indexed: it attributes
         each in-sample observation to past structural shocks.  The ``at=``
         parameter controls which Cholesky factor identifies those shocks.
+
+        Under partial identification (shock columns labelled
+        ``unidentified_*``), the individual contributions of the
+        unidentified shocks are rotation-arbitrary, but their *sum* is
+        well-defined (it is the residual variation the identified shocks do
+        not explain). Those columns are therefore collapsed into a single
+        ``unidentified_remainder`` column. The decomposition remains exactly
+        additive, and the identified shocks' contributions are invariant to
+        both the orthogonal completion and any unit-effect column rescaling.
 
         Args:
             start: Optional start date to restrict decomposition.
@@ -355,12 +410,22 @@ class IdentifiedVAR(ImpulsoBaseModel):
             t_end = idx.searchsorted(end, side="right")
         hd = hd[:, :, t_start:t_end]
 
+        # Partial identification: collapse rotation-arbitrary columns into
+        # one well-defined remainder (their sum is completion-invariant).
+        shock_coord = list(self.shock_names)
+        unident = [i for i, s in enumerate(shock_coord) if s.startswith("unidentified_")]
+        if unident:
+            ident = [i for i in range(len(shock_coord)) if i not in unident]
+            remainder = hd[..., unident].sum(axis=-1, keepdims=True)
+            hd = np.concatenate([hd[..., ident], remainder], axis=-1)
+            shock_coord = [shock_coord[i] for i in ident] + ["unidentified_remainder"]
+
         hd_da = xr.DataArray(
             hd,
             dims=["chain", "draw", "time", "response", "shock"],
             coords={
                 "response": self.var_names,
-                "shock": self.shock_names,
+                "shock": shock_coord,
                 "time": ("time", idx[t_start:t_end]),
             },
             name="hd",
