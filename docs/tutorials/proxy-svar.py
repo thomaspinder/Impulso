@@ -270,7 +270,7 @@ print(f"B coefficients: min ESS = {summ_sv['ess_bulk'].min():.0f}, "
       f"divergences: {int(fitted_sv.idata.sample_stats['diverging'].sum())}")
 
 # %% [markdown]
-# The stochastic-volatility fit is less clean than the baseline: the full render reports one divergence and a maximum $\hat R$ of 1.02. That is adequate for demonstrating how the interfaces compose, but not for a final empirical analysis. A substantive application should run longer and resolve the divergence before interpreting the time-varying scale.
+# The stochastic-volatility fit is less clean than the baseline: the full render reports a small number of divergences (see the count printed above) and a maximum $\hat R$ of about 1.02. That is adequate for demonstrating how the interfaces compose, but not for a final empirical analysis. A substantive application should run longer and resolve the divergences before interpreting the time-varying scale.
 #
 # With time-varying volatility, `shock_matrix(at="all")` returns an impact matrix for every month. Keeping the 10% normalisation would deliberately make the oil-price impact constant and hide the variation we want to inspect. We therefore set `scale=None` and plot the model-implied impact of a one-standard-deviation oil supply news shock on the real oil price.
 
