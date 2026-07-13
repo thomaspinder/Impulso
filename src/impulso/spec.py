@@ -8,7 +8,7 @@ from pydantic import Field, model_validator
 from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData
 from impulso.priors import MinnesotaPrior
-from impulso.protocols import Prior, Sampler, VolatilityProcess
+from impulso.protocols import Prior, PyMCVolatilityProcess, Sampler
 from impulso.sv.spec import StochasticVolatility
 from impulso.volatility import Constant
 
@@ -32,13 +32,13 @@ class VAR(ImpulsoBaseModel):
         lags: Fixed lag order (int >= 1) or selection criterion string.
         max_lags: Upper bound for automatic selection. Only valid with string lags.
         prior: Prior shorthand string or Prior protocol instance.
-        volatility: Volatility shorthand string or VolatilityProcess protocol instance.
+        volatility: Volatility shorthand string or PyMCVolatilityProcess protocol instance.
     """
 
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
     max_lags: int | None = None
     prior: Literal["minnesota"] | Prior = "minnesota"
-    volatility: Literal["constant", "sv"] | VolatilityProcess = "constant"
+    volatility: Literal["constant", "sv"] | PyMCVolatilityProcess = "constant"
 
     @model_validator(mode="after")
     def _validate_spec(self) -> Self:
@@ -56,8 +56,8 @@ class VAR(ImpulsoBaseModel):
         return self.prior
 
     @property
-    def resolved_volatility(self) -> VolatilityProcess:
-        """Resolve string volatility shorthand to a VolatilityProcess instance."""
+    def resolved_volatility(self) -> PyMCVolatilityProcess:
+        """Resolve string volatility shorthand to a PyMCVolatilityProcess instance."""
         if isinstance(self.volatility, str):
             return _VOLATILITY_REGISTRY[self.volatility]()
         return self.volatility

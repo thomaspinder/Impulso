@@ -4,7 +4,7 @@ from typing import runtime_checkable
 
 from typing_extensions import get_protocol_members
 
-from impulso.protocols import IdentificationScheme, Prior, Sampler, VolatilityProcess
+from impulso.protocols import IdentificationScheme, Prior, PyMCVolatilityProcess, Sampler, VolatilityProcess
 
 
 class TestProtocols:
@@ -22,10 +22,18 @@ class TestVolatilityProcess:
     def test_volatility_process_is_runtime_checkable(self):
         assert hasattr(VolatilityProcess, "__protocol_attrs__") or runtime_checkable
 
-    def test_volatility_process_methods_declared(self):
-        # Protocol must declare the three seam operations.
+    def test_volatility_process_declares_query_surface(self):
+        # Query surface only — the PyMC builder lives on the sub-protocol.
         attrs = set(get_protocol_members(VolatilityProcess))
-        assert {"build_pymc_latent", "cholesky_at", "forecast_cholesky_path"} <= attrs
+        assert {"cholesky_at", "cholesky_path", "forecast_cholesky_path"} <= attrs
+        assert "build_pymc_latent" not in attrs
+
+    def test_pymc_volatility_process_adds_builder(self):
+        # Sub-protocol extends the query surface with build_pymc_latent.
+        assert hasattr(PyMCVolatilityProcess, "__protocol_attrs__") or runtime_checkable
+        attrs = set(get_protocol_members(PyMCVolatilityProcess))
+        assert "build_pymc_latent" in attrs
+        assert {"cholesky_at", "cholesky_path", "forecast_cholesky_path"} <= attrs
 
 
 class TestIdentificationSchemeNewSignature:

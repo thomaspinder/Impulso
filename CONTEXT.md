@@ -38,6 +38,22 @@ The dynamic response of each variable to a unit structural shock at horizons `0.
 **at**:
 The time-index parameter on time-varying queries (`impulse_response(at=...)`, `fevd(at=...)`). Accepts an integer `t`, the literal `"last"` (most recent), `"all"` (full T-axis returned in the result), or `None` (default; resolves to `"last"` for stochastic volatility, ignored for constant volatility).
 
+**Estimation paradigm (`VAR` vs `ConjugateVAR`)**:
+Two ways to estimate the reduced-form VAR. `VAR` uses independent-Normal coefficient priors sampled by NUTS (the `Sampler` seam). `ConjugateVAR` uses a conjugate Normal-Inverse-Wishart prior with closed-form posteriors and marginal-likelihood hyperparameter selection (Giannone et al. 2015): it draws (β, Σ) analytically and samples only the hyperparameters by Metropolis. Both return a `FittedVAR`, so identification and forecasting are identical downstream.
+_Avoid_: "the Bayesian VAR" as if there were one estimator; name the paradigm.
+
+**NIW prior (`NIWPrior`)**:
+The conjugate Normal-Inverse-Wishart Minnesota prior consumed by `ConjugateVAR`, encoded via dummy observations. Distinct from `MinnesotaPrior`, which parameterises the independent-Normal prior for the NUTS path.
+_Avoid_: conflating with `MinnesotaPrior` — different priors for different estimators.
+
+**Minnesota tightness (λ)**:
+The overall standard deviation of the Minnesota prior — the scalar controlling how hard all coefficients shrink toward the random-walk prior mean. `MinnesotaPrior.tightness` is this λ, held fixed; `ConjugateVAR` instead selects λ by maximising / sampling the marginal likelihood (hierarchical, à la Giannone et al. 2015).
+_Avoid_: bare "shrinkage" (ambiguous with cross-variable shrinkage).
+
+**Deterministic volatility break (`ConjugateVolatility`)**:
+A volatility process whose per-period scale `s_t` follows a deterministic, hyperparameter-driven path with a known break date — not a stochastic process. Used only by `ConjugateVAR`: the scale enters as data rescaling `ỹ_t = y_t / s_t` with a Jacobian in the marginal likelihood, and its hyperparameters are estimated jointly with λ. `PandemicBreak` (three outbreak scales + geometric decay from March 2020) is the concrete case reproducing Lenza & Primiceri (2020).
+_Avoid_: "stochastic volatility" — the break is deterministic given its hyperparameters.
+
 ## Relationships
 
 - A **VAR** carries one **prior** and one **volatility process**.
@@ -45,6 +61,8 @@ The time-index parameter on time-varying queries (`impulse_response(at=...)`, `f
 - An **identification scheme** consumes an `L_t` (queried from the volatility process) and produces a structural shock matrix `B`.
 - An **IdentifiedVAR** computes **IRFs**, FEVDs, and historical decompositions by asking the volatility process for `L_t` at the requested `at`, then applying the identification scheme.
 - A **stochastic volatility** can plug into a **VAR** as its volatility process *or* be fitted standalone on a univariate series.
+- A **VAR** is estimated by NUTS; a **ConjugateVAR** is estimated analytically with a Metropolis step on hyperparameters. Both produce a **FittedVAR**.
+- A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.
 
 ## Example dialogue
 
@@ -65,3 +83,4 @@ The time-index parameter on time-varying queries (`impulse_response(at=...)`, `f
 
 - "SV" is both a noun (the model family — *stochastic volatility*) and an adjective ("an SV adapter"). The class `StochasticVolatility` is the canonical noun reference; the adjective form is fine in prose after the term has been spelled out.
 - "Volatility" alone is ambiguous between *volatility process* (the seam) and *volatility paths* (the per-variable σ_i,t time series, useful for plotting). Be explicit when the distinction matters.
+- "Minnesota prior" now denotes two distinct encodings: the independent-Normal `MinnesotaPrior` (NUTS path) and the conjugate `NIWPrior` (`ConjugateVAR`). Name the estimator when it matters.
