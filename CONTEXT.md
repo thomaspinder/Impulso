@@ -40,6 +40,7 @@ The time-index parameter on time-varying queries (`impulse_response(at=...)`, `f
 
 **Estimation paradigm (`VAR` vs `ConjugateVAR`)**:
 Two ways to estimate the reduced-form VAR. `VAR` uses independent-Normal coefficient priors sampled by NUTS (the `Sampler` seam). `ConjugateVAR` uses a conjugate Normal-Inverse-Wishart prior with closed-form posteriors and marginal-likelihood hyperparameter selection (Giannone et al. 2015): it draws (β, Σ) analytically and samples only the hyperparameters by Metropolis. Both return a `FittedVAR`, so identification and forecasting are identical downstream.
+_Reader-facing shorthand_: "the conjugate VAR" (`ConjugateVAR`) vs "the NUTS VAR" (`VAR`) — the contrast axis is the mode of inference (closed-form vs MCMC).
 _Avoid_: "the Bayesian VAR" as if there were one estimator; name the paradigm.
 
 **NIW prior (`NIWPrior`)**:
