@@ -202,7 +202,7 @@ irf_nuts = fitted_nuts.set_identification_strategy(Cholesky(ordering=ordering)).
 
 # %% mystnb={"figure": {"caption": "Conjugate-VAR impulse responses (Cholesky). Column shock → row response, over 24 months.", "name": "irf-conjugate"}} tags=["remove-input"]
 fig = irf_conjugate.plot()
-fig.suptitle("Conjugate VAR — impulse responses", y=1.02)
+_ = fig.suptitle("Conjugate VAR — impulse responses", y=1.02)
 
 # %% [markdown]
 # Now overlay the two estimators on the same axes. If the conjugate VAR is a legitimate
