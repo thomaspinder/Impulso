@@ -106,28 +106,6 @@ class VolatilityProcess(Protocol):
     branching in `FittedVAR.sigma` and `IdentifiedVAR.historical_decomposition`
     so neither has to string-sniff the adapter `name`."""
 
-    def build_pymc_latent(
-        self,
-        n_vars: int,
-        T: int,
-        data: np.ndarray | None = None,
-    ) -> "pt.TensorVariable":
-        """Register volatility latent variables in the active PyMC model.
-
-        Returns the lower-triangular Cholesky factor as a PyTensor variable.
-        For constant volatility, shape is (n_vars, n_vars). For stochastic
-        volatility, shape is (T, n_vars, n_vars).
-
-        Args:
-            n_vars: Number of endogenous variables.
-            T: Number of in-sample observations (after lag trimming).
-            data: Optional per-variable series of shape `(T, n_vars)`,
-                typically OLS residuals from the VAR pipeline. Stochastic
-                adapters use this to seed per-variable priors; constant
-                adapters ignore it.
-        """
-        ...
-
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
         """Posterior draws of the Cholesky factor at time `t`.
 
@@ -159,5 +137,38 @@ class VolatilityProcess(Protocol):
         volatility, broadcasts the time-invariant L across the requested
         `T`. For stochastic volatility, indexes into the latent log-vol
         posterior to construct L_t for each t.
+        """
+        ...
+
+
+@runtime_checkable
+class PyMCVolatilityProcess(VolatilityProcess, Protocol):
+    """Volatility process that can build its latents inside a PyMC model.
+
+    Extends the query surface with `build_pymc_latent`, required by the
+    PyMC/NUTS estimation path (`VAR.fit`). Query-only adapters (e.g. the
+    conjugate volatility break) implement `VolatilityProcess` alone and
+    need not provide this method.
+    """
+
+    def build_pymc_latent(
+        self,
+        n_vars: int,
+        T: int,
+        data: np.ndarray | None = None,
+    ) -> "pt.TensorVariable":
+        """Register volatility latent variables in the active PyMC model.
+
+        Returns the lower-triangular Cholesky factor as a PyTensor variable.
+        For constant volatility, shape is (n_vars, n_vars). For stochastic
+        volatility, shape is (T, n_vars, n_vars).
+
+        Args:
+            n_vars: Number of endogenous variables.
+            T: Number of in-sample observations (after lag trimming).
+            data: Optional per-variable series of shape `(T, n_vars)`,
+                typically OLS residuals from the VAR pipeline. Stochastic
+                adapters use this to seed per-variable priors; constant
+                adapters ignore it.
         """
         ...

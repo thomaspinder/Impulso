@@ -48,6 +48,7 @@ dev = [
     "nutpie>=0.13",
     "tabulate>=0.10.0",
     "typing-extensions>=4.12",
+    "ipython"
 ]
 docs = [
     "statsmodels>=0.14.6",
