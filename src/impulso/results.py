@@ -13,19 +13,25 @@ from pydantic import Field
 from impulso._base import ImpulsoBaseModel
 
 
-def _wide_frame(da: xr.DataArray, row_dim: str) -> pd.DataFrame:
-    """Reshape a (row_dim, response, shock) DataArray into a wide DataFrame.
+def _wide_frame(da: xr.DataArray, row_dim: str, col_dim: str = "shock") -> pd.DataFrame:
+    """Reshape a (row_dim, response, col_dim) DataArray into a wide DataFrame.
 
     The returned frame is indexed by the coord values of `row_dim` and has
-    a `MultiIndex(['response', 'shock'])` on columns built from those coords
+    a `MultiIndex(['response', col_dim])` on columns built from those coords
     in the order they appear on the DataArray.
+
+    Args:
+        da: Source array carrying `response`, `col_dim`, and `row_dim` dims.
+        row_dim: Dimension to use as the frame index.
+        col_dim: Dimension pairing with `response` on the columns. Defaults
+            to `shock` for structural results; exogenous results pass `exog`.
     """
-    da = da.transpose(row_dim, "response", "shock")
+    da = da.transpose(row_dim, "response", col_dim)
     row_values = da.coords[row_dim].values
     row_index = pd.DatetimeIndex(row_values, name="time") if row_dim == "time" else pd.Index(row_values, name=row_dim)
     columns = pd.MultiIndex.from_product(
-        [da.coords["response"].values.tolist(), da.coords["shock"].values.tolist()],
-        names=["response", "shock"],
+        [da.coords["response"].values.tolist(), da.coords[col_dim].values.tolist()],
+        names=["response", col_dim],
     )
     return pd.DataFrame(da.values.reshape(len(row_index), -1), index=row_index, columns=columns)
 
@@ -201,6 +207,60 @@ class IRFResult(VARResultBase):
         from impulso.plotting import plot_irf
 
         return plot_irf(self)
+
+
+class DynamicMultiplierResult(VARResultBase):
+    """Result from exogenous dynamic-multiplier computation.
+
+    Attributes:
+        idata: ArviZ InferenceData with dynamic-multiplier draws.
+        horizon: Highest horizon computed; the result spans 0..horizon.
+        var_names: Names of the endogenous (response) variables.
+        exog_names: Names of the exogenous (driver) variables.
+        cumulative: Whether the draws are cumulative (step-response)
+            multipliers rather than per-horizon impulse multipliers.
+    """
+
+    _PRIMARY_KEY: ClassVar[str] = "dynamic_multiplier"
+
+    horizon: int
+    var_names: list[str]
+    exog_names: list[str]
+    cumulative: bool = False
+
+    def median(self) -> pd.DataFrame:
+        """Posterior median dynamic multiplier.
+
+        Returns:
+            DataFrame indexed by horizon (integer 0..H) with a
+            `MultiIndex(['response', 'exog'])` on columns.
+        """
+        self._guard_no_time_dim()
+        dm = self.idata.posterior_predictive["dynamic_multiplier"]
+        return _wide_frame(dm.median(dim=("chain", "draw")), "horizon", col_dim="exog")
+
+    def hdi(self, prob: float = 0.89) -> HDIResult:
+        """HDI for the dynamic multiplier.
+
+        Returns:
+            HDIResult whose `lower` / `upper` DataFrames mirror the shape and
+            labels of `median()`.
+        """
+        self._guard_no_time_dim()
+        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["dynamic_multiplier"]
+        lower = _wide_frame(hdi_data.sel(hdi="lower"), "horizon", col_dim="exog")
+        upper = _wide_frame(hdi_data.sel(hdi="higher"), "horizon", col_dim="exog")
+        return HDIResult(lower=lower, upper=upper, prob=prob)
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert the dynamic multiplier to a DataFrame (passthrough to `median()`)."""
+        return self.median()
+
+    def plot(self) -> Figure:
+        """Plot dynamic multipliers."""
+        from impulso.plotting import plot_dynamic_multiplier
+
+        return plot_dynamic_multiplier(self)
 
 
 class FEVDResult(VARResultBase):

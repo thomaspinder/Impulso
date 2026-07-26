@@ -35,6 +35,10 @@ Lower-triangular Cholesky factor of the time-`t` structural-shock covariance: `�
 **Impulse response function (IRF)**:
 The dynamic response of each variable to a unit structural shock at horizons `0..h`. Computed from the reduced-form lag matrices `A_1, ..., A_p` and the structural shock matrix `B`. With a stochastic volatility process, IRFs depend on the shock period; the `at` parameter on `IdentifiedVAR.impulse_response` selects which time slice.
 
+**Dynamic multiplier**:
+The response of each endogenous variable to a unit impulse in an *exogenous* regressor at horizons `0..h`: `Psi_h = Phi_h @ B_exog`. Shares the moving-average coefficients `Phi_h` with the IRF, but needs no identification scheme — exogenous regressors are exogenous by assumption — so it lives on `FittedVAR`, not `IdentifiedVAR`, and takes no `at`. The cumulative variant is the response to a permanent unit *step* rather than a one-off impulse. All dynamics come from the endogenous lag structure; `B_exog` enters contemporaneously and carries no lags of its own.
+_Avoid_: "exogenous IRF" — IRF is reserved for responses to identified structural shocks.
+
 **at**:
 The time-index parameter on time-varying queries (`impulse_response(at=...)`, `fevd(at=...)`). Accepts an integer `t`, the literal `"last"` (most recent), `"all"` (full T-axis returned in the result), or `None` (default; resolves to `"last"` for stochastic volatility, ignored for constant volatility).
 
@@ -61,6 +65,7 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 - A **FittedVAR** plus an **identification scheme** produces an **IdentifiedVAR**.
 - An **identification scheme** consumes an `L_t` (queried from the volatility process) and produces a structural shock matrix `B`.
 - An **IdentifiedVAR** computes **IRFs**, FEVDs, and historical decompositions by asking the volatility process for `L_t` at the requested `at`, then applying the identification scheme.
+- A **FittedVAR** fitted with exogenous regressors computes **dynamic multipliers** on its own; no identification scheme is involved, because the driver is already exogenous.
 - A **stochastic volatility** can plug into a **VAR** as its volatility process *or* be fitted standalone on a univariate series.
 - A **VAR** is estimated by NUTS; a **ConjugateVAR** is estimated analytically with a Metropolis step on hyperparameters. Both produce a **FittedVAR**.
 - A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.

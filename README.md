@@ -40,6 +40,7 @@ VARData → VAR.fit() → FittedVAR → .set_identification_strategy() → Ident
 - **Impulse response functions** (IRFs) with uncertainty quantification
 - **Forecast error variance decomposition** (FEVD)
 - **Historical decomposition** of variables into structural shocks
+- **Dynamic multipliers**: Response of endogenous variables to exogenous (VARX) drivers
 - **Extensible protocols**: Plug in custom priors, samplers, and identification schemes
 - **Type-safe**: Frozen Pydantic models with full type hints
 
