@@ -8,7 +8,7 @@ import xarray as xr
 from pydantic import Field, PrivateAttr
 
 from impulso._base import ImpulsoBaseModel, ImpulsoModel
-from impulso._linalg import sigma_from_cholesky
+from impulso._linalg import lag_matrices, sigma_from_cholesky
 from impulso._ma import compute_ma_phi
 
 if TYPE_CHECKING:
@@ -217,13 +217,11 @@ class SignRestriction(ImpulsoModel):
         Returns:
             True if all restrictions satisfied at all horizons.
         """
-        n_vars = candidate.shape[0]
-
         # Always check impact (h=0)
         if not self._check_restrictions(candidate, var_names, shock_names):
             return False
 
-        A = [B_draw[:, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
+        A = lag_matrices(B_draw, n_lags)
         Phi = compute_ma_phi(A, self.restriction_horizon)  # (H+1, n, n)
 
         # Phi[0] (= I) handles the impact check above; iterate h=1..H here.

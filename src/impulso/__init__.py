@@ -10,6 +10,7 @@ __all__ = [
     "ConjugateVAR",
     "ConjugateVolatility",
     "Constant",
+    "DynamicMultiplierResult",
     "FEVDResult",
     "FittedSV",
     "FittedVAR",
@@ -32,7 +33,9 @@ __all__ = [
     "VARData",
     "VolatilityProcess",
     "VolatilityResult",
+    "compute_ma_phi",
     "enable_runtime_checks",
+    "lag_matrices",
     "select_lag_order",
 ]
 
@@ -52,6 +55,7 @@ def __getattr__(name: str):
         "PandemicBreak": "impulso.conjugate_volatility",
         "NUTSSampler": "impulso.samplers",
         "ForecastResult": "impulso.results",
+        "DynamicMultiplierResult": "impulso.results",
         "IRFResult": "impulso.results",
         "FEVDResult": "impulso.results",
         "HistoricalDecompositionResult": "impulso.results",
@@ -65,6 +69,8 @@ def __getattr__(name: str):
         "SVForecastResult": "impulso.results",
         "Constant": "impulso.volatility",
         "VolatilityProcess": "impulso.protocols",
+        "compute_ma_phi": "impulso._ma",
+        "lag_matrices": "impulso._linalg",
     }
     if name in _lazy_imports:
         import importlib
