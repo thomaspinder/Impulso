@@ -119,7 +119,8 @@ ic.summary()
 # introduced by {cite:t}`doan1984`, shrinks each variable's own lags toward
 # a random walk and cross-variable lags toward zero. This regularisation is especially
 # valuable when the number of parameters grows quadratically with the number of variables
-# and linearly with lags. For more detail, see the
+# and linearly with lags. For a walkthrough of the maths and how to tune it, see
+# [The Minnesota Prior, From Scratch](minnesota-prior.py); for the compressed reference, the
 # [Minnesota prior explanation](../explanation/minnesota-prior.md).
 
 # %%
