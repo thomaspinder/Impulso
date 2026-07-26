@@ -71,7 +71,7 @@ jobs:
   build-docs:
     runs-on: ubuntu-latest
     # Full render on main executes real MCMC; smoke render on PRs is fast.
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Check out
         uses: actions/checkout@v7
