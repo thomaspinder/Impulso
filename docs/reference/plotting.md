@@ -8,6 +8,7 @@
    :nosignatures:
 
    plot_forecast
+   plot_dynamic_multiplier
    plot_irf
    plot_fevd
    plot_historical_decomposition

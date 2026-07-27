@@ -194,6 +194,47 @@ class TestDynamicMultiplier:
         with pytest.raises(ValueError, match="no B_exog"):
             fitted.dynamic_multiplier(horizon=3)
 
+    def test_realigns_scrambled_dim_order(self, fitted_with_exog):
+        """A hand-built posterior with non-canonical dim order gives identical draws."""
+        post = fitted_with_exog.idata.posterior
+        scrambled = xr.Dataset({
+            "B": post["B"].transpose("chain", "draw", "coeff", "var"),
+            "B_exog": post["B_exog"].transpose("exog", "var", "chain", "draw"),
+            "intercept": post["intercept"],
+        })
+        fitted = FittedVAR(
+            idata=az.InferenceData(posterior=scrambled),
+            n_lags=fitted_with_exog.n_lags,
+            data=fitted_with_exog.data,
+            var_names=fitted_with_exog.var_names,
+            volatility=Constant(),
+        )
+        np.testing.assert_allclose(
+            fitted.dynamic_multiplier(horizon=4).idata.posterior_predictive["dynamic_multiplier"].values,
+            fitted_with_exog.dynamic_multiplier(horizon=4).idata.posterior_predictive["dynamic_multiplier"].values,
+        )
+
+    def test_rejects_exog_name_count_mismatch(self, fitted_with_exog):
+        """A hand-built FittedVAR whose data disagrees with its posterior fails loudly."""
+        rng = np.random.default_rng(3)
+        t = fitted_with_exog.data.endog.shape[0]
+        data = VARData(
+            endog=fitted_with_exog.data.endog,
+            endog_names=fitted_with_exog.data.endog_names,
+            exog=rng.standard_normal((t, 3)),
+            exog_names=["tv", "online", "print"],
+            index=fitted_with_exog.data.index,
+        )
+        fitted = FittedVAR(
+            idata=fitted_with_exog.idata,
+            n_lags=fitted_with_exog.n_lags,
+            data=data,
+            var_names=fitted_with_exog.var_names,
+            volatility=Constant(),
+        )
+        with pytest.raises(ValueError, match="carries 3 names"):
+            fitted.dynamic_multiplier(horizon=2)
+
 
 class TestDynamicMultiplierResult:
     def test_median_frame_labels(self, fitted_with_exog):
@@ -236,8 +277,8 @@ class TestFittedModelRetention:
             var_data_2v,
             sampler=NUTSSampler(draws=40, tune=40, chains=1, cores=1, random_seed=3, progressbar=False),
         )
-        assert isinstance(fitted.model, pm.Model)
-        assert {"intercept", "B"} <= {v.name for v in fitted.model.unobserved_RVs}
+        assert isinstance(fitted.pymc_model, pm.Model)
+        assert {"intercept", "B"} <= {v.name for v in fitted.pymc_model.unobserved_RVs}
 
     def test_defaults_to_none_when_not_supplied(self, synthetic_idata_2v, var_data_2v):
         """ConjugateVAR builds no PyMC graph, so the field must stay optional."""
@@ -248,7 +289,7 @@ class TestFittedModelRetention:
             var_names=["y1", "y2"],
             volatility=Constant(),
         )
-        assert fitted.model is None
+        assert fitted.pymc_model is None
 
 
 class TestPosteriorCoords:

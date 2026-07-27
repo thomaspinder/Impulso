@@ -28,13 +28,16 @@ class FittedVAR(ImpulsoBaseModel):
         volatility: Volatility process used at fit time. Required;
             populated by VAR.fit from VAR.volatility (default at the
             spec level is "constant", which resolves to Constant()).
-        model: The `pymc.Model` built during estimation, or None when the
-            estimator never constructs one. `VAR.fit` populates it, which
-            lets callers inspect the graph, sample from it again, or merge
-            it into a larger PyMC model without refitting. `ConjugateVAR`
-            leaves it None because it draws in closed form and builds no
-            PyMC graph. Typed as Any so that importing `impulso.fitted`
-            does not pull in PyMC (see the lazy-import convention).
+        pymc_model: The `pymc.Model` built during estimation, or None when
+            the estimator never constructs one (`ConjugateVAR` draws in
+            closed form and builds no PyMC graph). `VAR.fit` populates it so
+            callers can inspect the graph (`pm.model_to_graphviz`), draw
+            prior/posterior predictive samples, compute log-likelihoods, or
+            apply `pm.do` / `pm.observe` transformations without refitting.
+            The design matrices are baked into the graph as constants, so
+            the model cannot be re-conditioned on new data. Typed as Any so
+            that importing `impulso.fitted` does not pull in PyMC (see the
+            lazy-import convention).
     """
 
     idata: az.InferenceData = Field(repr=False)
@@ -42,7 +45,7 @@ class FittedVAR(ImpulsoBaseModel):
     data: VARData
     var_names: list[str]
     volatility: VolatilityProcess
-    model: Any = Field(default=None, repr=False)
+    pymc_model: Any = Field(default=None, repr=False)
 
     @property
     def has_exog(self) -> bool:
@@ -192,6 +195,11 @@ class FittedVAR(ImpulsoBaseModel):
         and needs neither an `IdentificationScheme` nor an `at=` time slice
         (`B` and `B_exog` are time-invariant under every volatility process).
 
+        Draws are read from the posterior as `(chain, draw, var, coeff)` and
+        `(chain, draw, var, exog)`. Hand-built posteriors that use those
+        dimension names are realigned automatically; posteriors without them
+        are trusted positionally in that order.
+
         Args:
             horizon: Highest horizon to compute. The result spans horizon
                 `0` through `horizon` inclusive. Must be non-negative.
@@ -205,9 +213,11 @@ class FittedVAR(ImpulsoBaseModel):
             `(chains, draws, horizon + 1, n_vars, n_exog)`.
 
         Raises:
-            ValueError: If `horizon` is negative, or if the fitted posterior
+            ValueError: If `horizon` is negative, if the fitted posterior
                 carries no `B_exog` (the model was fitted without exogenous
-                regressors, or by an estimator that ignores them).
+                regressors, or by an estimator that ignores them), or if
+                `data.exog_names` disagrees with the posterior's `B_exog`
+                column count.
         """
         import xarray as xr
 
@@ -224,14 +234,32 @@ class FittedVAR(ImpulsoBaseModel):
                 "(VARData(..., exog=...)) using an estimator that supports them."
             )
 
-        B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
-        B_exog_draws = self.idata.posterior["B_exog"].values  # (C, D, n, k)
+        B_da = self.idata.posterior["B"]
+        B_exog_da = self.idata.posterior["B_exog"]
+        # Hand-built posteriors may order dims arbitrarily. Realign by name
+        # when the canonical labels are present; otherwise trust the
+        # positional (chain, draw, var, coeff/exog) convention.
+        if set(B_da.dims) == {"chain", "draw", "var", "coeff"}:
+            B_da = B_da.transpose("chain", "draw", "var", "coeff")
+        if set(B_exog_da.dims) == {"chain", "draw", "var", "exog"}:
+            B_exog_da = B_exog_da.transpose("chain", "draw", "var", "exog")
+        B_draws = B_da.values  # (C, D, n, n*p)
+        B_exog_draws = B_exog_da.values  # (C, D, n, k)
+
+        n_exog = B_exog_draws.shape[-1]
+        exog_names = self.data.exog_names or [f"exog_{i}" for i in range(n_exog)]
+        if len(exog_names) != n_exog:
+            raise ValueError(
+                f"data.exog_names carries {len(exog_names)} names but the "
+                f"posterior's B_exog has {n_exog} exogenous columns; this "
+                "FittedVAR's data and posterior disagree."
+            )
+
         Phi = compute_ma_phi(lag_matrices(B_draws, self.n_lags), horizon)  # (C, D, H+1, n, n)
         psi = Phi @ B_exog_draws[:, :, np.newaxis, :, :]  # (C, D, H+1, n, k)
         if cumulative:
             psi = np.cumsum(psi, axis=2)
 
-        exog_names = self.data.exog_names or [f"exog_{i}" for i in range(psi.shape[-1])]
         psi_da = xr.DataArray(
             psi,
             dims=["chain", "draw", "horizon", "response", "exog"],

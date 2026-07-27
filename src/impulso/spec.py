@@ -176,5 +176,5 @@ class VAR(ImpulsoBaseModel):
             data=data,
             var_names=data.endog_names,
             volatility=self.resolved_volatility,
-            model=model,
+            pymc_model=model,
         )
