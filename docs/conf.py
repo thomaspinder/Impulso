@@ -151,3 +151,26 @@ os.environ["IMPULSO_DOCS_BUILD"] = "1"
 # Smoke-render flag for CI (mirrors the old Quarto `ci` parameter). Tutorials
 # read this to shrink MCMC when set.
 os.environ.setdefault("IMPULSO_DOCS_CI", "0")
+
+# -- Render-mode stamp --------------------------------------------------------
+# Belt-and-braces against smoke renders masquerading as the production docs:
+# smoke builds carry a visible banner, and every HTML build writes
+# `render-mode.txt` at the site root so what is actually deployed can be
+# checked with `curl <site>/render-mode.txt`.
+if _smoke_render:
+    html_theme_options["announcement"] = (
+        "Smoke render: MCMC is shrunk for CI speed, so figures and diagnostics "
+        "are not publication-fidelity. The production docs are built with full sampling."
+    )
+
+
+def setup(app):
+    """Register the render-mode marker hook."""
+
+    def _write_render_mode(app, exception):
+        if exception is None and app.builder.name == "html":
+            mode = "smoke" if _smoke_render else "full"
+            with open(os.path.join(app.outdir, "render-mode.txt"), "w") as fh:
+                fh.write(mode + "\n")
+
+    app.connect("build-finished", _write_render_mode)

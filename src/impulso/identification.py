@@ -8,7 +8,7 @@ import xarray as xr
 from pydantic import Field, PrivateAttr
 
 from impulso._base import ImpulsoBaseModel, ImpulsoModel
-from impulso._linalg import sigma_from_cholesky
+from impulso._linalg import lag_matrices, sigma_from_cholesky
 from impulso._ma import compute_ma_phi
 
 if TYPE_CHECKING:
@@ -90,10 +90,10 @@ class SignRestriction(ImpulsoModel):
     random_seed: int | None = None
 
     # Single-call scratchpad: identify() writes the rate; the pipeline
-    # (set_identification_strategy) reads it immediately afterwards and
-    # attaches to idata.posterior.attrs. Not reentrant — overwritten on
-    # each identify() call. Do not rely on this between calls; the
-    # surviving public surface is the posterior attr.
+    # (IdentifiedVAR.shock_matrix) reads it immediately afterwards and
+    # attaches it to the shock-matrix DataArray's attrs. Not reentrant —
+    # overwritten on each identify() call. Do not rely on this between
+    # calls; the surviving public surface is the shock-matrix attr.
     _last_acceptance_rate: float = PrivateAttr(default=0.0)
 
     def identify(
@@ -119,9 +119,9 @@ class SignRestriction(ImpulsoModel):
         Returns:
             Structural shock matrix, shape (chains, draws, n_vars, n_vars).
             Per-draw fallback to the supplied `L` for draws where no
-            rotation satisfies the restrictions. Acceptance rate available
-            via the `sign_restriction_acceptance_rate` attribute on the
-            wrapping IdentifiedVAR's posterior (set by the pipeline).
+            rotation satisfies the restrictions. The acceptance rate is
+            available via the `sign_restriction_acceptance_rate` attr on
+            `IdentifiedVAR.shock_matrix()` (attached by the pipeline).
         """
         del data, n_lags  # unused
         from scipy.stats import special_ortho_group
@@ -217,13 +217,11 @@ class SignRestriction(ImpulsoModel):
         Returns:
             True if all restrictions satisfied at all horizons.
         """
-        n_vars = candidate.shape[0]
-
         # Always check impact (h=0)
         if not self._check_restrictions(candidate, var_names, shock_names):
             return False
 
-        A = [B_draw[:, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
+        A = lag_matrices(B_draw, n_lags)
         Phi = compute_ma_phi(A, self.restriction_horizon)  # (H+1, n, n)
 
         # Phi[0] (= I) handles the impact check above; iterate h=1..H here.

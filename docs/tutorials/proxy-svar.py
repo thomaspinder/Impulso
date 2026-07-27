@@ -141,7 +141,15 @@ print(f"First stage: F = {first_stage_f(instrument.values, U_ols[:, 0]):.2f}, "
 
 # %%
 if ci:
-    sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=42)
+    sampler = NUTSSampler(
+        draws=50,
+        tune=500,
+        chains=1,
+        cores=1,
+        target_accept=0.9,
+        random_seed=42,
+        nuts_sampler_kwargs={"low_rank_modified_mass_matrix": True},
+    )
 else:
     sampler = NUTSSampler(
         draws=1000,
@@ -250,7 +258,15 @@ core = ["real_oil_price", "world_oil_production", "us_ip", "us_cpi"]
 data_sv = VARData(endog=data_df[core].values, endog_names=core, index=data_df.index)
 
 if ci:
-    sv_sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=42)
+    sv_sampler = NUTSSampler(
+        draws=50,
+        tune=500,
+        chains=1,
+        cores=1,
+        target_accept=0.9,
+        random_seed=42,
+        nuts_sampler_kwargs={"low_rank_modified_mass_matrix": True},
+    )
 else:
     sv_sampler = NUTSSampler(
         draws=500,

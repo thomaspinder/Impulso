@@ -1,19 +1,20 @@
 """FittedVAR — reduced-form posterior from Bayesian VAR estimation."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import arviz as az
 import numpy as np
 from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
-from impulso._linalg import sigma_from_cholesky
+from impulso._linalg import lag_matrices, sigma_from_cholesky
+from impulso._ma import compute_ma_phi
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme, VolatilityProcess
 
 if TYPE_CHECKING:
     from impulso.identified import IdentifiedVAR
-    from impulso.results import ForecastResult
+    from impulso.results import DynamicMultiplierResult, ForecastResult
 
 
 class FittedVAR(ImpulsoBaseModel):
@@ -27,6 +28,16 @@ class FittedVAR(ImpulsoBaseModel):
         volatility: Volatility process used at fit time. Required;
             populated by VAR.fit from VAR.volatility (default at the
             spec level is "constant", which resolves to Constant()).
+        pymc_model: The `pymc.Model` built during estimation, or None when
+            the estimator never constructs one (`ConjugateVAR` draws in
+            closed form and builds no PyMC graph). `VAR.fit` populates it so
+            callers can inspect the graph (`pm.model_to_graphviz`), draw
+            prior/posterior predictive samples, compute log-likelihoods, or
+            apply `pm.do` / `pm.observe` transformations without refitting.
+            The design matrices are baked into the graph as constants, so
+            the model cannot be re-conditioned on new data. Typed as Any so
+            that importing `impulso.fitted` does not pull in PyMC (see the
+            lazy-import convention).
     """
 
     idata: az.InferenceData = Field(repr=False)
@@ -34,6 +45,7 @@ class FittedVAR(ImpulsoBaseModel):
     data: VARData
     var_names: list[str]
     volatility: VolatilityProcess
+    pymc_model: Any = Field(default=None, repr=False)
 
     @property
     def has_exog(self) -> bool:
@@ -163,6 +175,109 @@ class FittedVAR(ImpulsoBaseModel):
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
         return ForecastResult(idata=idata, steps=steps, var_names=self.var_names, mode=mode)
+
+    def dynamic_multiplier(self, horizon: int = 20, cumulative: bool = False) -> "DynamicMultiplierResult":
+        """Response of the endogenous variables to a unit exogenous impulse.
+
+        The exogenous term enters the VAR contemporaneously
+        (`mu = intercept + X_lag @ B.T + X_exog @ B_exog.T`), so it acts as a
+        forcing term in the same position as the reduced-form shock. The
+        horizon-`h` dynamic multiplier is therefore
+
+            Psi_h = Phi_h @ B_exog
+
+        where `Phi_h` is the moving-average coefficient matrix already used by
+        `IdentifiedVAR.impulse_response`. All dynamics come from the
+        endogenous lag structure; `B_exog` itself carries no lags.
+
+        No structural identification is involved: exogenous regressors are
+        exogenous by assumption, so this lives on the reduced-form posterior
+        and needs neither an `IdentificationScheme` nor an `at=` time slice
+        (`B` and `B_exog` are time-invariant under every volatility process).
+
+        Draws are read from the posterior as `(chain, draw, var, coeff)` and
+        `(chain, draw, var, exog)`. Hand-built posteriors that use those
+        dimension names are realigned automatically; posteriors without them
+        are trusted positionally in that order.
+
+        Args:
+            horizon: Highest horizon to compute. The result spans horizon
+                `0` through `horizon` inclusive. Must be non-negative.
+            cumulative: If True, return the cumulative (step-response)
+                multiplier — the response to a permanent unit step in the
+                exogenous variable from time 0 onward. If False (default),
+                return the per-horizon response to a one-off unit impulse.
+
+        Returns:
+            DynamicMultiplierResult with draws of shape
+            `(chains, draws, horizon + 1, n_vars, n_exog)`.
+
+        Raises:
+            ValueError: If `horizon` is negative, if the fitted posterior
+                carries no `B_exog` (the model was fitted without exogenous
+                regressors, or by an estimator that ignores them), or if
+                `data.exog_names` disagrees with the posterior's `B_exog`
+                column count.
+        """
+        import xarray as xr
+
+        from impulso.results import DynamicMultiplierResult
+
+        if horizon < 0:
+            raise ValueError(f"horizon must be non-negative, got {horizon}")
+        # Guard on the posterior, not on `has_exog`: an estimator may carry
+        # exogenous data it never actually consumed.
+        if "B_exog" not in self.idata.posterior:
+            raise ValueError(
+                "This FittedVAR has no B_exog in its posterior, so no dynamic "
+                "multiplier is defined. Fit a VAR with exogenous regressors "
+                "(VARData(..., exog=...)) using an estimator that supports them."
+            )
+
+        B_da = self.idata.posterior["B"]
+        B_exog_da = self.idata.posterior["B_exog"]
+        # Hand-built posteriors may order dims arbitrarily. Realign by name
+        # when the canonical labels are present; otherwise trust the
+        # positional (chain, draw, var, coeff/exog) convention.
+        if set(B_da.dims) == {"chain", "draw", "var", "coeff"}:
+            B_da = B_da.transpose("chain", "draw", "var", "coeff")
+        if set(B_exog_da.dims) == {"chain", "draw", "var", "exog"}:
+            B_exog_da = B_exog_da.transpose("chain", "draw", "var", "exog")
+        B_draws = B_da.values  # (C, D, n, n*p)
+        B_exog_draws = B_exog_da.values  # (C, D, n, k)
+
+        n_exog = B_exog_draws.shape[-1]
+        exog_names = self.data.exog_names or [f"exog_{i}" for i in range(n_exog)]
+        if len(exog_names) != n_exog:
+            raise ValueError(
+                f"data.exog_names carries {len(exog_names)} names but the "
+                f"posterior's B_exog has {n_exog} exogenous columns; this "
+                "FittedVAR's data and posterior disagree."
+            )
+
+        Phi = compute_ma_phi(lag_matrices(B_draws, self.n_lags), horizon)  # (C, D, H+1, n, n)
+        psi = Phi @ B_exog_draws[:, :, np.newaxis, :, :]  # (C, D, H+1, n, k)
+        if cumulative:
+            psi = np.cumsum(psi, axis=2)
+
+        psi_da = xr.DataArray(
+            psi,
+            dims=["chain", "draw", "horizon", "response", "exog"],
+            coords={
+                "response": self.var_names,
+                "exog": exog_names,
+                "horizon": np.arange(horizon + 1),
+            },
+            name="dynamic_multiplier",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"dynamic_multiplier": psi_da}))
+        return DynamicMultiplierResult(
+            idata=idata,
+            horizon=horizon,
+            var_names=self.var_names,
+            exog_names=list(exog_names),
+            cumulative=cumulative,
+        )
 
     def set_identification_strategy(self, scheme: IdentificationScheme) -> "IdentifiedVAR":
         """Apply a structural identification scheme.

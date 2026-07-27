@@ -9,6 +9,7 @@
 
    VARResultBase
    ForecastResult
+   DynamicMultiplierResult
    IRFResult
    FEVDResult
    HistoricalDecompositionResult

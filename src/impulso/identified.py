@@ -10,6 +10,7 @@ import xarray as xr
 from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
+from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme, VolatilityProcess
@@ -48,14 +49,13 @@ class IdentifiedVAR(ImpulsoBaseModel):
         """Shock coordinate labels from the identification scheme."""
         return self.scheme.shock_coords(n_vars=len(self.var_names))
 
-    def _ma_coefficients(self, B_draws: np.ndarray, n_vars: int, n_lags: int, horizon: int) -> np.ndarray:
+    def _ma_coefficients(self, B_draws: np.ndarray, n_lags: int, horizon: int) -> np.ndarray:
         """Compute MA coefficient recursion, vectorised over (chains, draws).
 
         Returns:
             Array of shape (C, D, horizon+1, n_vars, n_vars).
         """
-        A = [B_draws[:, :, :, j * n_vars : (j + 1) * n_vars] for j in range(n_lags)]
-        return compute_ma_phi(A, horizon)
+        return compute_ma_phi(lag_matrices(B_draws, n_lags), horizon)
 
     def shock_matrix(self, at: AtParam = None) -> xr.DataArray:
         """Query the structural shock matrix at a given time index.
@@ -125,7 +125,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         # Attach sign-restriction acceptance rate if available.
         rate = getattr(self.scheme, "_last_acceptance_rate", None)
-        if isinstance(rate, float) and rate < 1.0:
+        if isinstance(rate, float):
             result.attrs["sign_restriction_acceptance_rate"] = rate
 
         # Attach any scheme-specific diagnostics (e.g. ProxySVAR first-stage
@@ -204,8 +204,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             IRFResult with IRF posterior draws.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
-        n_vars = B_draws.shape[2]
-        Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
+        Phi_arr = self._ma_coefficients(B_draws, self.n_lags, horizon)
         P = self.shock_matrix(at=at)
 
         if "time" in P.dims:
@@ -294,8 +293,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             FEVDResult with FEVD posterior draws.
         """
         B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
-        n_vars = B_draws.shape[2]
-        Phi_arr = self._ma_coefficients(B_draws, n_vars, self.n_lags, horizon)
+        Phi_arr = self._ma_coefficients(B_draws, self.n_lags, horizon)
         P = self.shock_matrix(at=at)
 
         if "time" in P.dims:

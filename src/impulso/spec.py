@@ -117,23 +117,36 @@ class VAR(ImpulsoBaseModel):
         B_ols, *_ = np.linalg.lstsq(X_full, Y, rcond=None)
         resid = Y - X_full @ B_ols
 
+        # Coordinates make the posterior self-describing: `B` comes back labelled
+        # by variable and by "L<lag>.<variable>" coefficient instead of positional
+        # `B_dim_0` / `B_dim_1`. Names match ConjugateVAR's posterior so both
+        # estimators agree. `coeff` is lag-major to mirror the X_lag hstack above.
+        coords: dict[str, object] = {
+            "var": data.endog_names,
+            "var1": data.endog_names,
+            "var2": data.endog_names,
+            "coeff": [f"L{lag}.{name}" for lag in range(1, n_lags + 1) for name in data.endog_names],
+            "time": data.index[n_lags:],
+        }
+        if data.exog_names is not None:
+            coords["exog"] = data.exog_names
+
         # Build PyMC model
-        with pm.Model() as model:
+        with pm.Model(coords=coords) as model:
             # Intercept
-            intercept = pm.Normal("intercept", mu=0, sigma=1, shape=n_vars)
+            intercept = pm.Normal("intercept", mu=0, sigma=1, dims="var")
 
             # VAR coefficients with Minnesota prior
             B = pm.Normal(
                 "B",
                 mu=prior_params["B_mu"],
                 sigma=prior_params["B_sigma"],
-                shape=(n_vars, n_vars * n_lags),
+                dims=("var", "coeff"),
             )
 
             # Exogenous coefficients
             if X_exog is not None:
-                n_exog = X_exog.shape[1]
-                B_exog = pm.Normal("B_exog", mu=0, sigma=1, shape=(n_vars, n_exog))
+                B_exog = pm.Normal("B_exog", mu=0, sigma=1, dims=("var", "exog"))
                 mu = intercept + pm.math.dot(X_lag, B.T) + pm.math.dot(X_exog, B_exog.T)
             else:
                 mu = intercept + pm.math.dot(X_lag, B.T)
@@ -147,12 +160,12 @@ class VAR(ImpulsoBaseModel):
             # for SV, materialising (T, n, n) per draw is wasteful; users can
             # reconstruct per-t Σ via `volatility.cholesky_at(posterior, t)`.
             if L.ndim == 2:
-                pm.Deterministic("Sigma", pm.math.dot(L, L.T))
+                pm.Deterministic("Sigma", pm.math.dot(L, L.T), dims=("var1", "var2"))
 
             # Likelihood. PyMC handles batched chol natively: for 2D L, every
             # observation uses the same chol; for 3D L (T, n, n), each
             # observation t uses chol[t].
-            pm.MvNormal("obs", mu=mu, chol=L, observed=Y)
+            pm.MvNormal("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
 
         # Sample
         idata = sampler.sample(model)
@@ -163,4 +176,5 @@ class VAR(ImpulsoBaseModel):
             data=data,
             var_names=data.endog_names,
             volatility=self.resolved_volatility,
+            pymc_model=model,
         )

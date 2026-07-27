@@ -110,7 +110,15 @@ fig.tight_layout()
 
 # %%
 if ci:
-    sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=123)
+    sampler = NUTSSampler(
+        draws=50,
+        tune=500,
+        chains=1,
+        cores=1,
+        target_accept=0.9,
+        random_seed=123,
+        nuts_sampler_kwargs={"low_rank_modified_mass_matrix": True},
+    )
 else:
     sampler = NUTSSampler(
         draws=1500,
@@ -281,7 +289,7 @@ scheme_h6 = SignRestriction(
 )
 
 identified_sr_h6 = fitted.set_identification_strategy(scheme_h6)
-acceptance_rate = identified_sr_h6.idata.posterior.attrs.get("sign_restriction_acceptance_rate", "N/A")
+acceptance_rate = identified_sr_h6.shock_matrix().attrs.get("sign_restriction_acceptance_rate", "N/A")
 print(
     f"Acceptance rate: {acceptance_rate:.1%}"
     if isinstance(acceptance_rate, float)
@@ -356,7 +364,7 @@ for h in [0, 6, 12]:
         random_seed=42,
     )
     ident = fitted.set_identification_strategy(scheme)
-    ar = ident.idata.posterior.attrs.get("sign_restriction_acceptance_rate", float("nan"))
+    ar = ident.shock_matrix().attrs.get("sign_restriction_acceptance_rate", float("nan"))
     results_sr[h] = {
         "identified": ident,
         "irf": ident.impulse_response(horizon=48),

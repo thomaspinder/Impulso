@@ -1,8 +1,38 @@
 """Impulso: Bayesian Vector Autoregression in Python."""
 
+from typing import TYPE_CHECKING
+
 from impulso._lag_selection import select_lag_order
 from impulso.data import VARData
 from impulso.spec import VAR
+
+if TYPE_CHECKING:
+    from impulso._linalg import lag_matrices
+    from impulso._ma import compute_ma_phi
+    from impulso.conjugate import ConjugateVAR
+    from impulso.conjugate_volatility import ConjugateVolatility, PandemicBreak
+    from impulso.fitted import FittedVAR
+    from impulso.identification import Cholesky, ProxySVAR, SignRestriction
+    from impulso.identified import IdentifiedVAR
+    from impulso.priors import MinnesotaPrior, NIWPrior
+    from impulso.protocols import VolatilityProcess
+    from impulso.results import (
+        DynamicMultiplierResult,
+        FEVDResult,
+        ForecastResult,
+        HDIResult,
+        HistoricalDecompositionResult,
+        IRFResult,
+        LagOrderResult,
+        SVForecastResult,
+        VolatilityResult,
+    )
+    from impulso.samplers import NUTSSampler
+    from impulso.sv.data import SVData
+    from impulso.sv.fitted import FittedSV
+    from impulso.sv.priors import SVDefaultPrior
+    from impulso.sv.spec import StochasticVolatility
+    from impulso.volatility import Constant
 
 __all__ = [
     "VAR",
@@ -10,6 +40,7 @@ __all__ = [
     "ConjugateVAR",
     "ConjugateVolatility",
     "Constant",
+    "DynamicMultiplierResult",
     "FEVDResult",
     "FittedSV",
     "FittedVAR",
@@ -32,7 +63,9 @@ __all__ = [
     "VARData",
     "VolatilityProcess",
     "VolatilityResult",
+    "compute_ma_phi",
     "enable_runtime_checks",
+    "lag_matrices",
     "select_lag_order",
 ]
 
@@ -52,6 +85,7 @@ def __getattr__(name: str):
         "PandemicBreak": "impulso.conjugate_volatility",
         "NUTSSampler": "impulso.samplers",
         "ForecastResult": "impulso.results",
+        "DynamicMultiplierResult": "impulso.results",
         "IRFResult": "impulso.results",
         "FEVDResult": "impulso.results",
         "HistoricalDecompositionResult": "impulso.results",
@@ -65,6 +99,8 @@ def __getattr__(name: str):
         "SVForecastResult": "impulso.results",
         "Constant": "impulso.volatility",
         "VolatilityProcess": "impulso.protocols",
+        "compute_ma_phi": "impulso._ma",
+        "lag_matrices": "impulso._linalg",
     }
     if name in _lazy_imports:
         import importlib
