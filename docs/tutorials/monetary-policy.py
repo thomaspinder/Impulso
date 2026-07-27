@@ -110,7 +110,15 @@ fig.tight_layout()
 
 # %%
 if ci:
-    sampler = NUTSSampler(draws=10, tune=50, chains=1, cores=1, random_seed=123)
+    sampler = NUTSSampler(
+        draws=50,
+        tune=500,
+        chains=1,
+        cores=1,
+        target_accept=0.9,
+        random_seed=123,
+        nuts_sampler_kwargs={"low_rank_modified_mass_matrix": True},
+    )
 else:
     sampler = NUTSSampler(
         draws=1500,
