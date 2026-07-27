@@ -113,10 +113,23 @@ jobs:
             make docs-ci
           fi
 
-      - name: Upload docs artifact
+      - name: Upload docs artifact (production, full render only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v5
         with:
           path: docs/_build/html
+
+      - name: Upload smoke-render artifact for PR review
+        # Plain artifact, downloadable from the run page. NEVER a Pages
+        # artifact: GitHub Pages "preview" deployments are unsupported on
+        # this plan and silently deploy to the production URL, which is how
+        # smoke renders kept replacing the published docs.
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-smoke-render
+          path: docs/_build/html
+          retention-days: 7
 
   docs-linkcheck:
     runs-on: ubuntu-latest
@@ -133,23 +146,6 @@ jobs:
 
       - name: Check external links (no notebook execution)
         run: uv run --group docs sphinx-build -b linkcheck -D nb_execution_mode=off docs docs/_build/linkcheck
-
-  deploy-docs-preview:
-    if: github.event_name == 'pull_request'
-    needs: build-docs
-    runs-on: ubuntu-latest
-    concurrency:
-      group: docs-preview-${{ github.head_ref }}
-      cancel-in-progress: true
-    environment:
-      name: docs-preview
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy preview
-        id: deployment
-        uses: actions/deploy-pages@v5
-        with:
-          preview: true
 
   deploy-docs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

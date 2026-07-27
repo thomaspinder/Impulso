@@ -28,6 +28,19 @@ jobs:
       - name: Register Jupyter kernel
         run: uv run python -m ipykernel install --user --name python3 --display-name "Python 3"
 
+      - name: Restore notebook execution cache
+        # Same accumulate-always cache as main.yml: the Sunday full render
+        # warms `.jupyter_cache`, so the next production deploy reuses real
+        # figures instead of re-executing hours of MCMC (or erroring out).
+        uses: actions/cache@v6
+        with:
+          path: |
+            docs/_build/.jupyter_cache
+            docs/_build/.jupyter_cache_ci
+          key: jupyter-cache-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            jupyter-cache-
+
       - name: Full render (real MCMC, warnings as errors)
         run: uv run sphinx-build -W --keep-going -b html docs docs/_build/html
 
