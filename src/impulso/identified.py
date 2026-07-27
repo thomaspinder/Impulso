@@ -125,7 +125,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         # Attach sign-restriction acceptance rate if available.
         rate = getattr(self.scheme, "_last_acceptance_rate", None)
-        if isinstance(rate, float) and rate < 1.0:
+        if isinstance(rate, float):
             result.attrs["sign_restriction_acceptance_rate"] = rate
 
         # Attach any scheme-specific diagnostics (e.g. ProxySVAR first-stage

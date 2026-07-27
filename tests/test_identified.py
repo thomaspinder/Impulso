@@ -154,6 +154,24 @@ def _fitted_from_synthetic(synthetic_idata_2v, var_data_2v):
     )
 
 
+class TestShockMatrixDiagnostics:
+    """Scheme diagnostics surface on the shock-matrix attrs (the tutorials read them)."""
+
+    def test_sign_restriction_acceptance_rate_attr(self, synthetic_idata_2v, var_data_2v):
+        """Attr must be present even at 100% acceptance (regression: `rate < 1.0` guard dropped it)."""
+        fitted = _fitted_from_synthetic(synthetic_idata_2v, var_data_2v)
+        scheme = SignRestriction(
+            restrictions={"y1": {"shock_a": "+"}},
+            n_rotations=50,
+            restriction_horizon=1,
+            random_seed=7,
+        )
+        sm = fitted.set_identification_strategy(scheme).shock_matrix()
+        rate = sm.attrs["sign_restriction_acceptance_rate"]
+        assert isinstance(rate, float)
+        assert 0.0 < rate <= 1.0
+
+
 class TestIdentifiedVarCarriesVolatilityAndScheme:
     def test_carries_volatility_and_scheme(self, synthetic_idata_2v, var_data_2v):
         from impulso.protocols import IdentificationScheme, VolatilityProcess
