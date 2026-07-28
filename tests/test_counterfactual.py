@@ -10,12 +10,15 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 from matplotlib.figure import Figure
 
 from impulso._scenario import apply_shock_edits
+from impulso.data import VARData
 from impulso.fitted import FittedVAR
 from impulso.identification import Cholesky
 from impulso.identified import IdentifiedVAR
@@ -110,6 +113,112 @@ class TestHDDuality:
         hd = identified_2v.historical_decomposition()
         contribution = hd.idata.posterior_predictive["hd"].sel(shock="y1").values
         assert not np.allclose(diff[:, :, t0:t1], contribution[:, :, t0:t1], atol=1e-6)
+
+    def test_zeroing_all_shocks_recovers_baseline(self, identified_2v):
+        """Multi-shock edits accumulate: zeroing every shock leaves the HD baseline."""
+        cf = identified_2v.counterfactual(shocks=[ShockPath(shock="y1", values=0.0), ShockPath(shock="y2", values=0.0)])
+        hd = identified_2v.historical_decomposition()
+        np.testing.assert_allclose(
+            cf.idata.posterior_predictive["counterfactual"].values,
+            hd.idata.posterior_predictive["baseline"].values,
+            atol=1e-8,
+        )
+
+
+class TestExogAndMultiLag:
+    @staticmethod
+    def _identified_exog_2lag():
+        """Cholesky-identified VAR(2) with one exogenous regressor (no MCMC)."""
+        rng = np.random.default_rng(11)
+        n_chains, n_draws, n_vars, n_lags, n_exog, t = 2, 25, 2, 2, 1, 40
+        L = np.zeros((n_chains, n_draws, n_vars, n_vars))
+        for c in range(n_chains):
+            for d in range(n_draws):
+                A = rng.standard_normal((n_vars, n_vars)) * 0.4
+                L[c, d] = np.linalg.cholesky(A @ A.T + np.eye(n_vars))
+        posterior = xr.Dataset({
+            "B": xr.DataArray(
+                rng.standard_normal((n_chains, n_draws, n_vars, n_vars * n_lags)) * 0.2,
+                dims=["chain", "draw", "var", "coeff"],
+            ),
+            "B_exog": xr.DataArray(
+                rng.standard_normal((n_chains, n_draws, n_vars, n_exog)),
+                dims=["chain", "draw", "var", "exog"],
+            ),
+            "intercept": xr.DataArray(
+                rng.standard_normal((n_chains, n_draws, n_vars)) * 0.01,
+                dims=["chain", "draw", "var"],
+            ),
+            "L": xr.DataArray(L, dims=["chain", "draw", "var1", "var2"]),
+        })
+        data = VARData(
+            endog=rng.standard_normal((t, n_vars)),
+            endog_names=["y1", "y2"],
+            exog=rng.standard_normal((t, n_exog)),
+            exog_names=["z"],
+            index=pd.date_range("2023-01-02", periods=t, freq="W-MON"),
+        )
+        fitted = FittedVAR(
+            idata=az.InferenceData(posterior=posterior),
+            n_lags=n_lags,
+            data=data,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+        )
+        return fitted.set_identification_strategy(Cholesky(ordering=["y1", "y2"])), data
+
+    def test_reproduction_with_exog_and_two_lags(self):
+        """The exog forcing branch and multi-lag seeding reproduce the data exactly."""
+        ivar, data = self._identified_exog_2lag()
+        cf = ivar.counterfactual(shocks=[])
+        draws = cf.idata.posterior_predictive["counterfactual"].values
+        y = data.endog[2:]
+        np.testing.assert_allclose(draws, np.broadcast_to(y, draws.shape), atol=1e-8)
+
+    def test_duality_with_exog_and_two_lags(self):
+        """Full-sample duality holds with exogenous regressors and n_lags > 1."""
+        ivar, data = self._identified_exog_2lag()
+        cf = ivar.counterfactual(shocks=[ShockPath(shock="y1", values=0.0)])
+        hd = ivar.historical_decomposition()
+        diff = data.endog[2:][None, None] - cf.idata.posterior_predictive["counterfactual"].values
+        contribution = hd.idata.posterior_predictive["hd"].sel(shock="y1").values
+        np.testing.assert_allclose(diff, contribution, atol=1e-8)
+
+
+class _PartialScheme:
+    """Fake partial identification: L as-is, first column labelled identified."""
+
+    def identify(self, L, var_names, posterior=None, data=None, n_lags=None):
+        del var_names, posterior, data, n_lags
+        return L
+
+    def shock_coords(self, n_vars: int) -> list[str]:
+        return ["target"] + [f"unidentified_{i}" for i in range(n_vars - 1)]
+
+
+class TestPartialIdentification:
+    @pytest.fixture
+    def identified_partial(self, synthetic_idata_2v, var_data_2v):
+        return IdentifiedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            scheme=_PartialScheme(),
+        )
+
+    def test_unidentified_edit_errors_through_public_entry(self, identified_partial):
+        with pytest.raises(ValueError, match="rotation-arbitrary"):
+            identified_partial.counterfactual(shocks=[ShockPath(shock="unidentified_0", values=0.0)])
+
+    def test_identified_column_duality(self, identified_partial, var_data_2v):
+        """Duality holds on the identified column of a partial completion."""
+        cf = identified_partial.counterfactual(shocks=[ShockPath(shock="target", values=0.0)])
+        hd = identified_partial.historical_decomposition()
+        diff = var_data_2v.endog[1:][None, None] - cf.idata.posterior_predictive["counterfactual"].values
+        contribution = hd.idata.posterior_predictive["hd"].sel(shock="target").values
+        np.testing.assert_allclose(diff, contribution, atol=1e-8)
 
 
 class _TimeVaryingVol:
@@ -206,10 +315,12 @@ class TestGuards:
 
     def test_lag_trim_clamp_warns(self, identified_2v, var_data_2v):
         start = var_data_2v.index[0]  # precedes the lag-trimmed index
-        with pytest.warns(UserWarning, match="clamps forward"):
+        with pytest.warns(UserWarning, match="clamps forward") as record:
             identified_2v.counterfactual(
                 shocks=[ShockPath(shock="y1", values=0.0, start=start, end=var_data_2v.index[10])]
             )
+        # The warning attributes to the user's call site, not a library frame.
+        assert record[0].filename.endswith("test_counterfactual.py")
 
     def test_unit_effect_scale_warns_on_nonzero_edits(self):
         class _ScaledScheme:

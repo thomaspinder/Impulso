@@ -44,8 +44,9 @@ class ShockPath(ImpulsoBaseModel):
     must match the resolved window length. `start`/`end` are in-sample
     timestamps resolved against the lag-trimmed index (the
     `historical_decomposition` convention) and default to the full sample;
-    forecast-side prescriptions (`structural_scenario`) are positional from
-    step 1 and must not carry `start`/`end`.
+    forecast-side prescriptions (consumed by `structural_scenario`, arriving
+    with that method) are positional from step 1 and must not carry
+    `start`/`end`.
 
     Attributes:
         shock: Name of the structural shock to set (a shock coordinate of
@@ -86,8 +87,10 @@ class VariablePath(ImpulsoBaseModel):
 
     Values run from forecast step 1; a scalar broadcasts to all steps, an
     array of length `L < steps` pins steps `1..L` and leaves the rest
-    free, and `NaN` entries mark unconstrained steps. Consumed by
-    `conditional_forecast` and `structural_scenario`.
+    free, and `NaN` entries mark unconstrained steps. Designed for the
+    forecast-side conditioning methods (`conditional_forecast`,
+    `structural_scenario`), which arrive with the next layers of the
+    scenario stack.
 
     Attributes:
         variable: Name of the endogenous variable to pin.

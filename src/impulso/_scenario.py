@@ -106,13 +106,15 @@ def apply_shock_edits(
         mask[t0:t1] = True
 
         if np.any(window_vals != 0.0) and getattr(scheme, "scale", None) is not None:
+            # stacklevel targets the public caller of IdentifiedVAR.counterfactual
+            # (user -> counterfactual -> counterfactual_paths -> here).
             warnings.warn(
                 "ShockPath values are in one-standard-deviation units, but the identification "
                 "scheme applies a unit-effect rescaling (scale is set); non-zero edits are not "
                 "invariant to that normalisation. Zero edits are safe; for custom paths "
                 "re-identify with scale=None.",
                 UserWarning,
-                stacklevel=3,
+                stacklevel=4,
             )
 
         eps[:, :, t0:t1, j] = window_vals[np.newaxis, np.newaxis, :]
@@ -130,11 +132,13 @@ def _resolve_window(edit: ShockPath, index: pd.DatetimeIndex, T: int) -> tuple[i
     if edit.start is not None:
         t0 = int(index.searchsorted(edit.start))
         if edit.start < index[0]:
+            # stacklevel targets the public caller of IdentifiedVAR.counterfactual
+            # (user -> counterfactual -> counterfactual_paths -> apply_shock_edits -> here).
             warnings.warn(
                 f"ShockPath start {edit.start} precedes the first structural-shock period "
                 f"({index[0]}, after lag trimming); the edit window clamps forward.",
                 UserWarning,
-                stacklevel=4,
+                stacklevel=5,
             )
     t1 = T if edit.end is None else int(index.searchsorted(edit.end, side="right"))
     if t1 <= t0:
