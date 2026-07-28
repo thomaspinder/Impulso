@@ -347,7 +347,13 @@ def conditional_forecast_engine(
     b_path = b.idata.posterior_predictive["forecast"].values  # (C, D, steps, n)
 
     rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
-    L_path = fitted.volatility.forecast_cholesky_path(posterior, steps=steps, rng=rng)  # (C, D, steps, n, n)
+    # Mean mode with no pins needs no volatility path and must consume no
+    # randomness (forecast()'s mean-mode contract). With pins, the constraint
+    # rows need L; under time-varying volatility that conditions on one
+    # simulated path per draw (documented on the method).
+    L_path = None
+    if include_shock_uncertainty or r:
+        L_path = fitted.volatility.forecast_cholesky_path(posterior, steps=steps, rng=rng)  # (C, D, steps, n, n)
 
     E_mean = np.zeros((n_chains, n_draws, d_total))
     q = np.zeros((n_chains, n_draws))
@@ -356,23 +362,7 @@ def conditional_forecast_engine(
     cbar = None
     if r:
         Phi = compute_ma_phi(lag_matrices(B_draws, n_lags), steps - 1)  # (C, D, steps, n, n)
-        C_rows = np.zeros((n_chains, n_draws, r, d_total))
-        cbar = np.zeros((n_chains, n_draws, r))
-        for k, (i, h, value) in enumerate(pins):
-            cbar[:, :, k] = value - b_path[:, :, h, i]
-            for s in range(h + 1):
-                block = np.einsum("cdk,cdkl->cdl", Phi[:, :, h - s, i, :], L_path[:, :, s])
-                C_rows[:, :, k, s * n_vars : (s + 1) * n_vars] = block
-        G = np.einsum("cdrk,cdsk->cdrs", C_rows, C_rows)
-        if np.max(np.linalg.cond(G)) > 1e8:
-            warnings.warn(
-                "The pinned-path constraint system is nearly redundant (condition "
-                "number of CC' exceeds 1e8) — near-duplicate pins inflate the "
-                "conditional adjustment and the plausibility statistic without "
-                "tripping an exact-rank error.",
-                UserWarning,
-                stacklevel=4,
-            )
+        C_rows, G, cbar = _constraint_system(pins, b_path, Phi, L_path, n_vars, d_total)
         alpha = np.linalg.solve(G, cbar[..., np.newaxis])[..., 0]  # (C, D, r)
         E_mean = np.einsum("cdrk,cdr->cdk", C_rows, alpha)
         q = np.einsum("cdr,cdr->cd", cbar, alpha)
@@ -393,11 +383,66 @@ def conditional_forecast_engine(
     else:
         E = E_mean
 
-    eps = E.reshape(n_chains, n_draws, steps, n_vars)
-    u = np.einsum("cdhij,cdhj->cdhi", L_path, eps)
-    A = lag_matrices(B_draws, n_lags)
-    deviation = propagate(A, u, np.zeros((n_lags, n_vars)))
-    paths = b_path + deviation
+    if L_path is None:
+        paths = b_path  # mean mode, no pins: the deterministic path itself
+    else:
+        eps = E.reshape(n_chains, n_draws, steps, n_vars)
+        u = np.einsum("cdhij,cdhj->cdhi", L_path, eps)
+        A = lag_matrices(B_draws, n_lags)
+        deviation = propagate(A, u, np.zeros((n_lags, n_vars)))
+        paths = b_path + deviation
 
-    q_cal = (1.0 + np.sqrt(1.0 - np.exp(-q / d_total))) / 2.0
-    return paths, q, q_cal, r
+    return paths, q, _calibrate_q(q, r, path_uncertainty, d_total), r
+
+
+def _constraint_system(
+    pins: list[tuple[int, int, float]],
+    b_path: np.ndarray,
+    Phi: np.ndarray,
+    L_path: np.ndarray,
+    n_vars: int,
+    d_total: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build the constraint rows `C`, Gram matrix `CC'`, and rhs `cbar`.
+
+    Row `k` for pin `(i, h, value)` holds block `(Phi_{h-s} L_{T+s})[i, :]`
+    at stacked positions `s*n..(s+1)*n` for `s <= h`; the rhs is
+    `value - b_{i,h}`. Warns when `CC'` is nearly singular.
+    """
+    n_chains, n_draws = b_path.shape[:2]
+    r = len(pins)
+    C_rows = np.zeros((n_chains, n_draws, r, d_total))
+    cbar = np.zeros((n_chains, n_draws, r))
+    for k, (i, h, value) in enumerate(pins):
+        cbar[:, :, k] = value - b_path[:, :, h, i]
+        for s in range(h + 1):
+            block = np.einsum("cdk,cdkl->cdl", Phi[:, :, h - s, i, :], L_path[:, :, s])
+            C_rows[:, :, k, s * n_vars : (s + 1) * n_vars] = block
+    G = np.einsum("cdrk,cdsk->cdrs", C_rows, C_rows)
+    if np.max(np.linalg.cond(G)) > 1e8:
+        # stacklevel targets the public caller of conditional_forecast
+        # (user -> conditional_forecast -> engine -> here -> warn).
+        warnings.warn(
+            "The pinned-path constraint system is nearly redundant (condition "
+            "number of CC' exceeds 1e8) — near-duplicate pins inflate the "
+            "conditional adjustment and the plausibility statistic without "
+            "tripping an exact-rank error.",
+            UserWarning,
+            stacklevel=4,
+        )
+    return C_rows, G, cbar
+
+
+def _calibrate_q(q: np.ndarray, r: int, path_uncertainty: str, d_total: int) -> np.ndarray:
+    """ADPRR-calibrated plausibility `q_cal` on `[0.5, 1]`.
+
+    Finite only under `Omega_f = DD'` (`path_uncertainty="unconditional"`,
+    where the divergence collapses to `z = q/2`). Under hard pins the
+    divergence is analytically infinite and ADPRR's calibrated statistic
+    sits at its ceiling of 1; with no restrictions it floors at 0.5.
+    """
+    if r == 0:
+        return np.full_like(q, 0.5)
+    if path_uncertainty == "unconditional":
+        return (1.0 + np.sqrt(1.0 - np.exp(-q / d_total))) / 2.0
+    return np.ones_like(q)

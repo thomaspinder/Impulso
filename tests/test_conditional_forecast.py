@@ -237,26 +237,171 @@ class TestPlausibility:
         fitted = _single_draw_fitted()
         b = fitted.forecast(3, include_shock_uncertainty=False).idata.posterior_predictive["forecast"].values
         conditions = [VariablePath(variable="y1", values=b[0, 0, :, 0])]
-        cf = fitted.conditional_forecast(steps=3, conditions=conditions, include_shock_uncertainty=False)
-        np.testing.assert_allclose(cf.idata.posterior_predictive["plausibility"].values, 0.0, atol=1e-16)
-        np.testing.assert_allclose(cf.idata.posterior_predictive["plausibility_calibrated"].values, 0.5, atol=1e-8)
+        hard = fitted.conditional_forecast(steps=3, conditions=conditions, include_shock_uncertainty=False)
+        np.testing.assert_allclose(hard.idata.posterior_predictive["plausibility"].values, 0.0, atol=1e-16)
+        # Hard pins peg q_cal at the ADPRR ceiling regardless of the mean shift...
+        np.testing.assert_array_equal(hard.idata.posterior_predictive["plausibility_calibrated"].values, 1.0)
+        # ...while the unconditional-variance mode reaches the q = 0 floor.
+        soft = fitted.conditional_forecast(
+            steps=3, conditions=conditions, include_shock_uncertainty=False, path_uncertainty="unconditional"
+        )
+        np.testing.assert_allclose(soft.idata.posterior_predictive["plausibility_calibrated"].values, 0.5, atol=1e-8)
 
-    def test_calibration_formula(self, fitted_2v):
+    def test_calibration_formula_unconditional_mode(self, fitted_2v):
         cf = fitted_2v.conditional_forecast(
-            steps=4, conditions=[VariablePath(variable="y1", values=1.5)], include_shock_uncertainty=False
+            steps=4,
+            conditions=[VariablePath(variable="y1", values=1.5)],
+            include_shock_uncertainty=False,
+            path_uncertainty="unconditional",
         )
         pp = cf.idata.posterior_predictive
         q = pp["plausibility"].values
         expected = (1.0 + np.sqrt(1.0 - np.exp(-q / (4 * 2)))) / 2.0
         np.testing.assert_allclose(pp["plausibility_calibrated"].values, expected, atol=1e-12)
 
+    def test_hard_mode_calibration_pegs_at_one(self, fitted_2v):
+        """Under hard pins ADPRR's divergence is infinite; q_cal sits at its ceiling."""
+        cf = fitted_2v.conditional_forecast(
+            steps=4, conditions=[VariablePath(variable="y1", values=1.5)], include_shock_uncertainty=False
+        )
+        np.testing.assert_array_equal(cf.idata.posterior_predictive["plausibility_calibrated"].values, 1.0)
+
+    def test_q_follows_chi_squared_under_model_drawn_pins(self):
+        """Invariant 9 (chi^2 part): pins drawn from the model's own law give q ~ chi^2_1."""
+        fitted = _single_draw_fitted()
+        qs = []
+        for k in range(200):
+            path = fitted.forecast(steps=2, seed=k).idata.posterior_predictive["forecast"].values
+            pin_value = float(path[0, 0, 1, 0])  # the drawn (y1, step 2) realisation
+            cf = fitted.conditional_forecast(
+                steps=2,
+                conditions=[VariablePath(variable="y1", values=np.array([np.nan, pin_value]))],
+                include_shock_uncertainty=False,
+            )
+            qs.append(float(cf.idata.posterior_predictive["plausibility"].values[0, 0]))
+        qs = np.asarray(qs)
+        assert 0.7 < qs.mean() < 1.3  # E[chi^2_1] = 1
+        assert 1.0 < qs.var() < 3.4  # Var[chi^2_1] = 2
+
     def test_summary_accessor(self, fitted_2v):
+        from scipy.stats import chi2
+
         cf = fitted_2v.conditional_forecast(steps=4, conditions=[VariablePath(variable="y1", values=1.0)], seed=2)
         summary = cf.plausibility()
         assert summary["n_restrictions"] == 4
         assert 0.0 <= summary["tail_probability"] <= 1.0
         assert 0.5 <= summary["q_calibrated_median"] <= 1.0
         assert summary["q_hdi_lower"] <= summary["q_median"] <= summary["q_hdi_upper"]
+        pp = cf.idata.posterior_predictive
+        expected_tail = float(chi2.sf(float(np.median(pp["plausibility"].values)), df=4))
+        assert summary["tail_probability"] == pytest.approx(expected_tail)
+
+
+class _RngConsumingVol:
+    """Time-varying fake whose forecast Cholesky path consumes the generator.
+
+    The matched-seed nesting invariant is only falsifiable under an adapter
+    that actually draws from the rng — Constant ignores it, so a wrong
+    stream order would pass every Constant-based test.
+    """
+
+    name = "fake-sv"
+    is_time_varying = True
+
+    def build_pymc_latent(self, n_vars, T):  # pragma: no cover
+        raise NotImplementedError
+
+    def cholesky_at(self, posterior, t):
+        return posterior["L"].values
+
+    def cholesky_path(self, posterior, T):  # pragma: no cover
+        raise NotImplementedError
+
+    def forecast_cholesky_path(self, posterior, steps, rng):
+        L = posterior["L"].values
+        n_chains, n_draws = L.shape[:2]
+        scales = 1.0 + 0.2 * np.abs(rng.standard_normal((n_chains, n_draws, steps)))
+        return L[:, :, np.newaxis, :, :] * scales[:, :, :, np.newaxis, np.newaxis]
+
+
+class TestRngConsumingVolatility:
+    @pytest.fixture
+    def fitted_sv(self, synthetic_idata_2v, var_data_2v):
+        return FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=_RngConsumingVol(),
+        )
+
+    def test_matched_seed_nesting_when_volatility_consumes_rng(self, fitted_sv):
+        """The RNG contract is falsifiable only when the adapter draws from rng."""
+        cf = fitted_sv.conditional_forecast(steps=6, seed=77)
+        fc = fitted_sv.forecast(steps=6, seed=77)
+        np.testing.assert_allclose(
+            cf.idata.posterior_predictive["forecast"].values,
+            fc.idata.posterior_predictive["forecast"].values,
+            atol=1e-8,
+        )
+
+    def test_pins_hold_pathwise_under_time_varying_volatility(self, fitted_sv):
+        cf = fitted_sv.conditional_forecast(steps=4, conditions=[VariablePath(variable="y1", values=0.4)], seed=3)
+        draws = cf.idata.posterior_predictive["forecast"].values
+        np.testing.assert_allclose(draws[:, :, :, 0], 0.4, atol=1e-8)
+
+
+def _single_draw_fitted_exog():
+    """The single-draw posterior extended with one exogenous regressor."""
+    rng = np.random.default_rng(7)
+    posterior = xr.Dataset({
+        "B": (("chain", "draw", "var", "coeff"), np.array([[[[0.5, 0.1], [-0.2, 0.3]]]])),
+        "B_exog": (("chain", "draw", "var", "exog"), np.array([[[[0.8], [-0.3]]]])),
+        "intercept": (("chain", "draw", "var"), np.array([[[0.1, -0.05]]])),
+        "L": (("chain", "draw", "var1", "var2"), np.array([[np.linalg.cholesky(np.array([[1.0, 0.3], [0.3, 0.8]]))]])),
+    })
+    data = VARData(
+        endog=rng.standard_normal((12, 2)),
+        endog_names=["y1", "y2"],
+        exog=rng.standard_normal((12, 1)),
+        exog_names=["z"],
+        index=pd.date_range("2000-01-01", periods=12, freq="QS"),
+    )
+    return FittedVAR(
+        idata=az.InferenceData(posterior=posterior),
+        n_lags=1,
+        data=data,
+        var_names=["y1", "y2"],
+        volatility=Constant(),
+    )
+
+
+class TestExogHappyPath:
+    def test_matched_seed_nesting_with_exog(self):
+        fitted = _single_draw_fitted_exog()
+        exog_future = np.ones((5, 1))
+        cf = fitted.conditional_forecast(steps=5, seed=9, exog_future=exog_future)
+        fc = fitted.forecast(steps=5, seed=9, exog_future=exog_future)
+        np.testing.assert_allclose(
+            cf.idata.posterior_predictive["forecast"].values,
+            fc.idata.posterior_predictive["forecast"].values,
+            atol=1e-8,
+        )
+
+    def test_exog_shifts_unpinned_path_while_pin_holds(self):
+        fitted = _single_draw_fitted_exog()
+        pin = [VariablePath(variable="y1", values=0.3)]
+        low = fitted.conditional_forecast(
+            steps=4, conditions=pin, include_shock_uncertainty=False, exog_future=np.zeros((4, 1))
+        )
+        high = fitted.conditional_forecast(
+            steps=4, conditions=pin, include_shock_uncertainty=False, exog_future=np.ones((4, 1))
+        )
+        low_draws = low.idata.posterior_predictive["forecast"].values
+        high_draws = high.idata.posterior_predictive["forecast"].values
+        np.testing.assert_allclose(low_draws[:, :, :, 0], 0.3, atol=1e-8)
+        np.testing.assert_allclose(high_draws[:, :, :, 0], 0.3, atol=1e-8)
+        assert np.abs(low_draws[:, :, :, 1] - high_draws[:, :, :, 1]).max() > 1e-3
 
 
 class TestGuards:

@@ -1,7 +1,7 @@
 """Result objects for VAR post-estimation output."""
 
 from abc import abstractmethod
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import arviz as az
 import numpy as np
@@ -11,6 +11,7 @@ from matplotlib.figure import Figure
 from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
+from impulso.scenario import VariablePath
 
 
 def _wide_frame(da: xr.DataArray, row_dim: str, col_dim: str = "shock") -> pd.DataFrame:
@@ -408,8 +409,8 @@ class ConditionalForecastResult(VARResultBase):
     steps: int
     var_names: list[str]
     mode: str = "density"
-    path_uncertainty: str = "none"
-    conditions: list = Field(default_factory=list, repr=False)
+    path_uncertainty: Literal["none", "unconditional"] = "none"
+    conditions: list[VariablePath] = Field(default_factory=list, repr=False)
 
     def median(self) -> pd.DataFrame:
         """Posterior median conditional forecast (step-indexed)."""

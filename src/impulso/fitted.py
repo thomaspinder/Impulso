@@ -1,6 +1,6 @@
 """FittedVAR — reduced-form posterior from Bayesian VAR estimation."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import arviz as az
 import numpy as np
@@ -184,7 +184,7 @@ class FittedVAR(ImpulsoBaseModel):
         include_shock_uncertainty: bool = True,
         seed: int | np.random.Generator | None = None,
         exog_future: np.ndarray | None = None,
-        path_uncertainty: str = "none",
+        path_uncertainty: Literal["none", "unconditional"] = "none",
     ) -> "ConditionalForecastResult":
         """Forecast constrained so chosen variables follow pinned future paths.
 
@@ -212,14 +212,21 @@ class FittedVAR(ImpulsoBaseModel):
         values from their unconditional law; `chi^2_r` reference) and its
         ADPRR-calibrated companion `q_cal ∈ [0.5, 1]` — large values mean
         the scenario demands incredible shocks and the model's answer
-        should not be trusted.
+        should not be trusted. `q_cal` is finite only under
+        `path_uncertainty="unconditional"` (where ADPRR's divergence
+        collapses to `z = q/2`); under hard pins the underlying
+        divergence is infinite and `q_cal` sits at its ceiling of 1
+        (floor 0.5 with no conditions).
 
         Note:
             Under time-varying volatility the conditioning is per
             simulated volatility path — the conditions never reweight the
             volatility-path law, so the result is conditional-on-path
             rather than the full Bayesian conditional (standard practice;
-            see ADR-0005).
+            see ADR-0005). Consequently, mean mode with pins under a
+            stochastic-volatility adapter conditions on one simulated
+            path per draw and therefore depends on `seed`; with no
+            conditions, mean mode consumes no randomness at all.
 
         Args:
             steps: Number of forecast steps.

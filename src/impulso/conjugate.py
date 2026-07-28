@@ -85,12 +85,12 @@ class ConjugateVAR(ImpulsoBaseModel):
             ``intercept``, the base Cholesky factor ``L``, and every estimated
             hyperparameter (e.g. ``lambda_``, ``s_march``, ``s_april``, ``s_may``, ``rho``),
             all with a singleton ``chain`` dimension. The posterior's attrs
-            carry ``in_sample_length`` (observations after lag trimming) so
+            carry `in_sample_length` (observations after lag trimming) so
             volatility adapters can anchor forecast paths at the true sample
             end.
 
         Raises:
-            ValueError: If ``data`` carries exogenous regressors — the
+            ValueError: If `data` carries exogenous regressors — the
                 conjugate engine estimates endogenous dynamics only, and
                 silently dropping the exog block would corrupt every
                 downstream forecast.
