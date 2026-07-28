@@ -1,6 +1,6 @@
 """FittedVAR — reduced-form posterior from Bayesian VAR estimation."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import arviz as az
 import numpy as np
@@ -14,7 +14,8 @@ from impulso.protocols import IdentificationScheme, VolatilityProcess
 
 if TYPE_CHECKING:
     from impulso.identified import IdentifiedVAR
-    from impulso.results import DynamicMultiplierResult, ForecastResult
+    from impulso.results import ConditionalForecastResult, DynamicMultiplierResult, ForecastResult
+    from impulso.scenario import VariablePath
 
 
 class FittedVAR(ImpulsoBaseModel):
@@ -175,6 +176,136 @@ class FittedVAR(ImpulsoBaseModel):
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
         return ForecastResult(idata=idata, steps=steps, var_names=self.var_names, mode=mode)
+
+    def conditional_forecast(
+        self,
+        steps: int,
+        conditions: "list[VariablePath] | None" = None,
+        include_shock_uncertainty: bool = True,
+        seed: int | np.random.Generator | None = None,
+        exog_future: np.ndarray | None = None,
+        path_uncertainty: Literal["none", "unconditional"] = "none",
+    ) -> "ConditionalForecastResult":
+        """Forecast constrained so chosen variables follow pinned future paths.
+
+        Hard conditional forecasting in the sense of Waggoner and Zha
+        (1999): all structural shocks adjust to absorb the pins, and the
+        observable-space answer is invariant to the identification scheme
+        — no scheme is required, which is why this lives on the
+        reduced-form object (the dynamic-multiplier placement logic).
+        Under the default mode every draw satisfies the pins *pathwise*;
+        with `path_uncertainty="unconditional"` (Antolín-Díaz, Petrella &
+        Rubio-Ramírez 2021) the pins restrict the forecast mean only and
+        the bands keep their unconditional width — the mode behind that
+        paper's headline plausibility numbers.
+
+        Each `VariablePath` pins values from step 1: a scalar broadcasts
+        to all steps, an array of length `L <= steps` pins steps `1..L`,
+        and `NaN` entries are free. With no conditions the result is
+        distributionally `forecast()` — and exactly equal per draw under a
+        matched `seed`, because the engine consumes the generator in
+        `forecast()`'s order (one forecast-Cholesky-path call, then
+        per-step innovation draws).
+
+        The result carries the per-draw plausibility statistic
+        `q = c̄'(CC')⁻¹c̄` (squared Mahalanobis distance of the pinned
+        values from their unconditional law; `chi^2_r` reference) and its
+        ADPRR-calibrated companion `q_cal ∈ [0.5, 1]` — large values mean
+        the scenario demands incredible shocks and the model's answer
+        should not be trusted. `q_cal` is finite only under
+        `path_uncertainty="unconditional"` (where ADPRR's divergence
+        collapses to `z = q/2`); under hard pins the underlying
+        divergence is infinite and `q_cal` sits at its ceiling of 1
+        (floor 0.5 with no conditions).
+
+        Note:
+            Under time-varying volatility the conditioning is per
+            simulated volatility path — the conditions never reweight the
+            volatility-path law, so the result is conditional-on-path
+            rather than the full Bayesian conditional (standard practice;
+            see ADR-0005). Consequently, mean mode with pins under a
+            stochastic-volatility adapter conditions on one simulated
+            path per draw and therefore depends on `seed`; with no
+            conditions, mean mode consumes no randomness at all.
+
+        Args:
+            steps: Number of forecast steps.
+            conditions: `VariablePath` pins (may be empty or omitted).
+            include_shock_uncertainty: If `True` (default), draw the
+                unconstrained shock dimensions (density forecast). If
+                `False`, propagate the conditional mean — pins still hold,
+                intervals reflect parameter uncertainty only.
+            seed: RNG seed (int) or Generator for reproducible density
+                forecasts.
+            exog_future: Future exogenous values, shape `(steps, k)`.
+                Required if the posterior carries `B_exog`.
+            path_uncertainty: `"none"` (default — hard pins, variance
+                collapses at the pins) or `"unconditional"` (pins
+                restrict the mean; bands keep unconditional width).
+
+        Returns:
+            ConditionalForecastResult with forecast draws, the pinned
+            conditions echoed, and the plausibility statistics.
+
+        Raises:
+            ValueError: On unknown variables, duplicate or over-length
+                pins, an invalid `path_uncertainty`, exogenous data the
+                estimator never consumed, or a mis-shaped `exog_future`.
+        """
+        import xarray as xr
+        from scipy.stats import chi2
+
+        from impulso._scenario import conditional_forecast_engine
+        from impulso.results import ConditionalForecastResult
+
+        if path_uncertainty not in ("none", "unconditional"):
+            raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
+        posterior = self.idata.posterior
+        if self.data.exog is not None and "B_exog" not in posterior:
+            raise ValueError(
+                "This FittedVAR's data carries exogenous regressors the estimator "
+                "never consumed (no B_exog in the posterior); refit with an "
+                "estimator that supports them before forecasting."
+            )
+        if exog_future is not None:
+            if "B_exog" not in posterior:
+                raise ValueError("exog_future provided but the posterior carries no B_exog.")
+            exog_future = np.asarray(exog_future, dtype=float)
+            n_exog = posterior["B_exog"].shape[-1]
+            if exog_future.shape != (steps, n_exog):
+                raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {exog_future.shape}.")
+
+        paths, q, q_cal, r = conditional_forecast_engine(
+            self,
+            steps=steps,
+            conditions=list(conditions or []),
+            include_shock_uncertainty=include_shock_uncertainty,
+            seed=seed,
+            exog_future=exog_future,
+            path_uncertainty=path_uncertainty,
+        )
+
+        forecast_da = xr.DataArray(
+            paths,
+            dims=["chain", "draw", "step", "variable"],
+            coords={"variable": self.var_names},
+            name="forecast",
+        )
+        ds = xr.Dataset({
+            "forecast": forecast_da,
+            "plausibility": xr.DataArray(q, dims=["chain", "draw"], name="plausibility"),
+            "plausibility_calibrated": xr.DataArray(q_cal, dims=["chain", "draw"], name="plausibility_calibrated"),
+        })
+        ds.attrs["n_restrictions"] = r
+        ds.attrs["chi2_tail_of_median"] = float(chi2.sf(float(np.median(q)), df=r)) if r else 1.0
+        return ConditionalForecastResult(
+            idata=az.InferenceData(posterior_predictive=ds),
+            steps=steps,
+            var_names=self.var_names,
+            mode="density" if include_shock_uncertainty else "mean",
+            path_uncertainty=path_uncertainty,
+            conditions=list(conditions or []),
+        )
 
     def dynamic_multiplier(self, horizon: int = 20, cumulative: bool = False) -> "DynamicMultiplierResult":
         """Response of the endogenous variables to a unit exogenous impulse.

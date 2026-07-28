@@ -84,8 +84,25 @@ class ConjugateVAR(ImpulsoBaseModel):
             A ``FittedVAR`` whose posterior holds ``B`` (lag coefficients only),
             ``intercept``, the base Cholesky factor ``L``, and every estimated
             hyperparameter (e.g. ``lambda_``, ``s_march``, ``s_april``, ``s_may``, ``rho``),
-            all with a singleton ``chain`` dimension.
+            all with a singleton ``chain`` dimension. The posterior's attrs
+            carry `in_sample_length` (observations after lag trimming) so
+            volatility adapters can anchor forecast paths at the true sample
+            end.
+
+        Raises:
+            ValueError: If `data` carries exogenous regressors — the
+                conjugate engine estimates endogenous dynamics only, and
+                silently dropping the exog block would corrupt every
+                downstream forecast.
         """
+        if data.exog is not None:
+            raise ValueError(
+                "ConjugateVAR does not support exogenous regressors: the conjugate "
+                "engine estimates endogenous dynamics only, and silently ignoring "
+                "the exog block would corrupt downstream forecasts. Drop exog from "
+                "VARData or use the PyMC/NUTS estimator (impulso.VAR), which "
+                "consumes it."
+            )
         result = select_and_sample(
             data.endog,
             self.lags,
@@ -107,7 +124,11 @@ class ConjugateVAR(ImpulsoBaseModel):
         for name, arr in result["hyperparameters"].items():
             posterior_vars[name] = (["chain", "draw"], arr[None])
 
-        idata = az.InferenceData(posterior=xr.Dataset(posterior_vars))
+        posterior = xr.Dataset(posterior_vars)
+        # Volatility adapters anchor forecast scale paths at the true sample
+        # end (see ConjugateVolatility.forecast_cholesky_path).
+        posterior.attrs["in_sample_length"] = data.endog.shape[0] - self.lags
+        idata = az.InferenceData(posterior=posterior)
         volatility = self.volatility if self.volatility is not None else Constant()
 
         return FittedVAR.model_construct(

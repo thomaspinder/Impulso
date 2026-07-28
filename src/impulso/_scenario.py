@@ -17,8 +17,9 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
+    from impulso.fitted import FittedVAR
     from impulso.identified import IdentifiedVAR
-    from impulso.scenario import ShockPath
+    from impulso.scenario import ShockPath, VariablePath
 
 
 def structural_shock_context(identified: IdentifiedVAR) -> tuple[np.ndarray, np.ndarray, bool]:
@@ -216,3 +217,232 @@ def counterfactual_paths(identified: IdentifiedVAR, edits: list[ShockPath]) -> n
 
     A = lag_matrices(posterior["B"].values, n_lags)
     return propagate(A, forcing, identified.data.endog[:n_lags])
+
+
+# --- forecast-side layers (conditional forecasts; ADR-0005 layers 2-3) ---
+
+
+def resolve_variable_pins(
+    conditions: list[VariablePath],
+    var_names: list[str],
+    steps: int,
+) -> list[tuple[int, int, float]]:
+    """Resolve `VariablePath` conditions to `(variable, step, value)` pins.
+
+    A scalar broadcasts to all `steps`; an array of length `L <= steps`
+    pins steps `1..L` and leaves the rest free; `NaN` entries are skipped
+    (unconstrained). Duplicate `(variable, step)` references raise rather
+    than silently deduping — conflicting values would otherwise make the
+    constraint system inconsistent.
+
+    Args:
+        conditions: The `VariablePath` conditions.
+        var_names: Endogenous variable names.
+        steps: Forecast horizon.
+
+    Returns:
+        List of `(variable_index, step_index, value)` with 0-based step
+        indices (step 1 → index 0).
+
+    Raises:
+        TypeError: If a condition is not a `VariablePath`.
+        ValueError: On unknown variables, scalar-NaN conditions,
+            over-length arrays, or duplicate pins.
+    """
+    from impulso.scenario import VariablePath
+
+    pins: list[tuple[int, int, float]] = []
+    seen: set[tuple[int, int]] = set()
+    for cond in conditions:
+        if not isinstance(cond, VariablePath):
+            raise TypeError(f"conditional forecasting accepts VariablePath conditions only, got {type(cond).__name__}")
+        if cond.variable not in var_names:
+            raise ValueError(f"Unknown variable {cond.variable!r}; available variables: {var_names}")
+        i = var_names.index(cond.variable)
+        if isinstance(cond.values, float):
+            if np.isnan(cond.values):
+                raise ValueError(f"VariablePath for {cond.variable!r} is a scalar NaN — it pins nothing.")
+            values = np.full(steps, cond.values)
+        else:
+            values = np.asarray(cond.values, dtype=np.float64)
+            if values.shape[0] > steps:
+                raise ValueError(
+                    f"VariablePath values for {cond.variable!r} have length {values.shape[0]} "
+                    f"but the forecast has only {steps} steps."
+                )
+        for h, v in enumerate(values):
+            if np.isnan(v):
+                continue
+            if (i, h) in seen:
+                raise ValueError(f"Duplicate pin for variable {cond.variable!r} at step {h + 1}; merge the conditions.")
+            seen.add((i, h))
+            pins.append((i, h, float(v)))
+    return pins
+
+
+def conditional_forecast_engine(
+    fitted: FittedVAR,
+    steps: int,
+    conditions: list[VariablePath],
+    include_shock_uncertainty: bool,
+    seed: int | np.random.Generator | None,
+    exog_future: np.ndarray | None,
+    path_uncertainty: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Waggoner-Zha conditional forecast via the stacked-shock solve.
+
+    The forecast stack is `Y = b + M E` with `E` the stacked future
+    structural shocks; a pin on `(variable i, step h)` contributes the
+    constraint row `e'_{i,h} M` with rhs `value - b_{i,h}`. `M` is never
+    materialised — only the `r` constraint rows are built, from the MA
+    coefficients and the volatility process's forecast Cholesky path
+    (block `(h, s) = Phi_{h-s} L_{T+s}`; the observable-space answer is
+    invariant to the orthogonalisation, so the raw volatility factor is
+    the correct `P` here).
+
+    Modes: hard pins (`path_uncertainty="none"`) draw
+    `E = xi - C'(CC')^{-1}(C xi - cbar)` so conditions hold pathwise;
+    `path_uncertainty="unconditional"` draws `E = mu* + xi` (ADPRR
+    `Omega_f = DD'`: conditions restrict the mean, bands keep their
+    unconditional width). Mean mode propagates `mu*`.
+
+    RNG contract (matched-seed nesting with `forecast()`): one
+    `forecast_cholesky_path` call, then per-step `standard_normal((C, D, n))`
+    draws in step order.
+
+    Plausibility per draw: `q = cbar'(CC')^{-1} cbar` — the squared
+    Mahalanobis distance of the pinned values from their unconditional
+    law (`chi^2_r` reference when all shocks adjust) — plus the
+    ADPRR-calibrated `q_cal = (1 + sqrt(1 - exp(-q / (n*steps)))) / 2`.
+
+    Args:
+        fitted: The fitted reduced-form VAR.
+        steps: Forecast horizon.
+        conditions: `VariablePath` pins (may be empty).
+        include_shock_uncertainty: Density mode (draw shocks) vs mean mode.
+        seed: RNG seed or Generator.
+        exog_future: Future exogenous values, validated by the caller.
+        path_uncertainty: `"none"` (hard pins) or `"unconditional"`.
+
+    Returns:
+        Tuple `(paths, q, q_cal, r)`: forecast paths `(C, D, steps, n)`,
+        per-draw plausibility `q` and calibrated `q_cal` `(C, D)`, and the
+        number of binding restrictions `r`.
+    """
+    from impulso._linalg import lag_matrices
+    from impulso._ma import compute_ma_phi
+    from impulso._propagate import propagate
+
+    posterior = fitted.idata.posterior
+    B_draws = posterior["B"].values
+    n_lags = fitted.n_lags
+    n_chains, n_draws, n_vars, _ = B_draws.shape
+    d_total = steps * n_vars
+
+    pins = resolve_variable_pins(conditions, fitted.var_names, steps)
+    r = len(pins)
+
+    # Deterministic path b: identically forecast()'s mean mode (consumes no RNG).
+    b = fitted.forecast(steps, include_shock_uncertainty=False, exog_future=exog_future)
+    b_path = b.idata.posterior_predictive["forecast"].values  # (C, D, steps, n)
+
+    rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+    # Mean mode with no pins needs no volatility path and must consume no
+    # randomness (forecast()'s mean-mode contract). With pins, the constraint
+    # rows need L; under time-varying volatility that conditions on one
+    # simulated path per draw (documented on the method).
+    L_path = None
+    if include_shock_uncertainty or r:
+        L_path = fitted.volatility.forecast_cholesky_path(posterior, steps=steps, rng=rng)  # (C, D, steps, n, n)
+
+    E_mean = np.zeros((n_chains, n_draws, d_total))
+    q = np.zeros((n_chains, n_draws))
+    C_rows = None
+    G = None
+    cbar = None
+    if r:
+        Phi = compute_ma_phi(lag_matrices(B_draws, n_lags), steps - 1)  # (C, D, steps, n, n)
+        C_rows, G, cbar = _constraint_system(pins, b_path, Phi, L_path, n_vars, d_total)
+        alpha = np.linalg.solve(G, cbar[..., np.newaxis])[..., 0]  # (C, D, r)
+        E_mean = np.einsum("cdrk,cdr->cdk", C_rows, alpha)
+        q = np.einsum("cdr,cdr->cd", cbar, alpha)
+
+    if include_shock_uncertainty:
+        xi = np.empty((n_chains, n_draws, steps, n_vars))
+        for h in range(steps):  # per-step draws, forecast()'s stream order
+            xi[:, :, h, :] = rng.standard_normal((n_chains, n_draws, n_vars))
+        xi_flat = xi.reshape(n_chains, n_draws, d_total)
+        if r and path_uncertainty == "none":
+            residual = np.einsum("cdrk,cdk->cdr", C_rows, xi_flat) - cbar
+            beta = np.linalg.solve(G, residual[..., np.newaxis])[..., 0]
+            E = xi_flat - np.einsum("cdrk,cdr->cdk", C_rows, beta)
+        elif r:
+            E = E_mean + xi_flat
+        else:
+            E = xi_flat
+    else:
+        E = E_mean
+
+    if L_path is None:
+        paths = b_path  # mean mode, no pins: the deterministic path itself
+    else:
+        eps = E.reshape(n_chains, n_draws, steps, n_vars)
+        u = np.einsum("cdhij,cdhj->cdhi", L_path, eps)
+        A = lag_matrices(B_draws, n_lags)
+        deviation = propagate(A, u, np.zeros((n_lags, n_vars)))
+        paths = b_path + deviation
+
+    return paths, q, _calibrate_q(q, r, path_uncertainty, d_total), r
+
+
+def _constraint_system(
+    pins: list[tuple[int, int, float]],
+    b_path: np.ndarray,
+    Phi: np.ndarray,
+    L_path: np.ndarray,
+    n_vars: int,
+    d_total: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build the constraint rows `C`, Gram matrix `CC'`, and rhs `cbar`.
+
+    Row `k` for pin `(i, h, value)` holds block `(Phi_{h-s} L_{T+s})[i, :]`
+    at stacked positions `s*n..(s+1)*n` for `s <= h`; the rhs is
+    `value - b_{i,h}`. Warns when `CC'` is nearly singular.
+    """
+    n_chains, n_draws = b_path.shape[:2]
+    r = len(pins)
+    C_rows = np.zeros((n_chains, n_draws, r, d_total))
+    cbar = np.zeros((n_chains, n_draws, r))
+    for k, (i, h, value) in enumerate(pins):
+        cbar[:, :, k] = value - b_path[:, :, h, i]
+        for s in range(h + 1):
+            block = np.einsum("cdk,cdkl->cdl", Phi[:, :, h - s, i, :], L_path[:, :, s])
+            C_rows[:, :, k, s * n_vars : (s + 1) * n_vars] = block
+    G = np.einsum("cdrk,cdsk->cdrs", C_rows, C_rows)
+    if np.max(np.linalg.cond(G)) > 1e8:
+        # stacklevel targets the public caller of conditional_forecast
+        # (user -> conditional_forecast -> engine -> here -> warn).
+        warnings.warn(
+            "The pinned-path constraint system is nearly redundant (condition "
+            "number of CC' exceeds 1e8) — near-duplicate pins inflate the "
+            "conditional adjustment and the plausibility statistic without "
+            "tripping an exact-rank error.",
+            UserWarning,
+            stacklevel=4,
+        )
+    return C_rows, G, cbar
+
+
+def _calibrate_q(q: np.ndarray, r: int, path_uncertainty: str, d_total: int) -> np.ndarray:
+    """ADPRR-calibrated plausibility `q_cal` on `[0.5, 1]`.
+
+    Finite only under `Omega_f = DD'` (`path_uncertainty="unconditional"`,
+    where the divergence collapses to `z = q/2`). Under hard pins the
+    divergence is analytically infinite and ADPRR's calibrated statistic
+    sits at its ceiling of 1; with no restrictions it floors at 0.5.
+    """
+    if r == 0:
+        return np.full_like(q, 0.5)
+    if path_uncertainty == "unconditional":
+        return (1.0 + np.sqrt(1.0 - np.exp(-q / d_total))) / 2.0
+    return np.ones_like(q)

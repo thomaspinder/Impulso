@@ -51,6 +51,8 @@ def test_no_break_fit_forecast_and_irf():
     assert post["B"].shape == (1, DRAWS, 2, 2)
     assert post["intercept"].shape == (1, DRAWS, 2)
     assert post["L"].shape == (1, DRAWS, 2, 2)
+    # Forecast-anchor stamp for volatility adapters (issue #120).
+    assert post.attrs["in_sample_length"] == 60 - 1
 
     forecast = fitted.forecast(steps=6, seed=0).idata.posterior_predictive["forecast"].values
     assert forecast.shape == (1, DRAWS, 6, 2)
@@ -91,6 +93,21 @@ def test_pandemic_break_fit_forecast_and_irf():
     irf = identified.impulse_response(horizon=8, at=10).idata.posterior_predictive["irf"].values
     assert irf.shape == (1, DRAWS, 9, 2, 2)
     assert np.isfinite(irf).all()
+
+
+def test_rejects_exog_bearing_data():
+    """ConjugateVAR estimates endogenous dynamics only (issue #121)."""
+    rng = np.random.default_rng(3)
+    data = VARData(
+        endog=rng.standard_normal((30, 2)),
+        endog_names=["y1", "y2"],
+        exog=rng.standard_normal((30, 1)),
+        exog_names=["z"],
+        index=pd.date_range("2010-01-01", periods=30, freq="MS"),
+    )
+    model = ConjugateVAR(lags=1, prior=NIWPrior(), draws=DRAWS, tune=DRAWS, seed=0)
+    with pytest.raises(ValueError, match="exogenous"):
+        model.fit(data)
 
 
 def test_rejects_non_niw_prior():

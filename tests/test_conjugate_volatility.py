@@ -141,21 +141,49 @@ def test_cholesky_at(pandemic, posterior):
     np.testing.assert_allclose(pandemic.cholesky_at(posterior, None), base)
 
 
-def test_forecast_cholesky_path(pandemic, posterior):
+def test_forecast_cholesky_path_legacy_fallback_warns(pandemic, posterior):
+    """Without the in_sample_length attr the legacy t*+3 anchor applies, with a warning."""
     base = posterior["L"].values
     n_chains, n_draws, n, _ = base.shape
     steps = 6
 
-    path = pandemic.forecast_cholesky_path(posterior, steps, np.random.default_rng(1))
+    with pytest.warns(UserWarning, match="in_sample_length"):
+        path = pandemic.forecast_cholesky_path(posterior, steps, np.random.default_rng(1))
     assert path.shape == (n_chains, n_draws, steps, n, n)
     _assert_lower_tri_finite(path)
 
-    # Forecast continues the decay: step k lives at absolute index t*+3+k.
+    # Legacy fallback: step k lives at absolute index t*+3+k.
     scale = _oracle_scales(_posterior_theta(posterior), START, START + 3 + np.arange(steps))
     np.testing.assert_allclose(path, scale[:, :, :, None, None] * base[:, :, None, :, :])
     # Step 0 (June 2020) uses 1 + (s_may - 1) * rho.
     expected0 = 1.0 + (posterior["s_may"].values - 1.0) * posterior["rho"].values
     np.testing.assert_allclose(scale[..., 0], expected0)
+
+
+def test_forecast_cholesky_path_anchors_at_sample_end(pandemic, posterior):
+    """With the attr stamped, the forecast joins the in-sample path continuously (#120)."""
+    import warnings as _warnings
+
+    stamped = posterior.copy(deep=True)
+    T_eff = START + 30  # sample extends well past the break window
+    stamped.attrs["in_sample_length"] = T_eff
+
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("error")  # the fallback warning must NOT fire
+        in_path = pandemic.cholesky_path(stamped, T=T_eff)
+        f_path = pandemic.forecast_cholesky_path(stamped, steps=4, rng=np.random.default_rng(1))
+
+    # Anchored: forecast step k lives at absolute index T_eff + k.
+    scale = _oracle_scales(_posterior_theta(stamped), START, T_eff + np.arange(4))
+    base = stamped["L"].values
+    np.testing.assert_allclose(f_path, scale[:, :, :, None, None] * base[:, :, None, :, :])
+
+    # Continuity: step 0 is exactly one decay step after the last in-sample scale
+    # (s_{t+1} - 1 = (s_t - 1) * rho on the decay branch) — no origin discontinuity.
+    s_last = in_path[:, :, -1, 0, 0] / base[:, :, 0, 0]
+    s_next = f_path[:, :, 0, 0, 0] / base[:, :, 0, 0]
+    rho = stamped["rho"].values
+    np.testing.assert_allclose(s_next - 1.0, (s_last - 1.0) * rho, atol=1e-12)
 
 
 # --- Gate 3: hyperparameter priors ----------------------------------------------------

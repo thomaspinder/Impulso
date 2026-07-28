@@ -158,10 +158,34 @@ class ConjugateVolatility(ImpulsoModel):
         `rng` is accepted for parity with stochastic adapters and ignored — the
         post-sample scale path is deterministic given the posterior draws.
 
+        The forecast anchor is the posterior's `in_sample_length` attr
+        (stamped by `ConjugateVAR.fit`): step `k` continues the scale
+        schedule at absolute index `in_sample_length + k`, so the forecast
+        origin joins the last in-sample scale with no discontinuity.
+        Posteriors without the attr fall back to the subclass's legacy
+        `_forecast_indices` assumption with a warning.
+
         Returns `(chains, draws, steps, n_vars, n_vars)`.
         """
+        import warnings
+
         base = posterior["L"].values
-        scale = self._posterior_scales(posterior, self._forecast_indices(steps))  # (C, D, steps)
+        anchor = posterior.attrs.get("in_sample_length")
+        if anchor is None:
+            warnings.warn(
+                "posterior carries no 'in_sample_length' attr; falling back to the "
+                "adapter's legacy forecast anchor, which assumes the estimation "
+                "sample ends immediately after the break window. If the sample "
+                "extends further, forecast volatility will be discontinuous at the "
+                "origin — refit with a current ConjugateVAR (which stamps the attr) "
+                "or set posterior.attrs['in_sample_length'].",
+                UserWarning,
+                stacklevel=2,
+            )
+            indices = self._forecast_indices(steps)
+        else:
+            indices = int(anchor) + np.arange(steps)
+        scale = self._posterior_scales(posterior, indices)  # (C, D, steps)
         return scale[:, :, :, None, None] * base[:, :, None, :, :]
 
 

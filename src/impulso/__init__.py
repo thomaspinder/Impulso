@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from impulso.priors import MinnesotaPrior, NIWPrior
     from impulso.protocols import VolatilityProcess
     from impulso.results import (
+        ConditionalForecastResult,
         CounterfactualResult,
         DynamicMultiplierResult,
         FEVDResult,
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 __all__ = [
     "VAR",
     "Cholesky",
+    "ConditionalForecastResult",
     "ConjugateVAR",
     "ConjugateVolatility",
     "Constant",
@@ -90,6 +92,7 @@ def __getattr__(name: str):
         "PandemicBreak": "impulso.conjugate_volatility",
         "NUTSSampler": "impulso.samplers",
         "ForecastResult": "impulso.results",
+        "ConditionalForecastResult": "impulso.results",
         "CounterfactualResult": "impulso.results",
         "DynamicMultiplierResult": "impulso.results",
         "ShockPath": "impulso.scenario",
