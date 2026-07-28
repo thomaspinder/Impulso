@@ -483,15 +483,18 @@ class ScenarioResult(ConditionalForecastResult):
     the adjusting set and any prescribed shock paths; the forecast and
     plausibility surface (`median`, `hdi`, `plausibility`) is inherited.
     The per-draw `plausibility` includes the prescribed shocks' own
-    magnitude `|v_S|^2` in one-standard-deviation units.
+    magnitude `|v_S|^2` in one-standard-deviation units; the chi-squared
+    tail probability in attrs refers to the condition-only part.
 
     Attributes:
-        adjusting: Names of the shocks permitted to absorb the conditions
-            (empty means all shocks were free to adjust).
+        adjusting: Names of the shocks permitted to absorb the conditions,
+            echoed verbatim from the call: `None` means every shock was
+            free to adjust; an empty list means none were (the pure
+            substitution case).
         shocks: The prescribed `ShockPath` sequences echoed from the call.
     """
 
-    adjusting: list[str] = Field(default_factory=list)
+    adjusting: list[str] | None = None
     shocks: list[ShockPath] = Field(default_factory=list, repr=False)
 
     def plot(self) -> Figure:

@@ -402,12 +402,15 @@ def _constraint_system(
     L_path: np.ndarray,
     n_vars: int,
     d_total: int,
+    warn_on_ill_conditioning: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build the constraint rows `C`, Gram matrix `CC'`, and rhs `cbar`.
 
     Row `k` for pin `(i, h, value)` holds block `(Phi_{h-s} L_{T+s})[i, :]`
     at stacked positions `s*n..(s+1)*n` for `s <= h`; the rhs is
-    `value - b_{i,h}`. Warns when `CC'` is nearly singular.
+    `value - b_{i,h}`. Warns when `CC'` is nearly singular unless the
+    caller solves a column-restricted system and runs its own check on
+    the restricted Gram (`warn_on_ill_conditioning=False`).
     """
     n_chains, n_draws = b_path.shape[:2]
     r = len(pins)
@@ -419,7 +422,7 @@ def _constraint_system(
             block = np.einsum("cdk,cdkl->cdl", Phi[:, :, h - s, i, :], L_path[:, :, s])
             C_rows[:, :, k, s * n_vars : (s + 1) * n_vars] = block
     G = np.einsum("cdrk,cdsk->cdrs", C_rows, C_rows)
-    if np.max(np.linalg.cond(G)) > 1e8:
+    if warn_on_ill_conditioning and np.max(np.linalg.cond(G)) > 1e8:
         # stacklevel targets the public caller of conditional_forecast
         # (user -> conditional_forecast -> engine -> here -> warn).
         warnings.warn(
@@ -610,7 +613,7 @@ def structural_scenario_engine(
     seed: int | np.random.Generator | None,
     exog_future: np.ndarray | None,
     path_uncertainty: str,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """ADPRR structural scenario via the three-way partition solve.
 
     Stacked shock entries split into `D` (prescribed — substituted at
@@ -627,7 +630,10 @@ def structural_scenario_engine(
     `path_uncertainty="unconditional"` with no prescriptions.
 
     Returns:
-        Tuple `(paths, q, q_cal, r)` as in `conditional_forecast_engine`.
+        Tuple `(paths, q, q_cond, q_cal, r)`: as in
+        `conditional_forecast_engine` plus `q_cond`, the condition-only
+        part of the plausibility (the `chi^2_r`-referenced quantity —
+        the prescribed `|v_S|^2` term has no chi-squared reference).
     """
     from impulso._linalg import lag_matrices
     from impulso._ma import compute_ma_phi
@@ -644,6 +650,19 @@ def structural_scenario_engine(
     prescriptions = resolve_shock_prescriptions(shocks, shock_names, steps)
     adjusting_idx = _resolve_adjusting(adjusting, shock_names)
     r = len(pins)
+
+    if any(v != 0.0 for (_, _, v) in prescriptions) and getattr(identified.scheme, "scale", None) is not None:
+        # stacklevel targets the public caller of structural_scenario
+        # (user -> structural_scenario -> engine -> warn).
+        warnings.warn(
+            "ShockPath values are in one-standard-deviation units, but the identification "
+            "scheme applies a unit-effect rescaling (scale is set); non-zero prescriptions "
+            "are not invariant to that normalisation and neither is their plausibility "
+            "contribution. Zero prescriptions are safe; for custom paths re-identify with "
+            "scale=None.",
+            UserWarning,
+            stacklevel=3,
+        )
 
     flat = lambda j, h: h * n_vars + j
     D_entries = {(j, h) for (j, h, _) in prescriptions}
@@ -681,17 +700,16 @@ def structural_scenario_engine(
     if prescriptions:
         eps_flat[:, :, D_flat] = v_S[np.newaxis, np.newaxis, :]
 
-    q = np.zeros((n_chains, n_draws))
+    q_cond = np.zeros((n_chains, n_draws))
     if r:
         Phi = compute_ma_phi(A_lags, steps - 1)
-        C_rows, _, cbar = _constraint_system(pins, b_path, Phi, P_path, n_vars, d_total)
-        q = _absorb_conditions(C_rows, cbar, eps_flat, xi_flat, A_flat, D_flat, F_flat, v_S, path_uncertainty)
+        C_rows, _, cbar = _constraint_system(pins, b_path, Phi, P_path, n_vars, d_total, warn_on_ill_conditioning=False)
+        q_cond = _absorb_conditions(C_rows, cbar, eps_flat, xi_flat, A_flat, D_flat, F_flat, v_S, path_uncertainty)
     elif xi_flat is not None and A_flat:
         # No conditions: adjusting entries are simply free.
         eps_flat[:, :, A_flat] = xi_flat[:, :, A_flat]
 
-    if prescriptions:
-        q = q + float(v_S @ v_S)
+    q = q_cond + float(v_S @ v_S) if prescriptions else q_cond
 
     eps = eps_flat.reshape(n_chains, n_draws, steps, n_vars)
     u = np.einsum("cdhij,cdhj->cdhi", P_path, eps)
@@ -699,7 +717,7 @@ def structural_scenario_engine(
     paths = b_path + deviation
 
     q_cal = _calibrate_scenario_q(q, r, len(prescriptions), path_uncertainty, d_total)
-    return paths, q, q_cal, r
+    return paths, q, q_cond, q_cal, r
 
 
 def _absorb_conditions(
@@ -738,6 +756,17 @@ def _absorb_conditions(
             "condition load on no adjusting shock at its step). Widen the adjusting set."
         )
     G_A = np.einsum("cdrk,cdsk->cdrs", C_A, C_A)
+    if np.max(np.linalg.cond(G_A)) > 1e8:
+        # stacklevel targets the public caller of structural_scenario
+        # (user -> structural_scenario -> engine -> here -> warn).
+        warnings.warn(
+            "The adjusting-block constraint system is nearly redundant (condition "
+            "number of C_A C_A' exceeds 1e8) — nearly-collinear condition loadings "
+            "on the adjusting shocks inflate the conditional adjustment and the "
+            "plausibility statistic without tripping the rank check.",
+            UserWarning,
+            stacklevel=4,
+        )
     alpha = np.linalg.solve(G_A, ctilde[..., np.newaxis])[..., 0]
     E_A_mean = np.einsum("cdrk,cdr->cdk", C_A, alpha)
 

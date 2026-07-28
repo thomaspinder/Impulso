@@ -649,7 +649,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         if self.data.exog is not None and exog_future is None:
             raise ValueError("exog_future is required when the model includes exogenous variables")
 
-        paths, q, q_cal, r = structural_scenario_engine(
+        paths, q, q_cond, q_cal, r = structural_scenario_engine(
             self,
             steps=steps,
             conditions=list(conditions or []),
@@ -673,7 +673,9 @@ class IdentifiedVAR(ImpulsoBaseModel):
             "plausibility_calibrated": xr.DataArray(q_cal, dims=["chain", "draw"], name="plausibility_calibrated"),
         })
         ds.attrs["n_restrictions"] = r
-        ds.attrs["chi2_tail_of_median"] = float(chi2.sf(float(np.median(q)), df=r)) if r else 1.0
+        # The chi^2_r reference applies to the condition-only part of q;
+        # the prescribed |v_S|^2 term carries no chi-squared law.
+        ds.attrs["chi2_tail_of_median"] = float(chi2.sf(float(np.median(q_cond)), df=r)) if r else 1.0
         return ScenarioResult(
             idata=az.InferenceData(posterior_predictive=ds),
             steps=steps,
@@ -681,6 +683,6 @@ class IdentifiedVAR(ImpulsoBaseModel):
             mode="density" if include_shock_uncertainty else "mean",
             path_uncertainty=path_uncertainty,
             conditions=list(conditions or []),
-            adjusting=list(adjusting or []),
+            adjusting=adjusting if adjusting is None else list(adjusting),
             shocks=list(shocks or []),
         )

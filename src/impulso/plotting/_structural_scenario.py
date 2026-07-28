@@ -31,7 +31,8 @@ def plot_structural_scenario(
 
     fig = plot_conditional_forecast(result, prob=prob, figsize=figsize)
     title = fig._suptitle.get_text().replace("Conditional Forecast", "Structural Scenario")
-    if result.adjusting:
-        title += f" — adjusting: {', '.join(result.adjusting)}"
+    if result.adjusting is not None:
+        names = ", ".join(result.adjusting) if result.adjusting else "(none)"
+        title += f" — adjusting: {names}"
     fig.suptitle(title)
     return fig

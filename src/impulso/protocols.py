@@ -29,7 +29,16 @@ class Sampler(Protocol):
 
 @runtime_checkable
 class IdentificationScheme(Protocol):
-    """Contract for structural identification schemes."""
+    """Contract for structural identification schemes.
+
+    Optional capability flag: schemes that *sample* rotations inside
+    `identify` (a fresh draw per call, as `SignRestriction` does) must set
+    a truthy class attribute `_samples_rotations`. Forecast-side scenario
+    machinery reads it via `getattr(scheme, "_samples_rotations", False)`
+    and refuses time-varying volatility for such schemes — no single
+    structural coordinate system would span the forecast steps otherwise.
+    Deterministic schemes (`Cholesky`, `ProxySVAR`) omit the flag.
+    """
 
     def identify(
         self,
