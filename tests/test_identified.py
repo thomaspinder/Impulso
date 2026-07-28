@@ -301,11 +301,12 @@ class TestHistoricalDecompositionAt:
         )
 
     def test_at_default_matches_shock_matrix_reconstruction(self, identified_cholesky, synthetic_idata_2v, var_data_2v):
-        """For Constant, per-t HD equals the single-P decomposition via shock_matrix."""
+        """For Constant, HD equals the hand-propagated single-P decomposition."""
         hd = identified_cholesky.historical_decomposition()
         hd_vals = hd.idata.posterior_predictive["hd"].values
 
-        # Recompute by hand using shock_matrix.
+        # Recompute by hand: contemporaneous impact via shock_matrix, then
+        # the lag-1 propagation recursion (A_1 = B for n_lags = 1).
         B = synthetic_idata_2v.posterior["B"].values
         P = identified_cholesky.shock_matrix().values
         intercept = synthetic_idata_2v.posterior["intercept"].values
@@ -317,8 +318,13 @@ class TestHistoricalDecompositionAt:
         resid = y[n_lags:][np.newaxis, np.newaxis, :, :] - y_hat
         P_inv = np.linalg.inv(P)
         s = np.einsum("cdij,cdtj->cdti", P_inv, resid)
-        hd_legacy = P[:, :, np.newaxis, :, :] * s[:, :, :, np.newaxis, :]
-        np.testing.assert_allclose(hd_vals, hd_legacy, atol=1e-12)
+        impact = P[:, :, np.newaxis, :, :] * s[:, :, :, np.newaxis, :]
+        expected = np.zeros_like(impact)
+        carry = np.zeros(impact.shape[:2] + impact.shape[3:])
+        for t in range(impact.shape[2]):
+            carry = impact[:, :, t] + np.einsum("cdij,cdjs->cdis", B, carry)
+            expected[:, :, t] = carry
+        np.testing.assert_allclose(hd_vals, expected, atol=1e-10)
 
     def test_at_preserves_time_dim(self, identified_cholesky, var_data_2v):
         """HD always carries a time dim; ``at=`` must not change its length."""

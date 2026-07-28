@@ -15,8 +15,12 @@ def plot_historical_decomposition(
 ) -> Figure:
     """Plot historical decomposition as stacked bar charts.
 
-    One panel per response variable, showing the contribution of each
-    structural shock over time.
+    One panel per response variable, showing the propagated contribution of
+    each structural shock over time, with the total deviation from the
+    deterministic baseline (the sum of all contributions) overlaid as a
+    line. Shock labels come from the result's `shock` coordinate, so
+    partially-identified decompositions (with an `unidentified_remainder`
+    column) render correctly.
 
     Args:
         result: HistoricalDecompositionResult.
@@ -27,6 +31,7 @@ def plot_historical_decomposition(
     """
     hd_da = result.idata.posterior_predictive["hd"]
     med = hd_da.median(dim=("chain", "draw"))
+    shock_names = [str(s) for s in hd_da.coords["shock"].values]
     n_vars = len(result.var_names)
     T = med.sizes["time"]
 
@@ -43,7 +48,7 @@ def plot_historical_decomposition(
         panel = med.sel(response=resp).values  # (T, n_shocks)
         bottom_pos = None
         bottom_neg = None
-        for j, shock in enumerate(result.var_names):
+        for j, shock in enumerate(shock_names):
             vals = panel[:, j]
             pos = vals.clip(min=0)
             neg = vals.clip(max=0)
@@ -64,6 +69,13 @@ def plot_historical_decomposition(
                 )
                 bottom_pos += pos
                 bottom_neg += neg
+        axes[i].plot(
+            time_idx,
+            panel.sum(axis=1),
+            color="black",
+            linewidth=1.1,
+            label="deviation from baseline",
+        )
         axes[i].set_ylabel(resp)
         axes[i].axhline(0, color="0.5", linewidth=0.5, linestyle="--")
         if i == 0:

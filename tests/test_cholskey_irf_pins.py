@@ -172,15 +172,29 @@ class TestCholeskyHDPin:
         hd_sum = hd_da.sum(dim="shock").median(dim=("chain", "draw"))
         assert not np.allclose(hd_sum.values, 0.0)
 
+    def test_hd_additivity_exact(self, fitted_and_identified):
+        """Baseline plus summed contributions reproduce the data, per draw."""
+        _, identified = fitted_and_identified
+        pp = identified.historical_decomposition().idata.posterior_predictive
+        total = pp["hd"].sum(dim="shock").values + pp["baseline"].values
+        y = identified.data.endog[identified.n_lags :]
+        np.testing.assert_allclose(total, np.broadcast_to(y, total.shape), atol=1e-10)
+
     def test_hd_sum_values_pinned(self, fitted_and_identified):
-        """Pin HD residual reconstruction at first 3 time points."""
+        """Pin the propagated deviation from baseline at the first 3 time points.
+
+        Re-pinned for the propagated decomposition (scenario-analysis
+        stack): at the first in-sample point the propagated and legacy
+        values provably coincide (no history to propagate), so the first
+        row matches the pre-fix pin; later rows differ.
+        """
         _, identified = fitted_and_identified
         hd = identified.historical_decomposition()
         hd_da = hd.idata.posterior_predictive["hd"]
         hd_sum = hd_da.sum(dim="shock").median(dim=("chain", "draw"))
         expected_first3 = np.array([
             [-0.653623, -0.240780],
-            [0.218211, -0.050645],
-            [-0.318535, -0.322762],
+            [-0.135289, 0.008212],
+            [-0.391735, -0.301292],
         ])
         np.testing.assert_allclose(hd_sum.values[:3], expected_first3, rtol=1e-4)

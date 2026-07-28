@@ -243,15 +243,13 @@ class TestProxySVARGuardRails:
         assert list(da.coords["shock"].values) == ["target", "unidentified_remainder"]
 
     def test_hd_additivity_preserved(self):
-        """Sum over shock columns reproduces the reduced-form residual, so
-        collapsing the unidentified columns must not change the total."""
-        from impulso._residuals import reduced_form_residuals
-
+        """Baseline plus summed contributions reproduce the observed series,
+        so collapsing the unidentified columns must not change the total."""
         ivar = self._identified()
-        da = ivar.historical_decomposition().idata.posterior_predictive["hd"]
-        total = da.sum("shock").values  # (C, D, T, n)
-        resid = reduced_form_residuals(ivar.idata.posterior, ivar.data, n_lags=1)
-        np.testing.assert_allclose(total, resid, atol=1e-10)
+        pp = ivar.historical_decomposition().idata.posterior_predictive
+        total = pp["hd"].sum("shock").values + pp["baseline"].values  # (C, D, T, n)
+        y = ivar.data.endog[ivar.n_lags :]
+        np.testing.assert_allclose(total, np.broadcast_to(y, total.shape), atol=1e-8)
 
     def test_hd_identified_column_scale_invariant(self):
         """The identified shock's HD contribution must not depend on the

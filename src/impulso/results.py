@@ -313,7 +313,14 @@ class FEVDResult(VARResultBase):
 
 
 class HistoricalDecompositionResult(VARResultBase):
-    """Result from historical decomposition.
+    """Result from the propagated historical decomposition.
+
+    The posterior-predictive Dataset carries two variables: `"hd"` — the
+    propagated contribution of each structural shock — and `"baseline"` —
+    the deterministic path implied by the initial conditions, intercept,
+    and any exogenous regressors with all shocks set to zero. Baseline plus
+    the contributions summed over shocks reproduces the observed series
+    exactly for every posterior draw.
 
     Attributes:
         idata: ArviZ InferenceData with decomposition draws.
@@ -321,6 +328,28 @@ class HistoricalDecompositionResult(VARResultBase):
     """
 
     var_names: list[str]
+
+    def baseline(self) -> pd.DataFrame:
+        """Posterior median of the deterministic baseline path.
+
+        Returns:
+            DataFrame indexed by the same `DatetimeIndex` as `median()`,
+            with one column per variable.
+
+        Raises:
+            ValueError: If the result carries no `"baseline"` variable
+                (e.g. a hand-built result predating the propagated
+                decomposition).
+        """
+        if "baseline" not in self.idata.posterior_predictive:
+            raise ValueError(
+                "This result carries no 'baseline' variable; it was not "
+                "produced by IdentifiedVAR.historical_decomposition."
+            )
+        da = self.idata.posterior_predictive["baseline"]
+        med = da.median(dim=("chain", "draw")).transpose("time", "response")
+        index = pd.DatetimeIndex(da.coords["time"].values, name="time")
+        return pd.DataFrame(med.values, index=index, columns=self.var_names)
 
     def median(self) -> pd.DataFrame:
         """Posterior median historical decomposition.
