@@ -83,6 +83,10 @@ _Avoid_: conflating with `MinnesotaPrior` — different priors for different est
 The overall standard deviation of the Minnesota prior — the scalar controlling how hard all coefficients shrink toward the random-walk prior mean. `MinnesotaPrior.tightness` is this λ, held fixed; `ConjugateVAR` instead selects λ by maximising / sampling the marginal likelihood (hierarchical, à la Giannone et al. 2015).
 _Avoid_: bare "shrinkage" (ambiguous with cross-variable shrinkage).
 
+**Model evidence (`ModelEvidence`)**:
+The conjugate VAR's closed-form log marginal likelihood of the observed response block, `log p(y_{p+1:T} | y_{1:p}, hyperparameters, model)`, attached to `FittedVAR.evidence` by `ConjugateVAR.fit` (`None` on the NUTS path, which has no closed form). Because the value includes the volatility-rescaling Jacobian it is a density over the *observed* data, so a break model and a homoscedastic model on the same observations are directly comparable. It is conditional on the presample and on the hyperparameters it was evaluated at, so with `NIWPrior(select=True)` a ratio of two evidences is an empirical-Bayes Bayes factor. `compare_evidence(**fits)` checks comparability (same variable set, effective sample, window and response digest) and returns an `EvidenceComparison` of Bayes factors and posterior model probabilities.
+_Avoid_: "log ML" in the API surface (spell out marginal likelihood); "model probability" for a raw Bayes factor — the probability requires prior model weights.
+
 **Deterministic volatility break (`ConjugateVolatility`)**:
 A volatility process whose per-period scale `s_t` follows a deterministic, hyperparameter-driven path with a known break date — not a stochastic process. Used only by `ConjugateVAR`: the scale enters as data rescaling `ỹ_t = y_t / s_t` with a Jacobian in the marginal likelihood, and its hyperparameters are estimated jointly with λ. `PandemicBreak` (three outbreak scales + geometric decay from March 2020) is the concrete case reproducing Lenza & Primiceri (2020).
 _Avoid_: "stochastic volatility" — the break is deterministic given its hyperparameters.

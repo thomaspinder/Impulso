@@ -233,6 +233,10 @@ def select_and_sample(  # noqa: C901
         * ``L``: lower-triangular Cholesky draws of ``Sigma`` (``Sigma = L @ L.T``).
         * ``acceptance_rate``: Metropolis acceptance rate over the retained ``draws``.
         * ``mode``: ``{name: float}`` the transformed-posterior mode of each hyperparameter.
+        * ``log_marginal_likelihood``: the log marginal likelihood at the mode (on the
+          fixed-prior fast path, at the fixed hyperparameters). It excludes the hyperprior
+          and the transform Jacobian, so it is a data density — not the maximised posterior
+          height — and it is conditional on the hyperparameters it was evaluated at.
     """
     rng = np.random.default_rng(seed)
     y = np.asarray(y, dtype=float)
@@ -248,6 +252,8 @@ def select_and_sample(  # noqa: C901
     if d == 0:
         dummies_y, dummies_x = prior.build_dummies(y, n_lags, sigma, tightness=prior.tightness)
         drawn = draw_niw(niw_posterior(response, regressors, dummies_y, dummies_x), draws, rng)
+        # No volatility hyperparameters are free here, so the fitted model is the
+        # unrescaled one: evaluate its evidence with log_scales=None to match.
         return {
             "hyperparameters": {},
             "B_full": drawn["B_full"],
@@ -255,6 +261,9 @@ def select_and_sample(  # noqa: C901
             "L": drawn["L"],
             "acceptance_rate": 1.0,
             "mode": {},
+            "log_marginal_likelihood": float(
+                log_marginal_likelihood(response, regressors, dummies_y, dummies_x, log_scales=None)
+            ),
         }
 
     los = np.array([s.lo for s in specs])
@@ -279,16 +288,21 @@ def select_and_sample(  # noqa: C901
                 vol_theta[spec.name] = float(x[i])
         return x, lam, vol_theta, log_pj
 
-    def log_target(u: np.ndarray) -> float:
+    def log_ml_and_prior(u: np.ndarray) -> tuple[float, float]:
+        """Return the log marginal likelihood at ``u`` and its log prior + Jacobian, separately."""
         _, lam, vol_theta, log_pj = unpack(u)
         if not np.isfinite(log_pj):
-            return -np.inf
+            return -np.inf, -np.inf
         if lam_free:
             dummies_y, dummies_x = prior.build_dummies(y, n_lags, sigma, tightness=lam)
         else:
             dummies_y, dummies_x = fixed_dummies
         log_scales = None if volatility is None else volatility.log_scales(vol_theta, n_obs)
         lml = log_marginal_likelihood(response, regressors, dummies_y, dummies_x, log_scales=log_scales)
+        return lml, log_pj
+
+    def log_target(u: np.ndarray) -> float:
+        lml, log_pj = log_ml_and_prior(u)
         value = lml + log_pj
         return value if np.isfinite(value) else -np.inf
 
@@ -352,6 +366,7 @@ def select_and_sample(  # noqa: C901
 
     _, _, _, _ = unpack(u_mode)  # ensure mode is in-support
     mode = {spec.name: _to_constrained(u_mode[i], los[i], his[i]) for i, spec in enumerate(specs)}
+    log_ml_mode, _ = log_ml_and_prior(u_mode)
 
     return {
         "hyperparameters": hyper,
@@ -360,4 +375,5 @@ def select_and_sample(  # noqa: C901
         "L": chol_draws,
         "acceptance_rate": accepted_draws / draws,
         "mode": mode,
+        "log_marginal_likelihood": float(log_ml_mode),
     }

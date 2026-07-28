@@ -24,6 +24,7 @@ from impulso._conjugate import split_intercept
 from impulso._conjugate_sampler import select_and_sample
 from impulso.conjugate_volatility import ConjugateVolatility
 from impulso.data import VARData
+from impulso.evidence import ModelEvidence, _response_digest
 from impulso.fitted import FittedVAR
 from impulso.priors import NIWPrior
 from impulso.volatility import Constant
@@ -93,6 +94,9 @@ class ConjugateVAR(ImpulsoBaseModel):
             fixed-prior fast path no Metropolis chain runs (draws come
             straight from the closed-form posterior), so the attr is absent
             rather than stamped with a meaningless 1.0.
+            `FittedVAR.evidence` carries the closed-form log marginal
+            likelihood at the selected hyperparameters together with the
+            metadata `impulso.compare_evidence` needs to form Bayes factors.
 
         Raises:
             ValueError: If `data` carries exogenous regressors — the
@@ -132,7 +136,8 @@ class ConjugateVAR(ImpulsoBaseModel):
         posterior = xr.Dataset(posterior_vars)
         # Volatility adapters anchor forecast scale paths at the true sample
         # end (see ConjugateVolatility.forecast_cholesky_path).
-        posterior.attrs["in_sample_length"] = data.endog.shape[0] - self.lags
+        n_obs = data.endog.shape[0] - self.lags
+        posterior.attrs["in_sample_length"] = n_obs
         # Hyperparameter-sampler quality signal for convergence reporting. Only
         # meaningful when the Metropolis chain actually ran: with no free
         # hyperparameters `select_and_sample` takes the closed-form fast path and
@@ -142,10 +147,26 @@ class ConjugateVAR(ImpulsoBaseModel):
         idata = az.InferenceData(posterior=posterior)
         volatility = self.volatility if self.volatility is not None else Constant()
 
+        evidence = ModelEvidence(
+            log_marginal_likelihood=result["log_marginal_likelihood"],
+            n_obs=n_obs,
+            n_vars=len(data.endog_names),
+            var_names=list(data.endog_names),
+            n_lags=self.lags,
+            volatility=(
+                None if self.volatility is None else getattr(self.volatility, "name", type(self.volatility).__name__)
+            ),
+            hyperparameters=dict(result["mode"]),
+            sample_start=data.index[self.lags],
+            sample_end=data.index[-1],
+            sample_digest=_response_digest(data.endog, data.endog_names, self.lags),
+        )
+
         return FittedVAR.model_construct(
             idata=idata,
             n_lags=self.lags,
             data=data,
             var_names=data.endog_names,
             volatility=volatility,
+            evidence=evidence,
         )

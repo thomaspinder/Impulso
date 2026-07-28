@@ -64,7 +64,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from impulso import Cholesky, ConjugateVAR, MinnesotaPrior, NIWPrior, VAR, VARData
+from impulso import Cholesky, ConjugateVAR, MinnesotaPrior, NIWPrior, VAR, VARData, compare_evidence
 from impulso.samplers import NUTSSampler
 
 # %% [markdown]
@@ -258,6 +258,53 @@ if not ci:
     print(f"median-IRF shape correlation across all 16 shock/response pairs: {np.nanmean(correlations):.2f}")
 
 # %% [markdown]
+# ## Which lag order does the data prefer?
+#
+# The closed form gives us more than speed. Every conjugate fit reports its **marginal
+# likelihood** — the density of the observed data under the model, with the coefficients and
+# covariance integrated out — on `fitted.evidence`. Ratios of those numbers are Bayes
+# factors, so the twelve-lag choice we made by convention can be put to the data instead.
+#
+# One alignment matters. A VAR($p$) conditions on its first $p$ rows and models the rest, so
+# a VAR(1) and a VAR(12) on the same DataFrame are densities over *different* observations
+# and their ratio means nothing. We therefore feed each candidate a series pre-trimmed to
+# the longest lag order, `anomalies.iloc[LAGS - p:]`, so all three model exactly the same
+# response window and differ only in how far back they look. `compare_evidence` refuses the
+# comparison — loudly — if that alignment is missing.
+
+# %%
+comparison_draws = 50 if ci else 250
+candidates = {}
+for p in (1, 6, LAGS):
+    aligned = VARData.from_df(anomalies.iloc[LAGS - p :], endog=list(anomalies.columns))
+    candidates[f"p{p}"] = ConjugateVAR(
+        lags=p,
+        prior=NIWPrior(select=True, decay=2.0, cross_shrinkage=1.0),
+        draws=comparison_draws,
+        tune=comparison_draws,
+        seed=0,
+    ).fit(aligned)
+
+# %%
+evidence = compare_evidence(**candidates)
+print(f"preferred lag order: {evidence.best}")
+evidence.to_dataframe().round(3)
+
+# %% [markdown]
+# The `log_bayes_factor` column reads against the first model passed (`p1` here); the log10
+# column is the unit Kass and Raftery tabulate, and `posterior_probability` converts the
+# evidences to model weights under a flat prior over the three candidates. On these
+# de-seasonalised anomalies the short model wins by tens of log points: once the calendar is
+# removed, a month of Berlin weather carries little information about the next year of it,
+# and the extra lags buy less than they cost. We keep twelve lags for the rest of the
+# notebook so the estimator comparison stays on the system introduced above — but this is
+# the number to quote when someone asks why.
+#
+# Two caveats travel with these values. Each is conditional on the presample the shared
+# window leaves in front of it, and each is evaluated at the $\lambda$ its own fit selected,
+# which makes the ratio an *empirical-Bayes* Bayes factor rather than a fully marginal one.
+# Both are stated on `ModelEvidence`.
+#
 # ## When to reach for which
 #
 # Both estimators share the entire post-fitting pipeline — identification, IRFs, FEVDs,

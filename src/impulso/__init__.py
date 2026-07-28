@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from impulso._ma import compute_ma_phi
     from impulso.conjugate import ConjugateVAR
     from impulso.conjugate_volatility import ConjugateVolatility, PandemicBreak
+    from impulso.evidence import EvidenceComparison, ModelEvidence, compare_evidence
     from impulso.fitted import FittedVAR
     from impulso.identification import Cholesky, ProxySVAR, SignRestriction
     from impulso.identified import IdentifiedVAR
@@ -49,6 +50,7 @@ __all__ = [
     "Constant",
     "CounterfactualResult",
     "DynamicMultiplierResult",
+    "EvidenceComparison",
     "FEVDResult",
     "FittedSV",
     "FittedVAR",
@@ -59,6 +61,7 @@ __all__ = [
     "IdentifiedVAR",
     "LagOrderResult",
     "MinnesotaPrior",
+    "ModelEvidence",
     "NIWPrior",
     "NUTSSampler",
     "PandemicBreak",
@@ -74,6 +77,7 @@ __all__ = [
     "VariablePath",
     "VolatilityProcess",
     "VolatilityResult",
+    "compare_evidence",
     "compute_ma_phi",
     "enable_runtime_checks",
     "lag_matrices",
@@ -92,6 +96,9 @@ _LAZY_IMPORTS: dict[str, str] = {
     "ConjugateVAR": "impulso.conjugate",
     "ConjugateVolatility": "impulso.conjugate_volatility",
     "PandemicBreak": "impulso.conjugate_volatility",
+    "ModelEvidence": "impulso.evidence",
+    "EvidenceComparison": "impulso.evidence",
+    "compare_evidence": "impulso.evidence",
     "NUTSSampler": "impulso.samplers",
     "ForecastResult": "impulso.results",
     "ConditionalForecastResult": "impulso.results",
