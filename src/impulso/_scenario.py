@@ -402,12 +402,15 @@ def _constraint_system(
     L_path: np.ndarray,
     n_vars: int,
     d_total: int,
+    warn_on_ill_conditioning: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build the constraint rows `C`, Gram matrix `CC'`, and rhs `cbar`.
 
     Row `k` for pin `(i, h, value)` holds block `(Phi_{h-s} L_{T+s})[i, :]`
     at stacked positions `s*n..(s+1)*n` for `s <= h`; the rhs is
-    `value - b_{i,h}`. Warns when `CC'` is nearly singular.
+    `value - b_{i,h}`. Warns when `CC'` is nearly singular unless the
+    caller solves a column-restricted system and runs its own check on
+    the restricted Gram (`warn_on_ill_conditioning=False`).
     """
     n_chains, n_draws = b_path.shape[:2]
     r = len(pins)
@@ -419,7 +422,7 @@ def _constraint_system(
             block = np.einsum("cdk,cdkl->cdl", Phi[:, :, h - s, i, :], L_path[:, :, s])
             C_rows[:, :, k, s * n_vars : (s + 1) * n_vars] = block
     G = np.einsum("cdrk,cdsk->cdrs", C_rows, C_rows)
-    if np.max(np.linalg.cond(G)) > 1e8:
+    if warn_on_ill_conditioning and np.max(np.linalg.cond(G)) > 1e8:
         # stacklevel targets the public caller of conditional_forecast
         # (user -> conditional_forecast -> engine -> here -> warn).
         warnings.warn(
@@ -444,5 +447,356 @@ def _calibrate_q(q: np.ndarray, r: int, path_uncertainty: str, d_total: int) -> 
     if r == 0:
         return np.full_like(q, 0.5)
     if path_uncertainty == "unconditional":
+        return (1.0 + np.sqrt(1.0 - np.exp(-q / d_total))) / 2.0
+    return np.ones_like(q)
+
+
+# --- structural scenarios (three-way partition; ADR-0005 layer 3) ---
+
+
+def resolve_shock_prescriptions(
+    shocks: list[ShockPath],
+    shock_names: list[str],
+    steps: int,
+) -> list[tuple[int, int, float]]:
+    """Resolve forecast-side `ShockPath` prescriptions to `(shock, step, value)`.
+
+    Forecast-side prescriptions are positional from step 1 and must not
+    carry `start`/`end` (those are in-sample-only); a scalar broadcasts to
+    all steps, an array of length `L <= steps` prescribes steps `1..L`,
+    `NaN` entries are free. Duplicates, unknown shocks, and
+    `unidentified_*` columns raise.
+
+    Returns:
+        List of `(shock_index, step_index, value)` with 0-based steps.
+    """
+    from impulso.scenario import ShockPath
+
+    prescriptions: list[tuple[int, int, float]] = []
+    seen: set[tuple[int, int]] = set()
+    for path in shocks:
+        if not isinstance(path, ShockPath):
+            raise TypeError(f"structural_scenario prescriptions must be ShockPath, got {type(path).__name__}")
+        if path.start is not None or path.end is not None:
+            raise ValueError(
+                f"ShockPath for {path.shock!r} carries start/end, which are in-sample-only "
+                "(counterfactual windows); forecast-side prescriptions are positional from step 1."
+            )
+        if path.shock not in shock_names:
+            raise ValueError(f"Unknown shock {path.shock!r}; available shocks: {shock_names}")
+        if path.shock.startswith("unidentified_"):
+            raise ValueError(f"Cannot prescribe {path.shock!r}: unidentified shock columns are rotation-arbitrary.")
+        j = shock_names.index(path.shock)
+        for h, v in enumerate(_prescription_values(path, steps)):
+            if np.isnan(v):
+                continue
+            if (j, h) in seen:
+                raise ValueError(f"Duplicate prescription for {path.shock!r} at step {h + 1}; merge the paths.")
+            seen.add((j, h))
+            prescriptions.append((j, h, float(v)))
+    return prescriptions
+
+
+def _prescription_values(path: ShockPath, steps: int) -> np.ndarray:
+    """Broadcast or validate a prescription's values against the horizon."""
+    if isinstance(path.values, float):
+        if np.isnan(path.values):
+            raise ValueError(f"ShockPath for {path.shock!r} is a scalar NaN — it prescribes nothing.")
+        return np.full(steps, path.values)
+    values = np.asarray(path.values, dtype=np.float64)
+    if values.shape[0] > steps:
+        raise ValueError(
+            f"ShockPath values for {path.shock!r} have length {values.shape[0]} "
+            f"but the forecast has only {steps} steps."
+        )
+    return values
+
+
+def _resolve_adjusting(adjusting: list[str] | None, shock_names: list[str]) -> list[int]:
+    """Resolve the adjusting set to shock indices (default: all shocks).
+
+    The set must contain none or all of the `unidentified_*` columns — a
+    proper subset would make the scenario depend on the arbitrary
+    orthogonal completion (the full block is completion-invariant, the
+    same logic as the HD remainder collapse).
+    """
+    if adjusting is None:
+        return list(range(len(shock_names)))
+    indices: list[int] = []
+    for name in adjusting:
+        if name not in shock_names:
+            raise ValueError(f"Unknown adjusting shock {name!r}; available shocks: {shock_names}")
+        indices.append(shock_names.index(name))
+    unident_all = {i for i, s in enumerate(shock_names) if s.startswith("unidentified_")}
+    unident_in = unident_all & set(indices)
+    if unident_in and unident_in != unident_all:
+        raise ValueError(
+            "The adjusting set must contain none or all of the unidentified_* columns: a proper "
+            "subset makes the scenario depend on the arbitrary orthogonal completion."
+        )
+    return sorted(set(indices))
+
+
+def _forecast_shock_matrices(identified: IdentifiedVAR, steps: int, rng: np.random.Generator) -> np.ndarray:
+    """Scheme-identified structural matrices for the forecast horizon.
+
+    Constant volatility broadcasts the memoised `shock_matrix(at=None)` —
+    never a fresh `identify()` call, so rotation draws stay shared with
+    counterfactual/HD on the same instance. Time-varying volatility
+    identifies each forecast Cholesky slice; rotation-sampling schemes
+    (the `_samples_rotations` capability flag, e.g. `SignRestriction`)
+    cannot yet pin one rotation per draw across steps and error there.
+    """
+    posterior = identified.idata.posterior
+    if not identified.volatility.is_time_varying:
+        P = identified.shock_matrix(at=None).values  # (C, D, n, n)
+        return np.broadcast_to(P[:, :, np.newaxis, :, :], (*P.shape[:2], steps, *P.shape[2:])).copy()
+    if getattr(identified.scheme, "_samples_rotations", False):
+        raise ValueError(
+            f"structural_scenario under time-varying volatility is not supported for "
+            f"rotation-sampling schemes ({type(identified.scheme).__name__}): rotations are "
+            "re-sampled per identify() call, so no single structural coordinate system "
+            "spans the forecast steps. Use a rotation-free scheme (Cholesky, ProxySVAR), "
+            "or constant volatility."
+        )
+    L_path = identified.volatility.forecast_cholesky_path(posterior, steps=steps, rng=rng)
+    P_path = np.zeros_like(L_path)
+    for h in range(steps):
+        P_path[:, :, h] = identified.scheme.identify(
+            L_path[:, :, h],
+            identified.var_names,
+            posterior=posterior,
+            data=identified.data,
+            n_lags=identified.n_lags,
+        )
+    return P_path
+
+
+def _scenario_feasibility(
+    pins: list[tuple[int, int, float]],
+    entries_A: list[tuple[int, int]],
+    n_prescribed: int,
+    steps: int,
+) -> None:
+    """Draw-independent feasibility checks (design section 2, two-tier).
+
+    Errors when the conditions outnumber the effective adjusting entries,
+    globally or in any leading horizon block (conditions at step `h` load
+    only on adjusting entries at steps `<= h`, by block-triangularity).
+    """
+    r = len(pins)
+    if r > len(entries_A):
+        raise ValueError(
+            f"{r} condition(s) but only {len(entries_A)} effective adjusting entr(ies) "
+            f"({n_prescribed} prescribed entr(ies) consumed adjusting capacity); the "
+            "scenario is over-determined. Widen the adjusting set or drop conditions."
+        )
+    for h in range(steps):
+        pins_leading = sum(1 for (_, ph, _) in pins if ph <= h)
+        adjusting_leading = sum(1 for (_, ah) in entries_A if ah <= h)
+        if pins_leading > adjusting_leading:
+            raise ValueError(
+                f"Conditions through step {h + 1} ({pins_leading}) exceed the adjusting "
+                f"entries available at steps <= {h + 1} ({adjusting_leading}); conditions "
+                "at a step load only on adjusting shocks at that step or earlier "
+                "(block-triangularity). Widen the adjusting set or move conditions later."
+            )
+
+
+def structural_scenario_engine(
+    identified: IdentifiedVAR,
+    steps: int,
+    conditions: list[VariablePath],
+    shocks: list[ShockPath],
+    adjusting: list[str] | None,
+    include_shock_uncertainty: bool,
+    seed: int | np.random.Generator | None,
+    exog_future: np.ndarray | None,
+    path_uncertainty: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+    """ADPRR structural scenario via the three-way partition solve.
+
+    Stacked shock entries split into `D` (prescribed — substituted at
+    their `ShockPath` values, never constraint rows), `A` (adjusting
+    entries not in `D` — absorb the `VariablePath` conditions), and `F`
+    (free — retain unconditional draws). Per free-block draw the solve is
+    `C_A E_A = cbar - C_D v_S - C_F eps_F` with the conditional-Gaussian
+    resolution of under-determination; feasibility is checked once at
+    validation (counting) and per draw (numerical rank of `C_A`).
+
+    Plausibility per draw: `q = ctilde'(C_A C_A')^{-1} ctilde + |v_S|^2`
+    — the prescribed shocks' own magnitude registers even though they are
+    substituted. The ADPRR calibration is finite only under
+    `path_uncertainty="unconditional"` with no prescriptions.
+
+    Returns:
+        Tuple `(paths, q, q_cond, q_cal, r)`: as in
+        `conditional_forecast_engine` plus `q_cond`, the condition-only
+        part of the plausibility (the `chi^2_r`-referenced quantity —
+        the prescribed `|v_S|^2` term has no chi-squared reference).
+    """
+    from impulso._linalg import lag_matrices
+    from impulso._ma import compute_ma_phi
+    from impulso._propagate import propagate
+
+    posterior = identified.idata.posterior
+    B_draws = posterior["B"].values
+    n_lags = identified.n_lags
+    n_chains, n_draws, n_vars, _ = B_draws.shape
+    d_total = steps * n_vars
+    shock_names = identified.shock_names
+
+    pins = resolve_variable_pins(conditions, identified.var_names, steps)
+    prescriptions = resolve_shock_prescriptions(shocks, shock_names, steps)
+    adjusting_idx = _resolve_adjusting(adjusting, shock_names)
+    r = len(pins)
+
+    if any(v != 0.0 for (_, _, v) in prescriptions) and getattr(identified.scheme, "scale", None) is not None:
+        # stacklevel targets the public caller of structural_scenario
+        # (user -> structural_scenario -> engine -> warn).
+        warnings.warn(
+            "ShockPath values are in one-standard-deviation units, but the identification "
+            "scheme applies a unit-effect rescaling (scale is set); non-zero prescriptions "
+            "are not invariant to that normalisation and neither is their plausibility "
+            "contribution. Zero prescriptions are safe; for custom paths re-identify with "
+            "scale=None.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    flat = lambda j, h: h * n_vars + j
+    D_entries = {(j, h) for (j, h, _) in prescriptions}
+    entries_A = [(j, h) for h in range(steps) for j in adjusting_idx if (j, h) not in D_entries]
+    _scenario_feasibility(pins, entries_A, len(D_entries), steps)
+    A_flat = [flat(j, h) for (j, h) in entries_A]
+    D_flat = [flat(j, h) for (j, h, _) in prescriptions]
+    F_flat = sorted(set(range(d_total)) - set(A_flat) - set(D_flat))
+    v_S = np.array([v for (_, _, v) in prescriptions])
+
+    # Deterministic path b (mean recursion from the last observed lags).
+    intercept = posterior["intercept"].values
+    forcing = np.broadcast_to(intercept[:, :, np.newaxis, :], (n_chains, n_draws, steps, n_vars)).copy()
+    if exog_future is not None:
+        forcing += np.einsum("cdij,hj->cdhi", posterior["B_exog"].values, exog_future)
+    A_lags = lag_matrices(B_draws, n_lags)
+    b_path = propagate(A_lags, forcing, identified.data.endog[-n_lags:])
+
+    rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+    P_path = _forecast_shock_matrices(identified, steps, rng)
+
+    # One per-step innovation grid in forecast()'s stream order — the ξ
+    # source for the free block AND the adjusting-block solve, so the
+    # adjusting=all / no-prescriptions case matches conditional_forecast
+    # draw-for-draw under a shared seed.
+    eps_flat = np.zeros((n_chains, n_draws, d_total))
+    xi_flat = None
+    if include_shock_uncertainty:
+        xi = np.empty((n_chains, n_draws, steps, n_vars))
+        for h in range(steps):
+            xi[:, :, h, :] = rng.standard_normal((n_chains, n_draws, n_vars))
+        xi_flat = xi.reshape(n_chains, n_draws, d_total)
+        if F_flat:
+            eps_flat[:, :, F_flat] = xi_flat[:, :, F_flat]
+    if prescriptions:
+        eps_flat[:, :, D_flat] = v_S[np.newaxis, np.newaxis, :]
+
+    q_cond = np.zeros((n_chains, n_draws))
+    if r:
+        Phi = compute_ma_phi(A_lags, steps - 1)
+        C_rows, _, cbar = _constraint_system(pins, b_path, Phi, P_path, n_vars, d_total, warn_on_ill_conditioning=False)
+        q_cond = _absorb_conditions(C_rows, cbar, eps_flat, xi_flat, A_flat, D_flat, F_flat, v_S, path_uncertainty)
+    elif xi_flat is not None and A_flat:
+        # No conditions: adjusting entries are simply free.
+        eps_flat[:, :, A_flat] = xi_flat[:, :, A_flat]
+
+    q = q_cond + float(v_S @ v_S) if prescriptions else q_cond
+
+    eps = eps_flat.reshape(n_chains, n_draws, steps, n_vars)
+    u = np.einsum("cdhij,cdhj->cdhi", P_path, eps)
+    deviation = propagate(A_lags, u, np.zeros((n_lags, n_vars)))
+    paths = b_path + deviation
+
+    q_cal = _calibrate_scenario_q(q, r, len(prescriptions), path_uncertainty, d_total)
+    return paths, q, q_cond, q_cal, r
+
+
+def _absorb_conditions(
+    C_rows: np.ndarray,
+    cbar: np.ndarray,
+    eps_flat: np.ndarray,
+    xi_flat: np.ndarray | None,
+    A_flat: list[int],
+    D_flat: list[int],
+    F_flat: list[int],
+    v_S: np.ndarray,
+    path_uncertainty: str,
+) -> np.ndarray:
+    """Solve the adjusting block and write it into `eps_flat` (in place).
+
+    Reduces the full constraint rows to the adjusting columns, folds the
+    prescribed and free contributions into the rhs, checks per-draw
+    numerical rank, and fills the adjusting entries per the conditioning
+    mode. Returns the per-draw condition part of the plausibility
+    statistic, `ctilde'(C_A C_A')^{-1} ctilde`.
+    """
+    r = cbar.shape[-1]
+    C_A = C_rows[:, :, :, A_flat]
+    ctilde = cbar.copy()
+    if D_flat:
+        ctilde -= np.einsum("cdrk,k->cdr", C_rows[:, :, :, D_flat], v_S)
+    if F_flat:
+        ctilde -= np.einsum("cdrk,cdk->cdr", C_rows[:, :, :, F_flat], eps_flat[:, :, F_flat])
+
+    ranks = np.linalg.matrix_rank(C_A)
+    if ranks.min() < r:
+        raise ValueError(
+            f"The adjusting-block constraint matrix is rank-deficient for "
+            f"{int((ranks < r).sum())} posterior draw(s) (rank < {r}): the adjusting "
+            "shocks cannot absorb the conditions there (e.g. a Cholesky zero makes a "
+            "condition load on no adjusting shock at its step). Widen the adjusting set."
+        )
+    G_A = np.einsum("cdrk,cdsk->cdrs", C_A, C_A)
+    if np.max(np.linalg.cond(G_A)) > 1e8:
+        # stacklevel targets the public caller of structural_scenario
+        # (user -> structural_scenario -> engine -> here -> warn).
+        warnings.warn(
+            "The adjusting-block constraint system is nearly redundant (condition "
+            "number of C_A C_A' exceeds 1e8) — nearly-collinear condition loadings "
+            "on the adjusting shocks inflate the conditional adjustment and the "
+            "plausibility statistic without tripping the rank check.",
+            UserWarning,
+            stacklevel=4,
+        )
+    alpha = np.linalg.solve(G_A, ctilde[..., np.newaxis])[..., 0]
+    E_A_mean = np.einsum("cdrk,cdr->cdk", C_A, alpha)
+
+    if xi_flat is not None and path_uncertainty == "none":
+        xi_A = xi_flat[:, :, A_flat]
+        residual = np.einsum("cdrk,cdk->cdr", C_A, xi_A) - ctilde
+        beta = np.linalg.solve(G_A, residual[..., np.newaxis])[..., 0]
+        eps_flat[:, :, A_flat] = xi_A - np.einsum("cdrk,cdr->cdk", C_A, beta)
+    elif xi_flat is not None:
+        eps_flat[:, :, A_flat] = E_A_mean + xi_flat[:, :, A_flat]
+    else:
+        eps_flat[:, :, A_flat] = E_A_mean
+    return np.einsum("cdr,cdr->cd", ctilde, alpha)
+
+
+def _calibrate_scenario_q(
+    q: np.ndarray,
+    n_conditions: int,
+    n_prescribed: int,
+    path_uncertainty: str,
+    d_total: int,
+) -> np.ndarray:
+    """Scenario variant of the ADPRR calibration.
+
+    Finite only under `path_uncertainty="unconditional"` with no
+    prescriptions (hard substitutions keep the divergence infinite); the
+    ceiling is 1, the no-restriction floor 0.5.
+    """
+    if n_conditions + n_prescribed == 0:
+        return np.full_like(q, 0.5)
+    if path_uncertainty == "unconditional" and n_prescribed == 0:
         return (1.0 + np.sqrt(1.0 - np.exp(-q / d_total))) / 2.0
     return np.ones_like(q)

@@ -1,6 +1,6 @@
 """Identification schemes for structural VAR analysis."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -88,6 +88,11 @@ class SignRestriction(ImpulsoModel):
     n_rotations: int = Field(default=1000, ge=1)
     restriction_horizon: int = Field(default=0, ge=0)
     random_seed: int | None = None
+
+    # Rotation-sampling schemes cannot yet pin one rotation per posterior
+    # draw across forecast steps; forecast-side scenario machinery checks
+    # this capability flag and refuses time-varying volatility.
+    _samples_rotations: ClassVar[bool] = True
 
     # Single-call scratchpad: identify() writes the rate; the pipeline
     # (IdentifiedVAR.shock_matrix) reads it immediately afterwards and

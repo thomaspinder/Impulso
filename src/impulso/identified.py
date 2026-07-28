@@ -14,10 +14,16 @@ from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme, VolatilityProcess
-from impulso.results import CounterfactualResult, FEVDResult, HistoricalDecompositionResult, IRFResult
+from impulso.results import (
+    CounterfactualResult,
+    FEVDResult,
+    HistoricalDecompositionResult,
+    IRFResult,
+    ScenarioResult,
+)
 
 if TYPE_CHECKING:
-    from impulso.scenario import ShockPath
+    from impulso.scenario import ShockPath, VariablePath
 
 # Type alias for the `at=` parameter used by query methods.
 AtParam = int | Literal["last", "all"] | None
@@ -539,3 +545,144 @@ class IdentifiedVAR(ImpulsoBaseModel):
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"counterfactual": cf_da, "actual": actual_da}))
         return CounterfactualResult(idata=idata, var_names=self.var_names)
+
+    def structural_scenario(
+        self,
+        steps: int,
+        conditions: "list[VariablePath] | None" = None,
+        shocks: "list[ShockPath] | None" = None,
+        adjusting: list[str] | None = None,
+        include_shock_uncertainty: bool = True,
+        seed: int | np.random.Generator | None = None,
+        exog_future: np.ndarray | None = None,
+        path_uncertainty: Literal["none", "unconditional"] = "none",
+    ) -> ScenarioResult:
+        """Structural scenario: conditions absorbed by named shocks, paths prescribed.
+
+        The ADPRR structural scenario (Antolín-Díaz, Petrella &
+        Rubio-Ramírez 2021), combinable in both flavours:
+        *conditional-on-observables* — `VariablePath` pins that must be
+        absorbed by the `adjusting` shocks while non-adjusting shocks keep
+        their unconditional draws — and *conditional-on-shocks* —
+        forecast-side `ShockPath` prescriptions, substituted outright
+        (positional from step 1; a prescription always wins over
+        adjusting membership at its steps). With `adjusting=None` all
+        shocks adjust, and with no prescriptions the result reproduces
+        `conditional_forecast` (exactly per draw under natural-order
+        Cholesky identification with a matched `seed`).
+
+        Feasibility is enforced twice: once at validation (conditions
+        must not outnumber the effective adjusting entries, globally or
+        in any leading horizon block) and per posterior draw (numerical
+        rank of the adjusting-block constraint matrix — a Cholesky zero
+        can make a condition load on no adjusting shock at its step).
+        Infeasible draws error rather than being dropped, which would
+        condition the posterior on feasibility.
+
+        The per-draw plausibility statistic includes the prescribed
+        shocks' own magnitude: `q = c̃'(C_A C_A')⁻¹c̃ + |v_S|²` in
+        one-standard-deviation units — prescribing a 3-sd shock registers
+        as `q += 9` even though prescriptions are substituted. The
+        ADPRR-calibrated `q_cal` is finite only under
+        `path_uncertainty="unconditional"` with no prescriptions.
+
+        Note:
+            Under time-varying volatility the scheme-identified forecast
+            factors are built per simulated volatility path
+            (conditional-on-path; see ADR-0005), and `SignRestriction` is
+            not supported there — the scheme re-samples rotations per
+            call, so no single structural coordinate system spans the
+            forecast steps. Under constant volatility the memoised
+            `shock_matrix` is broadcast, sharing rotation draws with
+            `counterfactual` and the historical decomposition on this
+            instance.
+
+        Args:
+            steps: Number of forecast steps.
+            conditions: `VariablePath` pins to be absorbed by the
+                adjusting shocks.
+            shocks: Forecast-side `ShockPath` prescriptions (no
+                `start`/`end`; positional from step 1; `NaN` = free).
+            adjusting: Names of the shocks permitted to absorb the
+                conditions. `None` (default) lets every shock adjust.
+                Must contain none or all of any `unidentified_*` columns.
+            include_shock_uncertainty: Density mode (default) vs mean
+                mode (free block zeroed, conditional mean propagated).
+            seed: RNG seed (int) or Generator.
+            exog_future: Future exogenous values, shape `(steps, k)`.
+                Required if the posterior carries `B_exog`.
+            path_uncertainty: `"none"` (hard pins) or `"unconditional"`
+                (pins restrict the mean; bands keep unconditional width).
+
+        Returns:
+            ScenarioResult with forecast draws, the scenario ingredients
+            echoed, and the plausibility statistics.
+
+        Raises:
+            ValueError: On unknown shocks/variables, `unidentified_*`
+                references, in-sample windows on prescriptions, duplicate
+                pins or prescriptions, over-determination, per-draw rank
+                failure, `SignRestriction` under time-varying volatility,
+                an invalid `path_uncertainty`, or exogenous-data
+                mismatches.
+        """
+        from scipy.stats import chi2
+
+        from impulso._scenario import structural_scenario_engine
+
+        if path_uncertainty not in ("none", "unconditional"):
+            raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
+        posterior = self.idata.posterior
+        if self.data.exog is not None and "B_exog" not in posterior:
+            raise ValueError(
+                "This IdentifiedVAR's data carries exogenous regressors the estimator "
+                "never consumed (no B_exog in the posterior); refit with an estimator "
+                "that supports them before scenario analysis."
+            )
+        if exog_future is not None:
+            if "B_exog" not in posterior:
+                raise ValueError("exog_future provided but the posterior carries no B_exog.")
+            exog_future = np.asarray(exog_future, dtype=float)
+            n_exog = posterior["B_exog"].shape[-1]
+            if exog_future.shape != (steps, n_exog):
+                raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {exog_future.shape}.")
+        if self.data.exog is not None and exog_future is None:
+            raise ValueError("exog_future is required when the model includes exogenous variables")
+
+        paths, q, q_cond, q_cal, r = structural_scenario_engine(
+            self,
+            steps=steps,
+            conditions=list(conditions or []),
+            shocks=list(shocks or []),
+            adjusting=adjusting,
+            include_shock_uncertainty=include_shock_uncertainty,
+            seed=seed,
+            exog_future=exog_future,
+            path_uncertainty=path_uncertainty,
+        )
+
+        forecast_da = xr.DataArray(
+            paths,
+            dims=["chain", "draw", "step", "variable"],
+            coords={"variable": self.var_names},
+            name="forecast",
+        )
+        ds = xr.Dataset({
+            "forecast": forecast_da,
+            "plausibility": xr.DataArray(q, dims=["chain", "draw"], name="plausibility"),
+            "plausibility_calibrated": xr.DataArray(q_cal, dims=["chain", "draw"], name="plausibility_calibrated"),
+        })
+        ds.attrs["n_restrictions"] = r
+        # The chi^2_r reference applies to the condition-only part of q;
+        # the prescribed |v_S|^2 term carries no chi-squared law.
+        ds.attrs["chi2_tail_of_median"] = float(chi2.sf(float(np.median(q_cond)), df=r)) if r else 1.0
+        return ScenarioResult(
+            idata=az.InferenceData(posterior_predictive=ds),
+            steps=steps,
+            var_names=self.var_names,
+            mode="density" if include_shock_uncertainty else "mean",
+            path_uncertainty=path_uncertainty,
+            conditions=list(conditions or []),
+            adjusting=adjusting if adjusting is None else list(adjusting),
+            shocks=list(shocks or []),
+        )

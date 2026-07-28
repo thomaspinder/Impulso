@@ -11,7 +11,7 @@ from matplotlib.figure import Figure
 from pydantic import Field
 
 from impulso._base import ImpulsoBaseModel
-from impulso.scenario import VariablePath
+from impulso.scenario import ShockPath, VariablePath
 
 
 def _wide_frame(da: xr.DataArray, row_dim: str, col_dim: str = "shock") -> pd.DataFrame:
@@ -474,6 +474,34 @@ class ConditionalForecastResult(VARResultBase):
         from impulso.plotting import plot_conditional_forecast
 
         return plot_conditional_forecast(self)
+
+
+class ScenarioResult(ConditionalForecastResult):
+    """Result from structural scenario analysis.
+
+    Extends `ConditionalForecastResult` with the structural ingredients —
+    the adjusting set and any prescribed shock paths; the forecast and
+    plausibility surface (`median`, `hdi`, `plausibility`) is inherited.
+    The per-draw `plausibility` includes the prescribed shocks' own
+    magnitude `|v_S|^2` in one-standard-deviation units; the chi-squared
+    tail probability in attrs refers to the condition-only part.
+
+    Attributes:
+        adjusting: Names of the shocks permitted to absorb the conditions,
+            echoed verbatim from the call: `None` means every shock was
+            free to adjust; an empty list means none were (the pure
+            substitution case).
+        shocks: The prescribed `ShockPath` sequences echoed from the call.
+    """
+
+    adjusting: list[str] | None = None
+    shocks: list[ShockPath] = Field(default_factory=list, repr=False)
+
+    def plot(self) -> Figure:
+        """Plot the structural scenario fan chart with pinned values marked."""
+        from impulso.plotting import plot_structural_scenario
+
+        return plot_structural_scenario(self)
 
 
 class CounterfactualResult(VARResultBase):

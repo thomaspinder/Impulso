@@ -111,6 +111,15 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 >
 > **User:** "Just a univariate SV fit."
 > **Library:** `StochasticVolatility(dynamics="ar1").fit(SVData(y))`. Same class, standalone code path.
+>
+> **User:** "What would food prices have done if the 2022 energy shock had never happened?"
+> **Library:** `identified.counterfactual(shocks=[ShockPath(shock="energy", values=0.0, start="2022-01", end="2022-12")])`. Realised shocks are edited and re-propagated; `result.difference()` is the shock's effect.
+>
+> **User:** "Forecast inflation if the policy rate follows this path for two years."
+> **Library:** `fitted.conditional_forecast(steps=8, conditions=[VariablePath(variable="rate", values=path)])`. All shocks adjust (Waggoner–Zha); no identification scheme needed. Add `path_uncertainty="unconditional"` to restrict the mean only and keep honest bands.
+>
+> **User:** "Same rate path, but make the *policy* shock do the work — and how believable is that?"
+> **Library:** `identified.structural_scenario(steps=8, conditions=[VariablePath(variable="rate", values=path)], adjusting=["policy"])`. Non-adjusting shocks keep their unconditional draws; `result.plausibility()` reports `q` and the calibrated `q_cal`.
 
 ## Conventions
 
