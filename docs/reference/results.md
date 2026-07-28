@@ -13,6 +13,7 @@
    IRFResult
    FEVDResult
    HistoricalDecompositionResult
+   CounterfactualResult
    HDIResult
    LagOrderResult
    SVForecastResult

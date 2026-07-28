@@ -1,7 +1,7 @@
 """IdentifiedVAR — structural VAR with identified shocks."""
 
 import warnings
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import arviz as az
 import numpy as np
@@ -14,7 +14,10 @@ from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
 from impulso.data import VARData
 from impulso.protocols import IdentificationScheme, VolatilityProcess
-from impulso.results import FEVDResult, HistoricalDecompositionResult, IRFResult
+from impulso.results import CounterfactualResult, FEVDResult, HistoricalDecompositionResult, IRFResult
+
+if TYPE_CHECKING:
+    from impulso.scenario import ShockPath
 
 # Type alias for the `at=` parameter used by query methods.
 AtParam = int | Literal["last", "all"] | None
@@ -464,3 +467,75 @@ class IdentifiedVAR(ImpulsoBaseModel):
         )
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da, "baseline": baseline_da}))
         return HistoricalDecompositionResult(idata=idata, var_names=self.var_names)
+
+    def counterfactual(
+        self,
+        shocks: "list[ShockPath]",
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
+    ) -> CounterfactualResult:
+        """Historical counterfactual: edit realised structural shocks and re-propagate.
+
+        Backs out the realised structural shocks per posterior draw
+        (`eps_t = P_t⁻¹ u_t`), overwrites the paths named by `shocks`
+        (`ShockPath` values are in one-standard-deviation units; `0.0`
+        switches a shock off; windows resolve against the lag-trimmed
+        index), and re-runs the lag recursion from the actual initial
+        conditions. Realised shocks are edited, never re-drawn, so the
+        posterior spread of the counterfactual reflects parameter and
+        identification uncertainty only. With `shocks=[]` the observed
+        sample is reproduced exactly.
+
+        For a shock zeroed over the *full* sample,
+        `actual - counterfactual` equals that shock's historical-
+        decomposition contribution exactly, per draw. For a *windowed*
+        zero-edit it instead equals the propagation of the shock's
+        innovations dated inside the window only — zero before the window,
+        persisting (decaying under stability) after it — which is *not*
+        the windowed slice of the full-sample HD contribution (that slice
+        also carries earlier impulses).
+
+        Note:
+            The Lucas critique applies: fixed-path shock edits assume the
+            estimated reduced-form dynamics are invariant to the
+            intervention. Policy-rule replacement is a different object
+            and out of scope.
+
+        Args:
+            shocks: `ShockPath` edits to impose (may be empty).
+            start: Optional start of the *returned* window. The simulation
+                always runs from the sample start; `start`/`end` only
+                slice the output (the `historical_decomposition`
+                convention). Edit windows live on the `ShockPath` objects.
+            end: Optional end of the returned window.
+
+        Returns:
+            CounterfactualResult carrying the counterfactual draws and the
+            actual path over the same window.
+        """
+        from impulso._scenario import counterfactual_paths
+
+        n_lags = self.n_lags
+        y_cf = counterfactual_paths(self, list(shocks))
+
+        idx = self.data.index[n_lags:]
+        t_start = idx.searchsorted(start) if start is not None else 0
+        t_end = idx.searchsorted(end, side="right") if end is not None else len(idx)
+        y_cf = y_cf[:, :, t_start:t_end]
+        actual = self.data.endog[n_lags:][t_start:t_end]
+
+        time_coord = ("time", idx[t_start:t_end])
+        cf_da = xr.DataArray(
+            y_cf,
+            dims=["chain", "draw", "time", "variable"],
+            coords={"variable": self.var_names, "time": time_coord},
+            name="counterfactual",
+        )
+        actual_da = xr.DataArray(
+            actual,
+            dims=["time", "variable"],
+            coords={"variable": self.var_names, "time": time_coord},
+            name="actual",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"counterfactual": cf_da, "actual": actual_da}))
+        return CounterfactualResult(idata=idata, var_names=self.var_names)
