@@ -45,6 +45,16 @@ class TestVARSpec:
         with pytest.raises(ValidationError):
             VAR(lags=0, prior="minnesota")
 
+    def test_default_sampler_is_safe(self):
+        """The sampler `VAR.fit` falls back to must pin cores=1 to dodge the segfault."""
+        from impulso.samplers import NUTSSampler
+
+        sampler = VAR._default_sampler()
+        assert isinstance(sampler, NUTSSampler)
+        assert sampler.cores == 1
+        assert sampler.chains == 4
+        assert sampler.target_accept == 0.8
+
 
 class TestVolatilityParameter:
     def test_default_volatility_is_constant_string(self):
