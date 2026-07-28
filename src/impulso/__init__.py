@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         HistoricalDecompositionResult,
         IRFResult,
         LagOrderResult,
+        ScenarioResult,
         SVForecastResult,
         VolatilityResult,
     )
@@ -63,6 +64,7 @@ __all__ = [
     "SVData",
     "SVDefaultPrior",
     "SVForecastResult",
+    "ScenarioResult",
     "ShockPath",
     "SignRestriction",
     "StochasticVolatility",
@@ -94,6 +96,7 @@ def __getattr__(name: str):
         "ForecastResult": "impulso.results",
         "ConditionalForecastResult": "impulso.results",
         "CounterfactualResult": "impulso.results",
+        "ScenarioResult": "impulso.results",
         "DynamicMultiplierResult": "impulso.results",
         "ShockPath": "impulso.scenario",
         "VariablePath": "impulso.scenario",

@@ -9,6 +9,7 @@
 
    plot_forecast
    plot_conditional_forecast
+   plot_structural_scenario
    plot_dynamic_multiplier
    plot_irf
    plot_fevd

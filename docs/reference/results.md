@@ -10,6 +10,7 @@
    VARResultBase
    ForecastResult
    ConditionalForecastResult
+   ScenarioResult
    DynamicMultiplierResult
    IRFResult
    FEVDResult
