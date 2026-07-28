@@ -79,49 +79,69 @@ __all__ = [
 ]
 
 
+_LAZY_IMPORTS: dict[str, str] = {
+    "FittedVAR": "impulso.fitted",
+    "IdentifiedVAR": "impulso.identified",
+    "Cholesky": "impulso.identification",
+    "ProxySVAR": "impulso.identification",
+    "SignRestriction": "impulso.identification",
+    "MinnesotaPrior": "impulso.priors",
+    "NIWPrior": "impulso.priors",
+    "ConjugateVAR": "impulso.conjugate",
+    "ConjugateVolatility": "impulso.conjugate_volatility",
+    "PandemicBreak": "impulso.conjugate_volatility",
+    "NUTSSampler": "impulso.samplers",
+    "ForecastResult": "impulso.results",
+    "ConditionalForecastResult": "impulso.results",
+    "CounterfactualResult": "impulso.results",
+    "ScenarioResult": "impulso.results",
+    "DynamicMultiplierResult": "impulso.results",
+    "ShockPath": "impulso.scenario",
+    "VariablePath": "impulso.scenario",
+    "IRFResult": "impulso.results",
+    "FEVDResult": "impulso.results",
+    "HistoricalDecompositionResult": "impulso.results",
+    "HDIResult": "impulso.results",
+    "LagOrderResult": "impulso.results",
+    "SVData": "impulso.sv.data",
+    "StochasticVolatility": "impulso.sv.spec",
+    "FittedSV": "impulso.sv.fitted",
+    "SVDefaultPrior": "impulso.sv.priors",
+    "VolatilityResult": "impulso.results",
+    "SVForecastResult": "impulso.results",
+    "Constant": "impulso.volatility",
+    "VolatilityProcess": "impulso.protocols",
+    "compute_ma_phi": "impulso._ma",
+    "lag_matrices": "impulso._linalg",
+}
+"""Map of lazily-exported name to the module that defines it.
+
+Built once at import time so that `__getattr__` does not rebuild it on every
+lazy attribute access.
+"""
+
+
 def __getattr__(name: str):
     """Lazy imports for types not needed at import time."""
-    _lazy_imports = {
-        "FittedVAR": "impulso.fitted",
-        "IdentifiedVAR": "impulso.identified",
-        "Cholesky": "impulso.identification",
-        "ProxySVAR": "impulso.identification",
-        "SignRestriction": "impulso.identification",
-        "MinnesotaPrior": "impulso.priors",
-        "NIWPrior": "impulso.priors",
-        "ConjugateVAR": "impulso.conjugate",
-        "ConjugateVolatility": "impulso.conjugate_volatility",
-        "PandemicBreak": "impulso.conjugate_volatility",
-        "NUTSSampler": "impulso.samplers",
-        "ForecastResult": "impulso.results",
-        "ConditionalForecastResult": "impulso.results",
-        "CounterfactualResult": "impulso.results",
-        "ScenarioResult": "impulso.results",
-        "DynamicMultiplierResult": "impulso.results",
-        "ShockPath": "impulso.scenario",
-        "VariablePath": "impulso.scenario",
-        "IRFResult": "impulso.results",
-        "FEVDResult": "impulso.results",
-        "HistoricalDecompositionResult": "impulso.results",
-        "HDIResult": "impulso.results",
-        "LagOrderResult": "impulso.results",
-        "SVData": "impulso.sv.data",
-        "StochasticVolatility": "impulso.sv.spec",
-        "FittedSV": "impulso.sv.fitted",
-        "SVDefaultPrior": "impulso.sv.priors",
-        "VolatilityResult": "impulso.results",
-        "SVForecastResult": "impulso.results",
-        "Constant": "impulso.volatility",
-        "VolatilityProcess": "impulso.protocols",
-        "compute_ma_phi": "impulso._ma",
-        "lag_matrices": "impulso._linalg",
-    }
-    if name in _lazy_imports:
+    if name in _LAZY_IMPORTS:
         import importlib
 
-        module = importlib.import_module(_lazy_imports[name])
+        module = importlib.import_module(_LAZY_IMPORTS[name])
         return getattr(module, name)
     raise AttributeError(f"module 'impulso' has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """List the module's attributes, including the lazily-imported ones.
+
+    Module-level `__getattr__` hides lazy names from the default `dir()`,
+    which degrades REPL completion and IDE discovery. Returning the union of
+    the real globals and `__all__` restores it.
+
+    Returns:
+        Sorted attribute names.
+    """
+    return sorted(set(globals()) | set(__all__))
 
 
 def enable_runtime_checks() -> None:
