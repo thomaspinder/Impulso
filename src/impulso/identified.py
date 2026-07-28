@@ -336,47 +336,67 @@ class IdentifiedVAR(ImpulsoBaseModel):
         self,
         start: pd.Timestamp | None = None,
         end: pd.Timestamp | None = None,
-        cumulative: bool = False,
         at: AtParam = None,
     ) -> HistoricalDecompositionResult:
-        """Compute historical decomposition of observed series.
+        """Compute the propagated historical decomposition of the observed series.
 
-        Historical decomposition is intrinsically time-indexed: it attributes
-        each in-sample observation to past structural shocks.  The ``at=``
-        parameter controls which Cholesky factor identifies those shocks.
+        Attributes each in-sample observation to a deterministic baseline
+        (initial conditions, intercept, and any exogenous path) plus the
+        *propagated* contribution of each structural shock,
+
+            c_{j,t} = P_t[:, j] eps_{j,t} + sum_i A_i c_{j,t-i},
+
+        so that `y_t = baseline_t + sum_j c_{j,t}` holds exactly for every
+        posterior draw. Contributions carry forward through the lag
+        dynamics: a shock keeps contributing beyond its impact period. The
+        `at=` parameter controls which Cholesky factor identifies the
+        shocks.
 
         Under partial identification (shock columns labelled
-        ``unidentified_*``), the individual contributions of the
+        `unidentified_*`), the individual contributions of the
         unidentified shocks are rotation-arbitrary, but their *sum* is
-        well-defined (it is the residual variation the identified shocks do
-        not explain). Those columns are therefore collapsed into a single
-        ``unidentified_remainder`` column. The decomposition remains exactly
-        additive, and the identified shocks' contributions are invariant to
-        both the orthogonal completion and any unit-effect column rescaling.
+        well-defined (it is the variation the identified shocks do not
+        explain). Those columns are therefore collapsed into a single
+        `unidentified_remainder` column. Propagation is linear in the
+        impact, so the decomposition remains exactly additive and the
+        identified shocks' contributions stay invariant to both the
+        orthogonal completion and any unit-effect column rescaling.
+
+        Note:
+            **Breaking change (scenario-analysis stack, 2026-07)**: earlier
+            releases decomposed only the contemporaneous residual
+            `u_t = sum_j P[:, j] eps_{j,t}` and offered a plain cumulative
+            sum via `cumulative=`. The decomposition now propagates through
+            the lag dynamics and always satisfies the additivity identity;
+            the `cumulative` parameter is retired.
 
         Args:
-            start: Optional start date to restrict decomposition.
-            end: Optional end date to restrict decomposition.
-            cumulative: If True, return cumulative shock contributions.
+            start: Optional start date to restrict the returned window.
+                Contributions are always propagated from the start of the
+                estimation sample; the filter only slices the output.
+            end: Optional end date to restrict the returned window.
             at: Time index for the structural shock matrix.
-                ``None`` or ``"all"`` → per-t decomposition (correct for SV,
+                `None` or `"all"` → per-t identification (correct for SV,
                 identical to single-L under constant volatility).
-                ``int`` or ``"last"`` → single-L hypothetical (warns under SV).
+                `int` or `"last"` → single-L hypothetical (warns under SV).
 
         Returns:
-            HistoricalDecompositionResult.
+            HistoricalDecompositionResult carrying the contribution draws
+            (`"hd"`) and the deterministic baseline (`"baseline"`).
         """
+        from impulso._propagate import propagate, propagate_contributions
         from impulso._residuals import reduced_form_residuals
 
         n_lags = self.n_lags
-        resid = reduced_form_residuals(self.idata.posterior, self.data, n_lags)
+        posterior = self.idata.posterior
+        resid = reduced_form_residuals(posterior, self.data, n_lags)
 
         use_per_t = self.volatility.is_time_varying and at in (None, "all")
         if use_per_t:
             P = self.shock_matrix(at="all").values  # (C, D, T_eff, n, n)
             P_inv = np.linalg.inv(P)
             structural_resid = np.einsum("cdtij,cdtj->cdti", P_inv, resid)
-            hd = P * structural_resid[:, :, :, np.newaxis, :]
+            impact = P * structural_resid[:, :, :, np.newaxis, :]
         else:
             if self.volatility.is_time_varying:
                 warnings.warn(
@@ -394,22 +414,29 @@ class IdentifiedVAR(ImpulsoBaseModel):
             P = self.shock_matrix(at=shock_at).values  # (C, D, n, n)
             P_inv = np.linalg.inv(P)
             structural_resid = np.einsum("cdij,cdtj->cdti", P_inv, resid)
-            hd = P[:, :, np.newaxis, :, :] * structural_resid[:, :, :, np.newaxis, :]
+            impact = P[:, :, np.newaxis, :, :] * structural_resid[:, :, :, np.newaxis, :]
 
-        if cumulative:
-            hd = np.cumsum(hd, axis=2)
+        A = lag_matrices(posterior["B"].values, n_lags)
+        hd = propagate_contributions(A, impact)
+
+        intercept = posterior["intercept"].values  # (C, D, n)
+        n_chains, n_draws, n_vars = intercept.shape
+        T_eff = resid.shape[2]
+        forcing = np.broadcast_to(intercept[:, :, np.newaxis, :], (n_chains, n_draws, T_eff, n_vars)).copy()
+        if self.data.exog is not None and "B_exog" in posterior:
+            forcing += np.einsum("cdij,tj->cdti", posterior["B_exog"].values, self.data.exog[n_lags:])
+        baseline = propagate(A, forcing, self.data.endog[:n_lags])
 
         idx = self.data.index[n_lags:]
-        t_start = 0
-        t_end = len(idx)
-        if start is not None:
-            t_start = idx.searchsorted(start)
-        if end is not None:
-            t_end = idx.searchsorted(end, side="right")
+        t_start = idx.searchsorted(start) if start is not None else 0
+        t_end = idx.searchsorted(end, side="right") if end is not None else len(idx)
         hd = hd[:, :, t_start:t_end]
+        baseline = baseline[:, :, t_start:t_end]
 
         # Partial identification: collapse rotation-arbitrary columns into
-        # one well-defined remainder (their sum is completion-invariant).
+        # one well-defined remainder (their sum is completion-invariant;
+        # propagation is linear in the impact, so the invariance carries
+        # over to the propagated contributions).
         shock_coord = list(self.shock_names)
         unident = [i for i, s in enumerate(shock_coord) if s.startswith("unidentified_")]
         if unident:
@@ -418,15 +445,22 @@ class IdentifiedVAR(ImpulsoBaseModel):
             hd = np.concatenate([hd[..., ident], remainder], axis=-1)
             shock_coord = [shock_coord[i] for i in ident] + ["unidentified_remainder"]
 
+        time_coord = ("time", idx[t_start:t_end])
         hd_da = xr.DataArray(
             hd,
             dims=["chain", "draw", "time", "response", "shock"],
             coords={
                 "response": self.var_names,
                 "shock": shock_coord,
-                "time": ("time", idx[t_start:t_end]),
+                "time": time_coord,
             },
             name="hd",
         )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da}))
+        baseline_da = xr.DataArray(
+            baseline,
+            dims=["chain", "draw", "time", "response"],
+            coords={"response": self.var_names, "time": time_coord},
+            name="baseline",
+        )
+        idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da, "baseline": baseline_da}))
         return HistoricalDecompositionResult(idata=idata, var_names=self.var_names)

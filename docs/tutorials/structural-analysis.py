@@ -239,17 +239,20 @@ fig = fevd.plot()
 # ## Historical decomposition
 #
 # The IRFs and FEVD describe the system's *average* dynamics. The historical
-# decomposition goes further: it attributes the *actual* observed value of each variable
-# at each point in time to the cumulative effect of each structural shock. This lets you
-# answer narrative questions — for instance, which shocks drove a particular cold snap
-# or an unusually calm week?
+# decomposition goes further: it splits the *actual* observed value of each variable at
+# each point in time into a deterministic baseline — the path implied by the initial
+# conditions and intercept with every shock switched off — plus the propagated
+# contribution of each structural shock, and the pieces sum back to the data exactly.
+# Contributions carry forward through the lag dynamics, so a shock keeps contributing
+# beyond the day it strikes. This lets you answer narrative questions — for instance,
+# which shocks drove a particular cold snap or an unusually calm week?
 
 # %%
 hd = identified.historical_decomposition()
 hd.plot()
 
 # %% [markdown]
-# Each panel decomposes one variable's daily anomaly into the contributions of the four structural shocks. Pressure (top) is almost entirely its own colour — its anomalies are driven by large-scale synoptic forcing with negligible feedback from local wind, temperature, or humidity. Wind (second) is also dominated by its own shocks, but a steady blue undercurrent from pressure is visible, consistent with the mechanical link between pressure gradients and wind speed. Temperature (third) shows a similar pattern: mostly self-driven through surface heat storage, with occasional pressure contributions during strong synoptic episodes. Humidity (bottom) is the most mixed panel — its own shocks dominate the high-frequency variation, but contributions from pressure and temperature are clearly visible, reflecting how frontal passages and the Clausius–Clapeyron effect modulate relative humidity on specific days. The spikiest events in each panel correspond to the passage of intense weather systems, and reading across panels for the same time period reveals how a single synoptic event propagates through the causal chain.
+# Each panel shows the propagated median contribution of each structural shock as stacked bars, with the black line marking the posterior median of the variable's total deviation from its deterministic baseline — by construction, the per-draw contributions sum exactly to that deviation. The bars need not visually reach the line: bars are per-shock medians while the line is the median of their sum, so a gap between them signals posterior uncertainty about *which* shock to credit, not a failure of the decomposition. The attribution pattern mirrors the FEVD. Each variable's deviations are dominated by its own colour — pressure almost entirely so, wind with a visible blue undercurrent from pressure (the mechanical link between pressure gradients and wind speed), temperature mostly self-driven through surface heat storage, and humidity the most mixed panel, with pressure and temperature contributions reflecting frontal passages and the Clausius–Clapeyron effect. Because contributions propagate through the lag dynamics, a large synoptic event keeps contributing for several days after it strikes rather than being booked to a single day, and reading across panels for the same period shows how one event travels down the causal chain from pressure to humidity.
 #
 # ## Summary
 #

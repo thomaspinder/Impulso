@@ -316,7 +316,7 @@ plt.tight_layout()
 # The result methods preserve that distinction:
 #
 # - `fevd()` asks how much forecast-error variance each shock explains. It reports the share attributable to oil supply news but returns NaN for each `unidentified_*` share, because those individual shares change under an arbitrary rotation. FEVD also requires one-standard-deviation shocks, so use `scale=None` rather than the 10% normalisation.
-# - `historical_decomposition()` attributes the observed path to shocks over time. It combines the unidentified columns into `unidentified_remainder`: their separate paths are arbitrary, but their sum is the part not attributed to oil supply news.
+# - `historical_decomposition()` attributes the deviation of the observed path from its deterministic baseline to shocks over time. It combines the unidentified columns into `unidentified_remainder`: their separate paths are arbitrary, but their sum is the part not attributed to oil supply news.
 # - `ProxySVAR` emits a warning when the posterior-median first-stage F-statistic is below 10. The warning flags weak relevance; it cannot diagnose a violation of exogeneity.
 #
 # ## Reproducing this notebook
