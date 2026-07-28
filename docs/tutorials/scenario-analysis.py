@@ -75,7 +75,7 @@ from impulso.samplers import NUTSSampler
 #
 # We reuse the three-variable U.S. monetary system from the
 # [monetary policy tutorial](monetary-policy.py): log industrial production (`output`),
-# log CPI (`prices`), and the federal funds rate (`rate`), monthly from 1965 to
+# the log consumer price index (CPI, `prices`), and the federal funds rate (`rate`), monthly from 1965 to
 # December 2007 — the eve of the zero-lower-bound era, which makes the forecast-side
 # scenarios below historically pointed.
 #
@@ -123,9 +123,9 @@ identified = fitted.set_identification_strategy(Cholesky(ordering=["output", "pr
 # ## 1. Historical counterfactual: the Volcker disinflation without the shocks
 #
 # Between October 1979 and mid-1982 the Federal Reserve under Paul Volcker pushed the
-# funds rate to unprecedented levels. Through the VAR's lens, that period contains a
-# sequence of large *monetary policy shocks*: movements in the rate not explained by the
-# systematic response to output and prices.
+# funds rate to unprecedented levels. Through the lens of the vector autoregression
+# (VAR), that period contains a sequence of large *monetary policy shocks*: movements in
+# the rate not explained by the systematic response to output and prices.
 #
 # `counterfactual()` asks: what if those shocks had simply not happened? It backs out the
 # realised structural shocks for every posterior draw, switches the monetary shock off
@@ -133,7 +133,7 @@ identified = fitted.set_identification_strategy(Cholesky(ordering=["output", "pr
 # conditions. Realised shocks are edited, never re-drawn, so the band below reflects
 # parameter and identification uncertainty only.
 
-# %% mystnb={"figure": {"caption": "Actual paths vs the counterfactual in which the monetary policy shock is switched off from October 1979 to August 1982. The shaded band is the 89% HDI of the counterfactual.", "name": "volcker-counterfactual"}}
+# %% mystnb={"figure": {"caption": "Actual paths vs the counterfactual in which the monetary policy shock is switched off from October 1979 to August 1982. The shaded band is the counterfactual's 89% highest density interval (HDI).", "name": "volcker-counterfactual"}}
 cf = identified.counterfactual(
     shocks=[ShockPath(shock="rate", values=0.0, start="1979-10-01", end="1982-08-01")],
     start="1978-01-01",
@@ -215,7 +215,7 @@ fig = scenario.plot()
 
 # %% [markdown]
 # How believable are competing 2008 policy paths as *pure policy choices*? We compare
-# the easing that happened against a counterfactual "hold at 4.25%" path, in the
+# the easing that happened against an alternative "hold at 4.25%" path, in the
 # mean-restricting mode:
 
 # %%
@@ -237,12 +237,15 @@ for name, path in {"2008 easing": easing_path, "hold at 4.25%": hold_path}.items
 pd.DataFrame(rows).T
 
 # %% [markdown]
-# Read the calibrated column on the Antolín-Díaz–Petrella–Rubio-Ramírez scale: in their
-# applications, values around $0.7$ read as "plausible", values above $\sim 0.85$ as
-# "unlikely but not impossible", and $1$ as maximal distortion. A scenario that demands
-# a long sequence of same-signed monetary shocks — the model's way of saying "this is
-# not what my estimated policy rule would do" — earns a higher `q` than one the rule
-# largely delivers on its own.
+# Read the calibrated column on the Antolín-Díaz–Petrella–Rubio-Ramírez scale. Their
+# empirical anchors run from a posterior mode near $0.5$ for a scenario they call quite
+# realistic, through $0.83$ for one they call "unlikely but not completely implausible",
+# to results near $0.86$ that they say should be interpreted with caution; their
+# hard-restriction variants peg the metric at its ceiling of $1$, a large distortion of
+# the shock distribution. (The paper reports posterior modes; the table above shows
+# medians.) A scenario that demands a long sequence of same-signed monetary shocks —
+# the model's way of saying "this is not what my estimated policy rule would do" —
+# earns a higher `q` than one the rule largely delivers on its own.
 #
 # You can also *prescribe* future shock paths directly (`shocks=[ShockPath(...)]` on the
 # forecast axis): the prescribed magnitude then enters the plausibility statistic as
@@ -260,15 +263,23 @@ pd.DataFrame(rows).T
 #
 # The three methods share one engine and one vocabulary (`ShockPath`, `VariablePath`),
 # and their overlaps are exact: a structural scenario with every shock adjusting *is*
-# the conditional forecast, and a full-sample zero-edit counterfactual *is* the
+# the conditional forecast (draw for draw under the recursive identification and
+# matched seeds used here), and a full-sample zero-edit counterfactual *is* the
 # historical decomposition, draw for draw.
 #
 # ## Reproducing this notebook
 #
 # Full-fidelity builds sample 4 chains × 1,500 draws with nutpie; CI smoke builds
 # (`IMPULSO_DOCS_CI=1`) shrink to a single short chain, so smoke-mode bands are wider
-# and attribution noisier. The plausibility *machinery* is deterministic given the
-# posterior, so the qualitative ordering of the scenario table is stable across modes.
+# and attribution noisier. Given the posterior and a fixed `seed`, the plausibility
+# statistics are exactly reproducible (with a proper adjusting set, `q` also varies
+# with the free shocks' draws), and because the two rate paths differ by many
+# standard-deviations-worth of monetary shocks, the ordering of the scenario table
+# should be insensitive to the sampling mode.
+#
+# ## References
+#
+# The works cited above are collected on the [project bibliography](../references.md) page.
 
 # %% tags=["remove-cell"]
 plt.close("all")
