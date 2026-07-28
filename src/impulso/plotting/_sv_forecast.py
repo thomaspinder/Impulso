@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
-import numpy as np
+import pandas as pd
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
@@ -31,7 +31,8 @@ def plot_sv_forecast(
 
     fig, ax = plt.subplots(figsize=(10, 4))
     col = result.series_name
-    steps = np.arange(1, result.steps + 1)
+    steps = med.index
+    is_dated = isinstance(steps, pd.DatetimeIndex)
     ax.fill_between(
         steps,
         hdi_outer.lower[col].values,
@@ -50,10 +51,12 @@ def plot_sv_forecast(
     )
     ax.plot(steps, med[col].values, color="C0", linewidth=1.5, label="Median")
     ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
-    ax.set_xlabel("Step ahead")
+    ax.set_xlabel("Date" if is_dated else "Step ahead")
     ax.set_ylabel(col)
     ax.set_title(f"Density forecast — {col}")
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
+    if is_dated:
+        fig.autofmt_xdate()
     fig.tight_layout()
     return fig

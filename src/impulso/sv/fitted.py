@@ -61,11 +61,16 @@ class FittedSV(ImpulsoBaseModel):
                 (default) for fresh non-deterministic draws. Pass an int or
                 `Generator` for reproducible forecasts.
 
+        The result is indexed by calendar dates continuing `data.index`
+        whenever that index has a detectable frequency; otherwise it falls
+        back to a step-numbered index.
+
         Returns:
             SVForecastResult wrapping posterior predictive draws.
         """
         import xarray as xr
 
+        from impulso._time import forecast_index
         from impulso.results import SVForecastResult
 
         rng = np.random.default_rng(random_seed)
@@ -87,4 +92,5 @@ class FittedSV(ImpulsoBaseModel):
             idata=idata,
             series_name=self.data.name,
             steps=steps,
+            index=forecast_index(self.data.index, steps),
         )

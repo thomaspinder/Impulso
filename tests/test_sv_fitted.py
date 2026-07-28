@@ -46,8 +46,13 @@ def test_fittedsv_forecast_shape_and_type(fitted_sv):
     assert forecast.shape == (2, 50, 12)
 
 
-def _build_ar1_fitted_sv():
-    """Build a FittedSV with synthetic AR(1) posterior, no MCMC."""
+def _build_ar1_fitted_sv(index: pd.DatetimeIndex | None = None):
+    """Build a FittedSV with synthetic AR(1) posterior, no MCMC.
+
+    Args:
+        index: Optional DatetimeIndex of length 50. Defaults to a monthly
+            range; pass an irregular index to exercise the undated path.
+    """
     import arviz as az
     import xarray as xr
 
@@ -69,7 +74,8 @@ def _build_ar1_fitted_sv():
     idata = az.InferenceData(posterior=posterior)
 
     y = rng.standard_normal(T)
-    index = pd.date_range("2000-01-01", periods=T, freq="MS")
+    if index is None:
+        index = pd.date_range("2000-01-01", periods=T, freq="MS")
     data = SVData(y=y, name="sim", index=index)
 
     return FittedSV.model_construct(idata=idata, data=data, dynamics=AR1())
@@ -92,6 +98,50 @@ def test_fittedsv_forecast_ar1_shape_and_type():
     hdi = result.hdi()
     assert hdi.lower.shape[0] == 6
     assert hdi.upper.shape[0] == 6
+
+
+def test_fittedsv_forecast_index_continues_calendar(fitted_sv):
+    """A dated, regular sample yields a calendar forecast axis."""
+    result = fitted_sv.forecast(steps=12)
+
+    # fitted_sv spans 100 monthly starts from 2000-01-01, i.e. up to 2008-04-01.
+    expected = pd.date_range("2008-05-01", periods=12, freq="MS")
+    assert isinstance(result.index, pd.DatetimeIndex)
+    assert list(result.index) == list(expected)
+    assert result.index.freqstr == "MS"
+
+
+def test_fittedsv_forecast_index_carried_by_frames(fitted_sv):
+    """median/to_dataframe/hdi all carry the calendar axis."""
+    result = fitted_sv.forecast(steps=6)
+    expected = pd.date_range("2008-05-01", periods=6, freq="MS")
+
+    for df in (result.median(), result.to_dataframe(), result.hdi().lower, result.hdi().upper):
+        assert isinstance(df.index, pd.DatetimeIndex)
+        assert list(df.index) == list(expected)
+        assert df.index.name == "time"
+
+
+def test_fittedsv_forecast_index_infers_freq_when_attribute_missing():
+    """A regular index whose `.freq` was dropped is still recognised."""
+    index = pd.DatetimeIndex(list(pd.date_range("2000-01-01", periods=50, freq="MS")))
+    assert index.freq is None
+
+    result = _build_ar1_fitted_sv(index=index).forecast(steps=3, random_seed=0)
+    assert list(result.index) == list(pd.date_range("2004-03-01", periods=3, freq="MS"))
+
+
+def test_fittedsv_forecast_falls_back_to_step_index():
+    """An irregular calendar has no detectable frequency — step axis."""
+    irregular = pd.date_range("2000-01-01", periods=60, freq="MS").delete([5, 11, 17, 23, 29, 35, 41, 47, 53, 59])
+    assert pd.infer_freq(irregular) is None
+
+    result = _build_ar1_fitted_sv(index=irregular).forecast(steps=4, random_seed=0)
+    assert isinstance(result.index, pd.RangeIndex)
+    assert list(result.index) == [0, 1, 2, 3]
+    med = result.median()
+    assert med.index.name == "step"
+    assert list(med.index) == [0, 1, 2, 3]
 
 
 def test_fittedsv_forecast_rng_seeds_are_respected():
