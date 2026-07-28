@@ -7,9 +7,9 @@ inputs:
     required: true
     default: "3.12"
   uv-version:
-    description: "uv version to use"
+    description: "uv version to use ('latest' tracks the newest release)"
     required: true
-    default: "0.9.28"
+    default: "latest"
 
 runs:
   using: "composite"
