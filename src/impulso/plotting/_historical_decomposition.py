@@ -16,11 +16,14 @@ def plot_historical_decomposition(
     """Plot historical decomposition as stacked bar charts.
 
     One panel per response variable, showing the propagated contribution of
-    each structural shock over time, with the total deviation from the
-    deterministic baseline (the sum of all contributions) overlaid as a
-    line. Shock labels come from the result's `shock` coordinate, so
-    partially-identified decompositions (with an `unidentified_remainder`
-    column) render correctly.
+    each structural shock over time, with the posterior median of the total
+    deviation from the deterministic baseline overlaid as a line. The line
+    is the median of the per-draw sum over shocks, so it matches
+    `data - result.baseline()` exactly; because median-of-sum differs from
+    sum-of-medians, it need not exactly top the median bars. Shock labels
+    come from the result's `shock` coordinate, so partially-identified
+    decompositions (with an `unidentified_remainder` column) render
+    correctly.
 
     Args:
         result: HistoricalDecompositionResult.
@@ -31,6 +34,7 @@ def plot_historical_decomposition(
     """
     hd_da = result.idata.posterior_predictive["hd"]
     med = hd_da.median(dim=("chain", "draw"))
+    deviation = hd_da.sum("shock").median(dim=("chain", "draw"))
     shock_names = [str(s) for s in hd_da.coords["shock"].values]
     n_vars = len(result.var_names)
     T = med.sizes["time"]
@@ -71,7 +75,7 @@ def plot_historical_decomposition(
                 bottom_neg += neg
         axes[i].plot(
             time_idx,
-            panel.sum(axis=1),
+            deviation.sel(response=resp).values,
             color="black",
             linewidth=1.1,
             label="deviation from baseline",

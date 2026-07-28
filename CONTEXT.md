@@ -63,9 +63,9 @@ _Avoid_: "Conditions object" / "Scenario object" for these primitives — a bund
 The subset of structural shocks permitted to absorb a structural scenario's conditions (`adjusting=[...]`). Existence is a per-draw rank condition (enough adjusting-shock dimensions to span the conditions); under-determination resolves through the conditional Gaussian, over-determination errors.
 _Avoid_: "driving" / "offsetting" shocks in API surface (fine in prose, where ADPRR and Leeper–Zha use them).
 
-**Plausibility statistic**:
-Per-draw Kullback–Leibler divergence of the condition-implied distribution of the stacked future shocks from their unconditional `N(0, I)` — the ADPRR formalisation of Leeper–Zha's "modest interventions" check. Large values mean the scenario demands incredible shocks and the model's answer should not be trusted. Stored on `ConditionalForecastResult` and `ScenarioResult`.
-_Avoid_: "modesty statistic" as the API name (kept to prose); bare "KL" without saying of-what-from-what.
+**Plausibility statistic (q)**:
+Per-draw squared Mahalanobis distance of a scenario's binding restriction values from their unconditional law, `q = c̄′(C C′)⁻¹ c̄ = ‖μ*‖²`, plus `‖v_S‖²` for prescribed shock paths — distributed `χ²_r` under the model when all shocks adjust (`r` = number of binding restrictions), reported with `r` and the tail probability `P(χ²_r ≥ q)`. The Leeper–Zha "modest interventions" check in the ADPRR lineage: large `q` (tiny tail probability) means the scenario demands incredible shocks and the model's answer should not be trusted. Stored per draw as a `plausibility` variable on `ConditionalForecastResult` and `ScenarioResult`.
+_Avoid_: calling it a Kullback–Leibler divergence under hard conditions — the conditional law is singular there and that KL is infinite; the KL form applies only to future *soft* conditioning. "Modesty statistic" stays prose-only.
 
 **at**:
 The time-index parameter on time-varying queries (`impulse_response(at=...)`, `fevd(at=...)`). Accepts an integer `t`, the literal `"last"` (most recent), `"all"` (full T-axis returned in the result), or `None` (default; resolves to `"last"` for stochastic volatility, ignored for constant volatility).

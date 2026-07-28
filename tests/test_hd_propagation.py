@@ -18,6 +18,7 @@ from impulso._residuals import reduced_form_residuals
 from impulso.data import VARData
 from impulso.fitted import FittedVAR
 from impulso.identification import Cholesky
+from impulso.identified import IdentifiedVAR
 from impulso.results import HistoricalDecompositionResult
 from impulso.volatility import Constant
 
@@ -141,6 +142,85 @@ class TestWindowing:
         sub = identified_2v.historical_decomposition(start=idx[50], end=idx[120]).idata.posterior_predictive
         np.testing.assert_array_equal(sub["hd"].values, full["hd"].values[:, :, 50:121])
         np.testing.assert_array_equal(sub["baseline"].values, full["baseline"].values[:, :, 50:121])
+
+
+class _TimeVaryingVol:
+    """Fake volatility process with a deterministically time-varying L_t.
+
+    Delegates to `Constant` for the base factor and scales it by
+    `1 + t / (2T)`, so `P_t` genuinely differs across `t` — the per-t
+    propagation path cannot pass on a constant-vol alignment bug.
+    """
+
+    name = "fake-sv"
+    is_time_varying = True
+
+    def __init__(self, T_eff: int):
+        self._constant = Constant()
+        self._T = T_eff
+
+    def build_pymc_latent(self, n_vars, T):  # pragma: no cover
+        raise NotImplementedError
+
+    def _scale(self, t: int) -> float:
+        return 1.0 + t / (2.0 * self._T)
+
+    def cholesky_at(self, posterior, t):
+        idx = self._T - 1 if t is None else t
+        return self._constant.cholesky_at(posterior, t=None) * self._scale(idx)
+
+    def cholesky_path(self, posterior, T):
+        L = self._constant.cholesky_at(posterior, t=None)  # (C, D, n, n)
+        scales = np.array([self._scale(t) for t in range(T)])
+        return L[:, :, np.newaxis, :, :] * scales[np.newaxis, np.newaxis, :, np.newaxis, np.newaxis]
+
+    def forecast_cholesky_path(self, posterior, steps, rng):  # pragma: no cover
+        raise NotImplementedError
+
+
+class TestPerTStochasticVolatility:
+    def test_per_t_contributions_match_hand_recursion(self, synthetic_idata_2v, var_data_2v):
+        """With genuinely time-varying P_t, HD equals the hand-rolled per-t recursion."""
+        T_eff = var_data_2v.endog.shape[0] - 1
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=_TimeVaryingVol(T_eff),
+            scheme=Cholesky(ordering=["y1", "y2"]),
+        )
+        pp = identified.historical_decomposition().idata.posterior_predictive
+
+        P_path = identified.shock_matrix(at="all").values  # (C, D, T, n, n)
+        assert not np.allclose(P_path[:, :, 0], P_path[:, :, -1])  # the alignment is real
+
+        resid = reduced_form_residuals(synthetic_idata_2v.posterior, var_data_2v, n_lags=1)
+        eps = np.einsum("cdtij,cdtj->cdti", np.linalg.inv(P_path), resid)
+        impact = P_path * eps[:, :, :, np.newaxis, :]
+        B = synthetic_idata_2v.posterior["B"].values
+        expected = np.zeros_like(impact)
+        carry = np.zeros(impact.shape[:2] + impact.shape[3:])
+        for t in range(impact.shape[2]):
+            carry = impact[:, :, t] + np.einsum("cdij,cdjs->cdis", B, carry)
+            expected[:, :, t] = carry
+        np.testing.assert_allclose(pp["hd"].values, expected, atol=1e-10)
+
+    def test_per_t_additivity_holds(self, synthetic_idata_2v, var_data_2v):
+        """Additivity is exact under per-t P_t as well."""
+        T_eff = var_data_2v.endog.shape[0] - 1
+        identified = IdentifiedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=_TimeVaryingVol(T_eff),
+            scheme=Cholesky(ordering=["y1", "y2"]),
+        )
+        pp = identified.historical_decomposition().idata.posterior_predictive
+        total = pp["hd"].sum("shock").values + pp["baseline"].values
+        y = var_data_2v.endog[1:]
+        np.testing.assert_allclose(total, np.broadcast_to(y, total.shape), atol=1e-8)
 
 
 class TestResultSurface:

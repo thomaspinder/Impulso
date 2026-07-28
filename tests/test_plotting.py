@@ -56,14 +56,15 @@ def _make_fevd_result(n_vars=2, horizon=10) -> FEVDResult:
     return FEVDResult.model_construct(idata=idata, horizon=horizon, var_names=names)
 
 
-def _make_hd_result(n_vars=2, T=20) -> HistoricalDecompositionResult:
+def _make_hd_result(n_vars=2, T=20, shock_names=None) -> HistoricalDecompositionResult:
     rng = np.random.default_rng(42)
     names = [f"y{i + 1}" for i in range(n_vars)]
-    data = rng.standard_normal((2, 50, T, n_vars, n_vars))
+    shocks = list(shock_names) if shock_names is not None else names
+    data = rng.standard_normal((2, 50, T, n_vars, len(shocks)))
     da = xr.DataArray(
         data,
         dims=["chain", "draw", "time", "response", "shock"],
-        coords={"response": names, "shock": names},
+        coords={"response": names, "shock": shocks},
         name="hd",
     )
     idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": da}))
@@ -136,6 +137,24 @@ class TestPlotHistoricalDecomposition:
         result = _make_hd_result()
         fig = plot_historical_decomposition(result)
         assert fig._suptitle.get_text() == "Historical Decomposition"
+
+    def test_legend_labels_come_from_shock_coord(self):
+        """Partial identification: labels read the shock coord, not var_names."""
+        result = _make_hd_result(n_vars=3, shock_names=["target", "unidentified_remainder"])
+        fig = plot_historical_decomposition(result)
+        labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
+        # matplotlib collects ax.lines before bar containers in the legend.
+        assert labels == ["deviation from baseline", "target", "unidentified_remainder"]
+
+    def test_deviation_line_matches_median_of_sum(self):
+        """The overlay is the median of the per-draw shock sum (= data - baseline)."""
+        result = _make_hd_result()
+        fig = plot_historical_decomposition(result)
+        expected = result.idata.posterior_predictive["hd"].sum("shock").median(dim=("chain", "draw"))
+        for i, resp in enumerate(result.var_names):
+            lines = [ln for ln in fig.axes[i].get_lines() if ln.get_label() == "deviation from baseline"]
+            assert len(lines) == 1
+            np.testing.assert_allclose(lines[0].get_ydata(), expected.sel(response=resp).values, atol=1e-12)
 
 
 def test_plot_volatility_returns_figure(synthetic_sv_idata):
