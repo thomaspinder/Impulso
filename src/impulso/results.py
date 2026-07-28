@@ -386,6 +386,95 @@ class HistoricalDecompositionResult(VARResultBase):
         return plot_historical_decomposition(self)
 
 
+class ConditionalForecastResult(VARResultBase):
+    """Result from conditional forecasting.
+
+    The posterior-predictive Dataset carries `"forecast"`
+    (chain, draw, step, variable) plus the per-draw plausibility
+    statistics `"plausibility"` (`q`, chi-squared reference) and
+    `"plausibility_calibrated"` (`q_cal ∈ [0.5, 1]`, ADPRR binomial
+    calibration); Dataset attrs hold `n_restrictions` and the chi-squared
+    tail probability of the median `q`.
+
+    Attributes:
+        idata: ArviZ InferenceData with the draws and statistics.
+        steps: Number of forecast steps.
+        var_names: Names of forecasted variables.
+        mode: `"density"` or `"mean"`.
+        path_uncertainty: `"none"` (hard pins) or `"unconditional"`.
+        conditions: The `VariablePath` conditions echoed from the call.
+    """
+
+    steps: int
+    var_names: list[str]
+    mode: str = "density"
+    path_uncertainty: str = "none"
+    conditions: list = Field(default_factory=list, repr=False)
+
+    def median(self) -> pd.DataFrame:
+        """Posterior median conditional forecast (step-indexed)."""
+        forecast = self.idata.posterior_predictive["forecast"]
+        med = forecast.median(dim=("chain", "draw")).values
+        df = pd.DataFrame(med, columns=self.var_names)
+        df.index.name = "step"
+        return df
+
+    def hdi(self, prob: float = 0.89) -> HDIResult:
+        """HDI for the conditional forecast.
+
+        Args:
+            prob: Probability mass for the HDI. Default 0.89.
+
+        Returns:
+            HDIResult whose `lower` / `upper` DataFrames mirror `median()`.
+        """
+        da = self.idata.posterior_predictive["forecast"]
+        hdi_data = az.hdi(da, hdi_prob=prob)["forecast"]
+        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values, columns=self.var_names)
+        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values, columns=self.var_names)
+        return HDIResult(lower=lower, upper=upper, prob=prob)
+
+    def plausibility(self, prob: float = 0.89) -> dict[str, float]:
+        """Posterior summary of the plausibility statistic.
+
+        `q` is the per-draw squared Mahalanobis distance of the pinned
+        values from their unconditional law (`chi^2_r` reference when all
+        shocks adjust); `q_cal` is the ADPRR-calibrated companion on
+        `[0.5, 1]` — values near 1 flag scenarios the model considers
+        incredible.
+
+        Args:
+            prob: Probability mass for the HDI bounds. Default 0.89.
+
+        Returns:
+            Dict with `q_median`, `q_hdi_lower`, `q_hdi_upper`,
+            `q_calibrated_median`, `n_restrictions`, and
+            `tail_probability` (`P(chi^2_r >= median q)`; 1.0 with no
+            restrictions).
+        """
+        pp = self.idata.posterior_predictive
+        q = pp["plausibility"]
+        hdi_q = az.hdi(q, hdi_prob=prob)["plausibility"]
+        return {
+            "q_median": float(q.median()),
+            "q_hdi_lower": float(hdi_q.sel(hdi="lower")),
+            "q_hdi_upper": float(hdi_q.sel(hdi="higher")),
+            "q_calibrated_median": float(pp["plausibility_calibrated"].median()),
+            "n_restrictions": int(pp.attrs["n_restrictions"]),
+            "tail_probability": float(pp.attrs["chi2_tail_of_median"]),
+        }
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Conditional-forecast posterior median as a DataFrame (passthrough to `median()`)."""
+        return self.median()
+
+    def plot(self) -> Figure:
+        """Plot the conditional forecast fan chart with pinned values marked."""
+        from impulso.plotting import plot_conditional_forecast
+
+        return plot_conditional_forecast(self)
+
+
 class CounterfactualResult(VARResultBase):
     """Historical counterfactual paths alongside the actual data.
 
