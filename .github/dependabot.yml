@@ -1,10 +1,44 @@
 version: 2
+
 updates:
-  - package-ecosystem: "pip"
+  # Python dependencies: pyproject.toml + uv.lock.
+  #
+  # Must be the `uv` ecosystem, not `pip`. Only `uv` re-resolves uv.lock; `pip`
+  # would edit pyproject.toml and leave the lock stale, which fails CI because
+  # .github/actions/setup-python-env installs with `uv sync --frozen`.
+  # Covers [project.dependencies], [project.optional-dependencies] and the
+  # PEP 735 [dependency-groups] tables (dev, docs).
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "05:00" # UTC
+    # One PR per run for every Python dependency, rather than one PR each.
+    groups:
+      python:
+        patterns:
+          - "*"
+    # impulso is a library, so its `>=` floors are a compatibility promise.
+    # Land the bump in uv.lock and only touch a floor if it genuinely excludes
+    # the new release.
+    versioning-strategy: "increase-if-necessary"
+    commit-message:
+      prefix: "build"
+      include: "scope"
+
+  # Workflow actions. A separate ecosystem, so necessarily a separate PR from
+  # the Python one, but grouped so it is a single PR, not one per action.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "05:00" # UTC
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "build"
+      include: "scope"
