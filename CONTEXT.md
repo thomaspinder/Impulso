@@ -39,6 +39,34 @@ The dynamic response of each variable to a unit structural shock at horizons `0.
 The response of each endogenous variable to a unit impulse in an *exogenous* regressor at horizons `0..h`: `Psi_h = Phi_h @ B_exog`. Shares the moving-average coefficients `Phi_h` with the IRF, but needs no identification scheme — exogenous regressors are exogenous by assumption — so it lives on `FittedVAR`, not `IdentifiedVAR`, and takes no `at`. The cumulative variant is the response to a permanent unit *step* rather than a one-off impulse. All dynamics come from the endogenous lag structure; `B_exog` enters contemporaneously and carries no lags of its own.
 _Avoid_: "exogenous IRF" — IRF is reserved for responses to identified structural shocks.
 
+**Historical decomposition (HD)**:
+The attribution of each in-sample observation to a deterministic baseline (initial conditions, intercept, and any exogenous path) plus the *propagated* contribution of each structural shock: `c_{j,t} = P_t[:,j] ε_{j,t} + Σ_i A_i c_{j,t-i}`, with `y_t = baseline_t + Σ_j c_{j,t}` holding exactly. "Propagated" is load-bearing: a shock's contribution carries forward through the lag dynamics beyond its impact period.
+_Avoid_: presenting the contemporaneous split of the one-step forecast error (`u_t = Σ_j P[:,j] ε_{j,t}`) as HD — that is a residual decomposition, and was the (incorrect) behaviour of the implementation prior to the scenario-analysis stack (2026-07).
+
+**Historical counterfactual**:
+The in-sample "what if": back out the realised structural shocks per posterior draw (`ε_t = P_t⁻¹ u_t`), overwrite a chosen shock's path over a window, and re-propagate the system to get the path history would have followed. Computed by `IdentifiedVAR.counterfactual(shocks=[ShockPath(...)])`. Realised shocks are edited, never re-drawn, so the posterior spread of a counterfactual reflects parameter and identification uncertainty only. `actual − counterfactual` for a shock zeroed over the full sample equals that shock's HD contribution.
+_Avoid_: bare "counterfactual" for forecast-side operations (those are conditional forecasts or structural scenarios); "policy counterfactual" (rule replacement is a different, out-of-scope object — and the Lucas-critique caveat documented on the method applies even to fixed-path edits).
+
+**Conditional forecast**:
+An h-step forecast constrained so chosen endogenous variables follow pinned future paths, with *all* structural shocks free to adjust (Waggoner–Zha 1999). Identification-free: the observable-space answer is invariant to the identification scheme, so it lives on `FittedVAR.conditional_forecast()` — the same placement logic as the dynamic multiplier. Hard (point) conditions in v1; `NaN` entries in a pinned path mean "unconstrained at that step".
+_Avoid_: "scenario" for an all-shocks-adjust conditional forecast — scenarios restrict *who* adjusts.
+
+**Structural scenario**:
+A conditional forecast with structural attribution (Antolín-Díaz, Petrella & Rubio-Ramírez 2021): pinned variable paths must be absorbed by a named `adjusting` set of shocks (non-adjusting shocks keep their unconditional draws), and/or future shock paths are prescribed directly. Computed by `IdentifiedVAR.structural_scenario()`.
+_Avoid_: "conditional forecast" when an adjusting set is named — the restriction is the point.
+
+**Condition vocabulary (`ShockPath`, `VariablePath`)**:
+Frozen spec objects expressing scenario content. `ShockPath(shock, values, start, end)` sets a structural shock's path — values in one-standard-deviation units, scalar broadcast (`0.0` = "switch the shock off") or explicit array; `start`/`end` timestamps window it in-sample (counterfactual), while on the forecast axis values run from step 1 with `NaN` marking free entries. `VariablePath(variable, values)` pins a future endogenous path the same NaN-masked way. Each method accepts only the condition types legal for it — illegal combinations are unrepresentable rather than validated away.
+_Avoid_: "Conditions object" / "Scenario object" for these primitives — a bundling `Scenario` container may arrive later for connector round-trips; the primitives are paths.
+
+**Adjusting shocks**:
+The subset of structural shocks permitted to absorb a structural scenario's conditions (`adjusting=[...]`). Existence is a per-draw rank condition (enough adjusting-shock dimensions to span the conditions); under-determination resolves through the conditional Gaussian, over-determination errors.
+_Avoid_: "driving" / "offsetting" shocks in API surface (fine in prose, where ADPRR and Leeper–Zha use them).
+
+**Plausibility statistic**:
+Per-draw Kullback–Leibler divergence of the condition-implied distribution of the stacked future shocks from their unconditional `N(0, I)` — the ADPRR formalisation of Leeper–Zha's "modest interventions" check. Large values mean the scenario demands incredible shocks and the model's answer should not be trusted. Stored on `ConditionalForecastResult` and `ScenarioResult`.
+_Avoid_: "modesty statistic" as the API name (kept to prose); bare "KL" without saying of-what-from-what.
+
 **at**:
 The time-index parameter on time-varying queries (`impulse_response(at=...)`, `fevd(at=...)`). Accepts an integer `t`, the literal `"last"` (most recent), `"all"` (full T-axis returned in the result), or `None` (default; resolves to `"last"` for stochastic volatility, ignored for constant volatility).
 
@@ -67,6 +95,9 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 - An **IdentifiedVAR** computes **IRFs**, FEVDs, and historical decompositions by asking the volatility process for `L_t` at the requested `at`, then applying the identification scheme.
 - A **FittedVAR** fitted with exogenous regressors computes **dynamic multipliers** on its own; no identification scheme is involved, because the driver is already exogenous.
 - A **stochastic volatility** can plug into a **VAR** as its volatility process *or* be fitted standalone on a univariate series.
+- A **FittedVAR** computes **conditional forecasts** on its own — all shocks adjust, so no identification scheme is involved (the dynamic-multiplier placement logic).
+- An **IdentifiedVAR** computes **historical counterfactuals** and **structural scenarios** through the four-layer scenario engine (back out → constrain → solve → propagate); the propagate layer is shared with `forecast()` and the **historical decomposition**.
+- The **condition vocabulary** is consumed by all three scenario methods; each method accepts only the condition types legal for it.
 - A **VAR** is estimated by NUTS; a **ConjugateVAR** is estimated analytically with a Metropolis step on hyperparameters. Both produce a **FittedVAR**.
 - A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.
 
@@ -90,3 +121,4 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 - "SV" is both a noun (the model family — *stochastic volatility*) and an adjective ("an SV adapter"). The class `StochasticVolatility` is the canonical noun reference; the adjective form is fine in prose after the term has been spelled out.
 - "Volatility" alone is ambiguous between *volatility process* (the seam) and *volatility paths* (the per-variable σ_i,t time series, useful for plotting). Be explicit when the distinction matters.
 - "Minnesota prior" now denotes two distinct encodings: the independent-Normal `MinnesotaPrior` (NUTS path) and the conjugate `NIWPrior` (`ConjugateVAR`). Name the estimator when it matters.
+- "Counterfactual" in the wider literature spans shock-path edits (Impulso's meaning), policy-rule replacement (Sims–Zha style; out of scope), and Lucas-robust constructions (McKay–Wolf; out of scope). When comparing with external work, say which one is meant.

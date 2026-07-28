@@ -1,0 +1,14 @@
+# Scenario analysis unifies on the ADPRR stacked-MA conditioning engine
+
+We are adding a scenario-analysis family — historical counterfactuals, conditional forecasts, and structural scenarios — as one capability, not three. Everything runs through a single four-layer engine in the style of Antolín-Díaz, Petrella & Rubio-Ramírez (2021, *Journal of Monetary Economics*): **back out** realised structural shocks per posterior draw (`ε_t = P_t⁻¹ u_t`, reusing `_residuals` and `shock_matrix()`); **constrain** — express the user's scenario as linear restrictions on (or direct edits of) the stacked structural-shock vector over the scenario window; **solve** — for future windows, draw the unrestricted shocks from their Gaussian conditional distribution given the restrictions (in-sample counterfactuals skip this: edited realised shocks substitute directly); **propagate** — simulate observables from shocks through the lag recursion, shared with `forecast()` and the corrected `historical_decomposition`. Waggoner–Zha (1999) conditional forecasting falls out as the all-shocks-free special case, and its observable-space results are invariant to the identification scheme; structural scenarios restrict *which* shocks may adjust, which is where identification bites.
+
+## Considered options
+
+- **Three independent implementations** — rejected: each is individually simpler, but nothing ties them together. The family was scoped jointly precisely to guarantee shared invariants (see Consequences) and one spec vocabulary.
+- **Kalman simulation-smoother backend now** — rejected for now: strictly more general (missing data, ragged edges, native soft conditioning) but the heaviest lift, and dense per-draw conditioning is trivial at Impulso's target sizes (n ≤ ~5, h ≈ 20 → ≤ ~100-dimensional Gaussians). The engine's layering keeps a smoother backend possible later without API change.
+
+## Consequences
+
+- `historical_decomposition` is corrected in the same stack (bottom PR): the prior implementation decomposed only the contemporaneous residual `u_t = Σ_j P[:,j] ε_{j,t}` with an optional plain cumsum — no propagation through the lag dynamics. The corrected version computes propagated contributions `c_{j,t} = P_t[:,j] ε_{j,t} + Σ_i A_i c_{j,t−i}` plus a deterministic baseline, restoring the textbook additivity `y_t = baseline_t + Σ_j c_{j,t}`. Breaking, allowed pre-v0.1.
+- Cross-feature identities become regression tests: `actual − counterfactual(shock j zeroed over the full sample) ≡ HD contribution of shock j`; a conditional forecast with no conditions is distributionally `forecast()`; a structural scenario with no shock restriction reproduces the conditional forecast under any identification scheme.
+- Per-draw cost is O((h·n)³) dense linear algebra — fine at target sizes; long horizons and wide systems are what the future smoother backend is for.
