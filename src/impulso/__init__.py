@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from impulso.priors import MinnesotaPrior, NIWPrior
     from impulso.protocols import VolatilityProcess
     from impulso.results import (
+        CounterfactualResult,
         DynamicMultiplierResult,
         FEVDResult,
         ForecastResult,
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
         VolatilityResult,
     )
     from impulso.samplers import NUTSSampler
+    from impulso.scenario import ShockPath, VariablePath
     from impulso.sv.data import SVData
     from impulso.sv.fitted import FittedSV
     from impulso.sv.priors import SVDefaultPrior
@@ -40,6 +42,7 @@ __all__ = [
     "ConjugateVAR",
     "ConjugateVolatility",
     "Constant",
+    "CounterfactualResult",
     "DynamicMultiplierResult",
     "FEVDResult",
     "FittedSV",
@@ -58,9 +61,11 @@ __all__ = [
     "SVData",
     "SVDefaultPrior",
     "SVForecastResult",
+    "ShockPath",
     "SignRestriction",
     "StochasticVolatility",
     "VARData",
+    "VariablePath",
     "VolatilityProcess",
     "VolatilityResult",
     "compute_ma_phi",
@@ -85,7 +90,10 @@ def __getattr__(name: str):
         "PandemicBreak": "impulso.conjugate_volatility",
         "NUTSSampler": "impulso.samplers",
         "ForecastResult": "impulso.results",
+        "CounterfactualResult": "impulso.results",
         "DynamicMultiplierResult": "impulso.results",
+        "ShockPath": "impulso.scenario",
+        "VariablePath": "impulso.scenario",
         "IRFResult": "impulso.results",
         "FEVDResult": "impulso.results",
         "HistoricalDecompositionResult": "impulso.results",

@@ -386,6 +386,85 @@ class HistoricalDecompositionResult(VARResultBase):
         return plot_historical_decomposition(self)
 
 
+class CounterfactualResult(VARResultBase):
+    """Historical counterfactual paths alongside the actual data.
+
+    The posterior-predictive Dataset carries `"counterfactual"`
+    (chain, draw, time, variable) and `"actual"` (time, variable) over the
+    same returned window. Counterfactual draws are built from the realised
+    structural shocks — edited, never re-drawn — so their spread reflects
+    parameter and identification uncertainty only.
+
+    Attributes:
+        idata: ArviZ InferenceData with counterfactual draws + actual path.
+        var_names: Names of variables.
+    """
+
+    var_names: list[str]
+
+    def _time_index(self) -> pd.DatetimeIndex:
+        values = self.idata.posterior_predictive["counterfactual"].coords["time"].values
+        return pd.DatetimeIndex(values, name="time")
+
+    def median(self) -> pd.DataFrame:
+        """Posterior median counterfactual path.
+
+        Returns:
+            DataFrame indexed by the returned window's `DatetimeIndex`
+            with one column per variable.
+        """
+        da = self.idata.posterior_predictive["counterfactual"]
+        med = da.median(dim=("chain", "draw")).transpose("time", "variable")
+        return pd.DataFrame(med.values, index=self._time_index(), columns=self.var_names)
+
+    def hdi(self, prob: float = 0.89) -> HDIResult:
+        """HDI for the counterfactual path.
+
+        Args:
+            prob: Probability mass for the HDI. Default 0.89.
+
+        Returns:
+            HDIResult whose `lower` / `upper` DataFrames mirror `median()`.
+        """
+        da = self.idata.posterior_predictive["counterfactual"]
+        hdi_data = az.hdi(da, hdi_prob=prob)["counterfactual"]
+        index = self._time_index()
+        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values, index=index, columns=self.var_names)
+        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values, index=index, columns=self.var_names)
+        return HDIResult(lower=lower, upper=upper, prob=prob)
+
+    def actual(self) -> pd.DataFrame:
+        """The observed path over the returned window.
+
+        Returns:
+            DataFrame shaped like `median()`.
+        """
+        da = self.idata.posterior_predictive["actual"]
+        return pd.DataFrame(da.values, index=self._time_index(), columns=self.var_names)
+
+    def difference(self) -> pd.DataFrame:
+        """Posterior median effect of the edits: `actual - counterfactual`.
+
+        The actual path is constant across draws, so
+        `actual - median(counterfactual)` equals
+        `median(actual - counterfactual)` exactly.
+
+        Returns:
+            DataFrame shaped like `median()`.
+        """
+        return self.actual() - self.median()
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Counterfactual posterior median as a DataFrame (passthrough to `median()`)."""
+        return self.median()
+
+    def plot(self) -> Figure:
+        """Plot actual vs counterfactual paths with HDI bands."""
+        from impulso.plotting import plot_counterfactual
+
+        return plot_counterfactual(self)
+
+
 class LagOrderResult(ImpulsoBaseModel):
     """Result from lag order selection.
 
