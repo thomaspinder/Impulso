@@ -412,3 +412,114 @@ class TestHistoricalDecompositionAt:
             identified.historical_decomposition()
             identified.historical_decomposition(at=None)
             identified.historical_decomposition(at="all")
+
+
+class TestCholeskyOrderingLabels:
+    """A non-identity Cholesky ordering must stay label-consistent end to end.
+
+    `Cholesky.identify` returns rows in **data** order and columns in
+    **ordering** order; `shock_matrix` labels them `var_names` / `shock_names`
+    and `impulse_response` left-multiplies by MA coefficients built in data
+    order. If `identify` returned rows in ordering order instead, the labels
+    would be permuted and `Phi @ P` would mix coordinate systems. Regression
+    for #184.
+    """
+
+    @staticmethod
+    def _permuted_idata(synthetic_idata_2v, perm):
+        """Relabel the 2-var VAR(1) posterior into `perm` variable order.
+
+        Sigma -> Pi Sigma Pi', B -> Pi B Pi' (single lag), intercept -> Pi c.
+        This is the *same* model written in a different variable order, so
+        every label-indexed quantity must be invariant to it.
+        """
+        post = synthetic_idata_2v.posterior
+        ix0, ix1 = np.ix_(perm, perm)
+
+        sigma = post["Sigma"].values[:, :, ix0, ix1]
+        B = post["B"].values[:, :, ix0, ix1]  # n_lags == 1, so B is (C, D, n, n)
+        intercept = post["intercept"].values[:, :, perm]
+        L = np.linalg.cholesky(sigma)
+
+        names = [["y1", "y2"][i] for i in perm]
+        return az.InferenceData(
+            posterior=xr.Dataset({
+                "B": xr.DataArray(B, dims=["chain", "draw", "var", "coeff"]),
+                "intercept": xr.DataArray(intercept, dims=["chain", "draw", "var"]),
+                "Sigma": xr.DataArray(
+                    sigma,
+                    dims=["chain", "draw", "var1", "var2"],
+                    coords={"var1": names, "var2": names},
+                ),
+                "L": xr.DataArray(L, dims=["chain", "draw", "var1", "var2"]),
+            })
+        )
+
+    @staticmethod
+    def _identified(idata, var_data_2v, var_names, ordering):
+        from impulso.volatility import Constant
+
+        return IdentifiedVAR.model_construct(
+            idata=idata,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=var_names,
+            volatility=Constant(),
+            scheme=Cholesky(ordering=ordering),
+        )
+
+    def test_shock_matrix_zero_lands_in_the_labelled_cell(self, synthetic_idata_2v, var_data_2v):
+        """With ordering ["y2","y1"], y2 is most exogenous: y2 cannot respond to a y1 shock."""
+        identified = self._identified(synthetic_idata_2v, var_data_2v, ["y1", "y2"], ["y2", "y1"])
+        sm = identified.shock_matrix()
+
+        assert list(sm.coords["response"].values) == ["y1", "y2"]
+        assert list(sm.coords["shock"].values) == ["y2", "y1"]
+
+        # The structural zero belongs to (response=y2, shock=y1) — exactly.
+        assert np.abs(sm.sel(response="y2", shock="y1").values).max() == 0.0
+        # ...and the transposed cell must be non-zero for every draw.
+        assert np.abs(sm.sel(response="y1", shock="y2").values).min() > 0.0
+
+    def test_irf_labels_invariant_to_relabelling(self, synthetic_idata_2v, var_data_2v):
+        """IRFs indexed by (response, shock) labels are invariant to variable order."""
+        perm = np.array([1, 0])
+        sigma = synthetic_idata_2v.posterior["Sigma"].values
+        # Guard: the two variables must be distinguishable, otherwise the
+        # assertion below could pass through symmetry rather than correctness.
+        assert np.abs(sigma[..., 0, 0] - sigma[..., 1, 1]).max() > 0.1
+
+        # (A) Data already in ["y2","y1"] order, identity Cholesky ordering.
+        a = self._identified(self._permuted_idata(synthetic_idata_2v, perm), var_data_2v, ["y2", "y1"], ["y2", "y1"])
+        # (B) Data in ["y1","y2"] order, non-identity Cholesky ordering.
+        b = self._identified(synthetic_idata_2v, var_data_2v, ["y1", "y2"], ["y2", "y1"])
+
+        irf_a = a.impulse_response(horizon=6).idata.posterior_predictive["irf"]
+        irf_b = b.impulse_response(horizon=6).idata.posterior_predictive["irf"]
+
+        for response in ("y1", "y2"):
+            for shock in ("y1", "y2"):
+                np.testing.assert_allclose(
+                    irf_a.sel(response=response, shock=shock).values,
+                    irf_b.sel(response=response, shock=shock).values,
+                    atol=1e-10,
+                    err_msg=f"IRF(response={response}, shock={shock}) is order-dependent",
+                )
+
+    def test_fevd_shares_match_under_relabelling(self, synthetic_idata_2v, var_data_2v):
+        """FEVD squares Theta, so it catches mislabelling that sign flips would hide."""
+        perm = np.array([1, 0])
+        a = self._identified(self._permuted_idata(synthetic_idata_2v, perm), var_data_2v, ["y2", "y1"], ["y2", "y1"])
+        b = self._identified(synthetic_idata_2v, var_data_2v, ["y1", "y2"], ["y2", "y1"])
+
+        fevd_a = a.fevd(horizon=6).idata.posterior_predictive["fevd"]
+        fevd_b = b.fevd(horizon=6).idata.posterior_predictive["fevd"]
+
+        for response in ("y1", "y2"):
+            for shock in ("y1", "y2"):
+                np.testing.assert_allclose(
+                    fevd_a.sel(response=response, shock=shock).values,
+                    fevd_b.sel(response=response, shock=shock).values,
+                    atol=1e-10,
+                    err_msg=f"FEVD(response={response}, shock={shock}) is order-dependent",
+                )
