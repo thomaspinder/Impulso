@@ -1,11 +1,13 @@
 """End-to-end tests for the conjugate VAR estimator (ConjugateVAR)."""
 
+from typing import Literal
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from impulso.conjugate import ConjugateVAR
-from impulso.conjugate_volatility import PandemicBreak
+from impulso.conjugate_volatility import ConjugateVolatility, PandemicBreak, Prior1D
 from impulso.data import VARData
 from impulso.fitted import FittedVAR
 from impulso.identification import Cholesky
@@ -161,3 +163,51 @@ def test_rejects_non_niw_prior():
 def test_rejects_pymc_volatility():
     with pytest.raises(ValueError, match="VAR"):
         ConjugateVAR(lags=1, prior=NIWPrior(), volatility=Constant())
+
+
+class _NoHyperparameterBreak(ConjugateVolatility):
+    """A well-formed adapter that declares nothing to estimate.
+
+    Its ``log_scales`` would double every residual sd, but with no hyperparameter the
+    sampler takes the closed-form fast path and never calls it (issue #161).
+    """
+
+    name: Literal["no_hyperparameters"] = "no_hyperparameters"
+
+    def hyperparameter_priors(self) -> dict[str, Prior1D]:
+        return {}
+
+    def log_scales(self, theta: dict[str, float], T: int) -> np.ndarray:
+        return np.full(T, np.log(2.0))
+
+
+def test_rejects_zero_hyperparameter_volatility():
+    """A break with nothing to estimate would be silently ignored (issue #161)."""
+    with pytest.raises(ValueError) as excinfo:
+        ConjugateVAR(lags=1, prior=NIWPrior(), volatility=_NoHyperparameterBreak())
+
+    message = str(excinfo.value)
+    assert "_NoHyperparameterBreak declares no volatility hyperparameters" in message
+    assert "silently ignored" in message
+    assert "pre-scaling the data" in message
+
+
+def test_rejects_zero_hyperparameter_volatility_match():
+    """The rejection message is pinned by pattern as well as by substring."""
+    with pytest.raises(ValueError, match=r"hyperparameter_priors\(\) returned an empty mapping"):
+        ConjugateVAR(lags=1, prior=NIWPrior(), volatility=_NoHyperparameterBreak())
+
+
+def test_accepts_pandemic_break_hyperparameters():
+    """The shipped adapter declares four hyperparameters, so it still constructs."""
+    break_ = PandemicBreak(start=3)
+    assert set(break_.hyperparameter_priors()) == {"s_march", "s_april", "s_may", "rho"}
+
+    model = ConjugateVAR(lags=1, prior=NIWPrior(), volatility=break_)
+
+    assert model.volatility is break_
+
+
+def test_accepts_no_volatility():
+    """`volatility=None` is a homoscedastic conjugate VAR and stays unaffected."""
+    assert ConjugateVAR(lags=1, prior=NIWPrior()).volatility is None

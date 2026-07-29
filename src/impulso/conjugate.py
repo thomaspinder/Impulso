@@ -37,7 +37,10 @@ class ConjugateVAR(ImpulsoBaseModel):
         prior: The conjugate Minnesota :class:`~impulso.priors.NIWPrior`.
         volatility: Optional deterministic volatility break
             (:class:`~impulso.conjugate_volatility.ConjugateVolatility`), or ``None``
-            for a homoscedastic conjugate VAR.
+            for a homoscedastic conjugate VAR. The break must declare at least
+            one hyperparameter to estimate; an adapter with none is rejected
+            at construction because the closed-form fast path would silently
+            ignore it.
         draws: Number of retained posterior draws.
         tune: Number of Metropolis warm-up iterations (ignored on the fixed-prior fast path).
         seed: Seed for the single RNG driving selection, sampling and coefficient draws.
@@ -71,6 +74,31 @@ class ConjugateVAR(ImpulsoBaseModel):
                 f"ConjugateVAR only accepts a ConjugateVolatility break, got {type(value).__name__}. "
                 "PyMC volatility processes (Constant, StochasticVolatility) belong to the "
                 "PyMC/NUTS estimator: use `impulso.VAR(volatility=...)` instead."
+            )
+        return value
+
+    @field_validator("volatility", mode="after")
+    @classmethod
+    def _require_estimable_hyperparameters(cls, value: ConjugateVolatility | None) -> ConjugateVolatility | None:
+        """Reject a volatility break with nothing to estimate (issue #161).
+
+        The conjugate engine has no seam for fixed, known scales: it estimates the
+        volatility hyperparameters jointly with the Minnesota tightness by Metropolis,
+        and with no free hyperparameter at all `select_and_sample` takes the
+        closed-form fast path — which fits homoscedastically and never calls the
+        adapter's `log_scales`. Such a break would be silently ignored, so refuse it
+        at construction rather than return a fit that quietly disregards it.
+        """
+        if value is not None and not value.hyperparameter_priors():
+            raise ValueError(
+                f"{type(value).__name__} declares no volatility hyperparameters: "
+                "hyperparameter_priors() returned an empty mapping. The conjugate engine "
+                "estimates volatility hyperparameters jointly with the Minnesota tightness "
+                "by Metropolis, so a break with none to estimate leaves the fit on the "
+                "closed-form fast path, which is homoscedastic and never consults the "
+                "adapter's log_scales — the break would be silently ignored. Give the "
+                "adapter at least one hyperparameter prior, or apply fixed known scales "
+                "by pre-scaling the data before building VARData."
             )
         return value
 
