@@ -1,0 +1,33 @@
+# The prior on exogenous coefficients scales with the data
+
+`VAR.fit` builds `B_exog ~ Normal(0, sd)` with
+
+```
+sigma_i = ar1_residual_sd(data.endog)[i]                   # per endogenous variable
+s_j     = std(data.exog[n_lags:, j], ddof=1)               # per exogenous regressor
+s_j_eff = max(s_j, 1e-3 * max|data.exog[n_lags:, j]|)
+sd[i,j] = exog_prior_scale * sigma_i / s_j_eff
+```
+
+instead of the fixed `Normal(0, 1)` it used before. `B_exog[i, j]` is a conversion factor from regressor `j`'s units into variable `i`'s, so a prior fixed in coefficient space is not a fixed belief — it is a belief that changes with the units the user happened to pick. On a regressor of standard deviation 0.01 with a true coefficient of 50, the unit prior returned a posterior mean of 3.9 against an OLS estimate of 49.0, with a 94% HDI of [2.2, 5.7]; nothing in the output flagged it. In the other direction, an unscaled linear trend running to 539 gets a prior that is effectively unbounded in contribution space, and hands NUTS a badly conditioned geometry as well.
+
+Dividing by `s_j` and multiplying by `sigma_i` moves the belief into **contribution space**: one prior standard deviation of `B_exog[i, j]` shifts variable `i` by `exog_prior_scale` of its own AR(1) residual standard deviations when regressor `j` moves by one of its own. That statement is invariant to rescaling either series, which is the property the old prior lacked. `sigma_i` is the same scale `MinnesotaPrior` uses for the lag coefficients, so the two priors speak in one language. `s_j` is computed on the lag-trimmed rows because those are the rows the likelihood actually sees.
+
+The default `exog_prior_scale = 100.0` is deliberately **loose, not tight**. Exogenous and deterministic terms are conventionally left near-uninformative — the conjugate engine follows Giannone-Lenza-Primiceri in putting `Vc = 10e6` on the intercept — and the job of this change is to stop the regressor's units from silently setting the answer, not to shrink towards zero. At the default, an unscaled 540-month trend gets `sd ≈ 0.64 · sigma_i`, a mid-sample 0/1 dummy about `200 · sigma_i`, and a regressor of standard deviation 0.01 about `1e4 · sigma_i`. Users who want shrinkage lower the knob.
+
+## Considered options
+
+- **Standardise `exog` internally** and unstandardise the posterior on the way out — rejected. It fixes the same problem but touches six modules (`fitted`, `identified`, `_scenario`, `_residuals`, forecasting, and every `exog_future` entry point), and every one of them becomes a place where a missing unstandardisation silently corrupts results. The scaled prior achieves the inferential fix with zero downstream changes.
+- **Extend the `Prior` protocol** with an exogenous block — rejected. `B_exog` lives outside `Prior.build_priors(n_vars, n_lags)`, which does not even receive the exogenous data. Widening the protocol would break every third-party `Prior` implementation for a term that is not Minnesota-shaped and that most priors have no opinion about. A future exogenous-prior seam may absorb `exog_prior_scale`; until there is a second exogenous prior worth naming, a `VAR` field is the honest size of the decision.
+- **Empirical-Bayes `sd` from an OLS pre-fit** — rejected as double use of the data for a term whose prior is meant to be near-uninformative anyway.
+- **Leave it and document the units caveat** — rejected. The failure is silent and the fix is cheap; a caveat in prose does not reach the user who never reads it.
+
+## Consequences
+
+- **Breaking**: every posterior fitted through `VAR.fit` with exogenous regressors changes. This is pre-v0.1, and the old numbers were wrong in a way no user could see. `ConjugateVAR` rejects `exog` outright, so its results are untouched.
+- **Breaking**: `VARData` now rejects exactly-constant `exog` columns. Such a column is perfectly collinear with the intercept every VAR carries, so its coefficient was never identified — the split between the two was decided entirely by the priors. It also has no spread for the prior to key off. The error names the offending columns and points at the fix.
+- The floor at `1e-3` of the column's peak magnitude is defence in depth for columns that clear the exactly-constant check but are numerically flat. It caps the prior at roughly a thousand times what a column of that level would otherwise get, rather than letting `1/s_j` run to infinity.
+- A column that varies over the full sample but is identically zero after the first `n_lags` rows are trimmed (a pulse dummy at the very start, say) contributes nothing to the likelihood. `_exog_prior_sigma` raises for it rather than dividing by zero.
+- **Not fixed here**: the prior scales but does not centre. An uncentred trend still gives NUTS a strong prior-mean/slope correlation, which costs sampling efficiency even though the inference is now correct. Internal centring for geometry is a separate change, and should be weighed against the same unstandardisation blast radius rejected above.
+- **Not fixed here**: `intercept ~ Normal(0, 1)` on the PyMC path has exactly the same units problem, on the term the conjugate engine is most diffuse about. Tracked separately.
+- A degenerate endogenous column (constant, so `sigma_i ≈ 0`) would collapse the whole prior row towards zero. This is pre-existing — `MinnesotaPrior` shares the failure — and is not guarded here.
