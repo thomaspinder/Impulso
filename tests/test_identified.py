@@ -788,3 +788,99 @@ class TestMaxSharePipeline:
         assert list(da.coords["response"].values) == ["y1", "y2"]
         impact = da.values[..., 0, :, 0]
         np.testing.assert_allclose(impact, np.broadcast_to([0.3, 0.7], impact.shape), atol=1e-8)
+
+
+class _RampSV:
+    """Time-varying volatility whose second variable's scale drifts with `t`.
+
+    Satisfies the `VolatilityProcess` Protocol well enough for
+    `shock_matrix(at="all")`, which is all these tests exercise. Paired
+    with a band accumulator forced to the identity, the eigenvalue ratio
+    at period `t` is `1 / scale_t**2`: above the 0.9 warning threshold at
+    every period, but moving in the third decimal place, so the message
+    text differs from one period to the next.
+    """
+
+    name = "sv"
+    is_time_varying = True
+
+    def __init__(self, n_chains: int = 2, n_draws: int = 50, step: float = 2e-4):
+        self.n_chains = n_chains
+        self.n_draws = n_draws
+        self.step = step
+
+    def build_pymc_latent(self, n_vars, T):  # pragma: no cover
+        raise NotImplementedError
+
+    def cholesky_path(self, posterior, T):
+        L = np.zeros((self.n_chains, self.n_draws, T, 2, 2))
+        L[..., 0, 0] = 1.0
+        L[..., 1, 1] = 1.0 + self.step * np.arange(T)
+        return L
+
+    def cholesky_at(self, posterior, t):  # pragma: no cover
+        return self.cholesky_path(posterior, T=1)[:, :, 0]
+
+    def forecast_cholesky_path(self, posterior, steps, rng):  # pragma: no cover
+        raise NotImplementedError
+
+
+@pytest.fixture
+def weakly_identified_sv(single_driver_2v, var_data_2v, monkeypatch, flat_band_accumulator):
+    """`IdentifiedVAR` whose every period is near-degenerate under SV."""
+    from impulso.identification import MaxShare
+
+    monkeypatch.setattr(MaxShare, "_spectral_accumulator", flat_band_accumulator)
+    return IdentifiedVAR.model_construct(
+        idata=single_driver_2v["idata"],
+        n_lags=1,
+        data=var_data_2v,
+        var_names=["y1", "y2"],
+        volatility=_RampSV(),
+        scheme=MaxShare(target="y1", band=(6, 32)),
+    )
+
+
+class TestMaxShareWeakIdentificationUnderSV:
+    """The degeneracy warning is per posterior, not per period (issue #202)."""
+
+    def test_shock_matrix_at_all_warns_once(self, weakly_identified_sv, var_data_2v):
+        """`at="all"` runs identify() once per period; the user hears it once."""
+        with pytest.warns(UserWarning, match="weakly identified") as record:
+            P = weakly_identified_sv.shock_matrix(at="all")
+
+        T_eff = var_data_2v.endog.shape[0] - 1
+        assert P.sizes["time"] == T_eff
+        assert T_eff > 1  # otherwise "once" is vacuous
+        assert len(record) == 1
+
+    def test_the_ratio_really_does_move_across_periods(self, weakly_identified_sv):
+        """Guards the fixture: identical messages would dedup on their own."""
+        scheme = weakly_identified_sv.scheme
+        posterior = weakly_identified_sv.idata.posterior
+        L_path = weakly_identified_sv.volatility.cholesky_path(posterior, T=100)
+
+        ratios = set()
+        with pytest.warns(UserWarning, match="weakly identified"):
+            for t in (0, 50, 99):
+                scheme.identify(L_path[:, :, t], ["y1", "y2"], posterior=posterior, n_lags=1)
+                ratios.add(f"{scheme._last_diagnostics['max_share_eigen_ratio_median']:.3f}")
+        assert len(ratios) == 3
+        assert all(float(r) > 0.9 for r in ratios)
+
+    def test_a_second_at_all_pass_stays_quiet(self, weakly_identified_sv, recwarn):
+        """A fresh `IdentifiedVAR` over the same posterior and scheme is silent."""
+        with pytest.warns(UserWarning, match="weakly identified"):
+            weakly_identified_sv.shock_matrix(at="all")
+
+        twin = IdentifiedVAR.model_construct(
+            idata=weakly_identified_sv.idata,
+            n_lags=1,
+            data=weakly_identified_sv.data,
+            var_names=["y1", "y2"],
+            volatility=_RampSV(),
+            scheme=weakly_identified_sv.scheme,
+        )
+        recwarn.clear()
+        twin.shock_matrix(at="all")
+        assert len(recwarn) == 0

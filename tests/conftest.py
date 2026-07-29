@@ -193,6 +193,29 @@ def permanent_transitory_2v():
     }
 
 
+@pytest.fixture
+def flat_band_accumulator():
+    """Stand-in for `MaxShare._spectral_accumulator` returning `K = I`.
+
+    Monkeypatch it onto the class to reduce the band variance form to
+    `M = L' L`, so the eigenvalue ratio — and with it the degeneracy
+    warning — is steered entirely by the caller's `L`. No draw comes back
+    singular or explosive, so the weak-identification warning is the only
+    one that can fire.
+    """
+
+    def _accumulator(self, posterior, n_lags, n_vars, target_index):
+        shape = posterior["B"].values.shape[:2]
+        return (
+            np.broadcast_to(np.eye(n_vars), (*shape, n_vars, n_vars)).copy(),
+            np.zeros(shape, dtype=bool),
+            np.zeros(shape),
+            np.ones(shape),
+        )
+
+    return _accumulator
+
+
 # --------------- SV fixtures ---------------
 
 

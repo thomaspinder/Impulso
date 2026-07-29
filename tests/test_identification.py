@@ -963,6 +963,17 @@ def _reference_band_form(A: list, L: np.ndarray, target: int, band: tuple[float,
     return np.trapezoid(np.array(integrand), omegas, axis=0).real
 
 
+def _diag_L(second: float, n_chains: int = 2, n_draws: int = 50) -> np.ndarray:
+    """`diag(1, second)` broadcast over draws.
+
+    Paired with the `flat_band_accumulator` fixture this pins the
+    eigenvalue ratio to `1 / second**2` (for `second >= 1`), so a test can
+    put the diagnostic either side of the 0.9 threshold and vary it at the
+    third decimal place — the digit the warning message embeds.
+    """
+    return np.broadcast_to(np.diag([1.0, second]), (n_chains, n_draws, 2, 2)).copy()
+
+
 class TestMaxShare:
     """Construction, validation and labelling."""
 
@@ -1335,25 +1346,79 @@ class TestMaxShareScreensAndDiagnostics:
 
         assert scheme._spectral_cache.get(_posterior_with_B(B), (1, 1)) is _CACHE_MISS
 
-    def test_weak_identification_is_warned(self, monkeypatch, single_driver_2v):
-        """A repeated top eigenvalue means the maximiser is a plane, not a ray."""
+    def test_weak_identification_is_warned(self, monkeypatch, flat_band_accumulator, single_driver_2v):
+        """A repeated top eigenvalue means the maximiser is a plane, not a ray.
+
+        Regression pin for the constant-volatility path: exactly one
+        warning from the single `identify()` call the pipeline makes.
+        """
         from impulso.identification import MaxShare
 
-        def flat_accumulator(self, posterior, n_lags, n_vars, target_index):
-            shape = posterior["B"].values.shape[:2]
-            return (
-                np.broadcast_to(np.eye(n_vars), (*shape, n_vars, n_vars)).copy(),
-                np.zeros(shape, dtype=bool),
-                np.zeros(shape),
-                np.ones(shape),
-            )
-
-        monkeypatch.setattr(MaxShare, "_spectral_accumulator", flat_accumulator)
+        monkeypatch.setattr(MaxShare, "_spectral_accumulator", flat_band_accumulator)
         scheme = MaxShare(target="y1", band=(6, 32))
         identity = np.broadcast_to(np.eye(2), (2, 50, 2, 2)).copy()
-        with pytest.warns(UserWarning, match="weakly identified"):
+        with pytest.warns(UserWarning, match="weakly identified") as record:
             scheme.identify(identity, ["y1", "y2"], posterior=single_driver_2v["idata"].posterior, n_lags=1)
+        assert len(record) == 1
         assert scheme._last_diagnostics["max_share_eigen_ratio_median"] == pytest.approx(1.0)
+
+    def test_weak_identification_warns_once_per_posterior(
+        self, monkeypatch, recwarn, flat_band_accumulator, single_driver_2v
+    ):
+        """Re-identifying against the same posterior stays quiet (issue #202).
+
+        The second call uses a different `L`, so the message carries a
+        different ratio and the warnings registry would not dedup it —
+        `_warned_weak_for` has to.
+        """
+        from impulso.identification import MaxShare
+
+        monkeypatch.setattr(MaxShare, "_spectral_accumulator", flat_band_accumulator)
+        posterior = single_driver_2v["idata"].posterior
+        scheme = MaxShare(target="y1", band=(6, 32))
+
+        with pytest.warns(UserWarning, match="weakly identified"):
+            scheme.identify(_diag_L(1.0), ["y1", "y2"], posterior=posterior, n_lags=1)
+
+        recwarn.clear()
+        scheme.identify(_diag_L(1.02), ["y1", "y2"], posterior=posterior, n_lags=1)
+        scheme.identify(_diag_L(1.04), ["y1", "y2"], posterior=posterior, n_lags=1)
+        assert scheme._last_diagnostics["max_share_eigen_ratio_median"] > 0.9
+        assert len(recwarn) == 0
+
+    def test_weak_identification_warns_again_for_a_new_posterior(
+        self, monkeypatch, flat_band_accumulator, single_driver_2v
+    ):
+        """The one-shot is keyed on the posterior, not on the scheme."""
+        from impulso.identification import MaxShare
+
+        monkeypatch.setattr(MaxShare, "_spectral_accumulator", flat_band_accumulator)
+        first = single_driver_2v["idata"].posterior
+        second = _posterior_with_B(first["B"].values.copy())
+        scheme = MaxShare(target="y1", band=(6, 32))
+
+        with pytest.warns(UserWarning, match="weakly identified"):
+            scheme.identify(_diag_L(1.0), ["y1", "y2"], posterior=first, n_lags=1)
+        with pytest.warns(UserWarning, match="weakly identified") as record:
+            scheme.identify(_diag_L(1.0), ["y1", "y2"], posterior=second, n_lags=1)
+        assert len(record) == 1
+
+    def test_weak_identification_warns_on_the_first_crossing_not_the_first_call(
+        self, monkeypatch, recwarn, flat_band_accumulator, single_driver_2v
+    ):
+        """A quiet first period must not spend the posterior's one warning."""
+        from impulso.identification import MaxShare
+
+        monkeypatch.setattr(MaxShare, "_spectral_accumulator", flat_band_accumulator)
+        posterior = single_driver_2v["idata"].posterior
+        scheme = MaxShare(target="y1", band=(6, 32))
+
+        scheme.identify(_diag_L(np.sqrt(2.0)), ["y1", "y2"], posterior=posterior, n_lags=1)
+        assert scheme._last_diagnostics["max_share_eigen_ratio_median"] == pytest.approx(0.5)
+        assert len(recwarn) == 0
+
+        with pytest.warns(UserWarning, match="weakly identified"):
+            scheme.identify(_diag_L(1.0), ["y1", "y2"], posterior=posterior, n_lags=1)
 
     def test_diagnostics_keys_are_floats(self, single_driver_2v):
         from impulso.identification import MaxShare

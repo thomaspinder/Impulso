@@ -1152,6 +1152,16 @@ class MaxShare(ImpulsoModel):
     # is exactly the per-t loop's lifetime. See `_PosteriorCache`.
     _spectral_cache: _PosteriorCache = PrivateAttr(default_factory=_PosteriorCache)
 
+    # Cache key of the posterior the weak-identification warning last
+    # fired for. The degeneracy check depends on `L` as well as on the
+    # posterior, so unlike the singular and explosive warnings it cannot
+    # ride on `_spectral_cache` — and because the message embeds the
+    # ratio to 3 dp, which moves with `L_t`, Python's warnings registry
+    # sees a fresh message each period and dedups nothing. Warning on the
+    # first crossing per posterior and remembering the key keeps
+    # `shock_matrix(at="all")` to one warning instead of T.
+    _warned_weak_for: tuple | None = PrivateAttr(default=None)
+
     @model_validator(mode="after")
     def _validate_band(self) -> "MaxShare":
         """Reject bands that are not valid period intervals, and bad labels."""
@@ -1215,7 +1225,10 @@ class MaxShare(ImpulsoModel):
             describe the *last* time slice only. The share and eigenvalue
             ratio are the L-dependent ones and so genuinely differ across
             slices; the singular, explosive and spectral-radius counts do
-            not, since they are properties of the posterior alone. Use
+            not, since they are properties of the posterior alone. The
+            weak-identification warning likewise fires at most once per
+            posterior — at the first period whose median ratio crosses the
+            threshold — rather than once per period. Use
             `max_share_diagnostics` with an explicit `L` for a specific
             period.
 
@@ -1225,7 +1238,7 @@ class MaxShare(ImpulsoModel):
                 `on_undefined="raise"` and some draw is undefined.
         """
         del data  # unused
-        vals, vecs, bad, rho, condition = self._band_eigen(L, var_names, posterior, n_lags)
+        vals, vecs, bad, rho, condition, key = self._band_eigen(L, var_names, posterior, n_lags)
 
         q = vecs[..., -1]  # eigh returns eigenvalues ascending
         q = q * self._orientation(L, q, var_names.index(self.target))[..., np.newaxis]
@@ -1246,7 +1259,7 @@ class MaxShare(ImpulsoModel):
             "max_share_spectral_radius_median": float(np.median(rho)),
             "max_share_spectral_radius_max": float(rho.max()),
         }
-        self._warn_weakly_identified()
+        self._warn_weakly_identified(key)
 
         if bad.any():
             P = np.where(bad[..., np.newaxis, np.newaxis], np.nan, P)
@@ -1258,15 +1271,16 @@ class MaxShare(ImpulsoModel):
         var_names: list[str],
         posterior: "xr.Dataset | None",
         n_lags: int | None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, tuple]:
         """Eigendecomposition of the band variance form `M = L' Re(K) L`.
 
         Returns:
-            Tuple `(vals, vecs, bad, rho, condition)`: eigenvalues in
+            Tuple `(vals, vecs, bad, rho, condition, key)`: eigenvalues in
             ascending order and their eigenvectors, `(C, D, n)` and
             `(C, D, n, n)`; the numerically-undefined mask, the companion
             spectral radii and the worst in-band condition number, each
-            `(C, D)`.
+            `(C, D)`; and the posterior cache key of `_cache_key`, which
+            callers use to fire per-posterior warnings once.
         """
         if posterior is None or "B" not in posterior:
             raise ValueError(
@@ -1281,12 +1295,28 @@ class MaxShare(ImpulsoModel):
         n_vars = L.shape[-1]
         if n_lags is None:
             n_lags = posterior["B"].shape[-1] // n_vars
-        K, bad, rho, condition = self._spectral_accumulator(posterior, n_lags, n_vars, var_names.index(self.target))
+        target_index = var_names.index(self.target)
+        K, bad, rho, condition = self._spectral_accumulator(posterior, n_lags, n_vars, target_index)
 
         M = np.swapaxes(L, -1, -2) @ K @ L
         M = 0.5 * (M + np.swapaxes(M, -1, -2))
         vals, vecs = np.linalg.eigh(M)
-        return vals, vecs, bad, rho, condition
+        return vals, vecs, bad, rho, condition, self._cache_key(posterior, n_lags, target_index)
+
+    @staticmethod
+    def _cache_key(posterior: "xr.Dataset", n_lags: int, target_index: int) -> tuple:
+        """Identity of one (posterior, lag order, target) combination.
+
+        Keys `_warned_weak_for`, so the one-shot degeneracy warning fires
+        once per (posterior, lag order, target) rather than once per
+        `identify()` call. Keyed by object identity, which is exactly the
+        lifetime of the pipeline's per-t loop. `_spectral_cache` does its
+        own keying through `_PosteriorCache`, which additionally validates
+        the referent with a weakref so a recycled `id()` reads as a miss;
+        this set carries no numeric payload, so a recycled address can at
+        worst suppress one warning.
+        """
+        return (id(posterior), n_lags, target_index)
 
     def _spectral_accumulator(
         self, posterior: "xr.Dataset", n_lags: int, n_vars: int, target_index: int
@@ -1440,7 +1470,7 @@ class MaxShare(ImpulsoModel):
                 stacklevel=4,
             )
 
-    def _warn_weakly_identified(self) -> None:
+    def _warn_weakly_identified(self, key: tuple) -> None:
         """Warn when the leading eigenvalue is barely separated from the next.
 
         At a ratio near one the band-variance form is close to having a
@@ -1449,19 +1479,38 @@ class MaxShare(ImpulsoModel):
         the eigensolver produced and is not reproducible across LAPACK
         builds. Threshold fixed at 0.9 — it is a smoke alarm, not a tuning
         knob.
+
+        Fired at most once per posterior. The ratio depends on `L`, so
+        under time-varying volatility the pipeline's per-t loop would
+        otherwise re-evaluate the check `T` times, and because the message
+        embeds the ratio to 3 dp the warnings registry would treat each
+        period as a new message and print all of them. The first crossing
+        wins and its `key` is remembered in `_warned_weak_for`; later
+        periods and later `identify()` calls against the same posterior
+        stay quiet.
+
+        Args:
+            key: Posterior cache key from `_cache_key`, as returned by
+                `_band_eigen`.
         """
         ratio = self._last_diagnostics.get("max_share_eigen_ratio_median", np.nan)
-        if np.isfinite(ratio) and ratio > 0.9:
-            import warnings
+        if self._warned_weak_for == key or not np.isfinite(ratio) or ratio <= 0.9:
+            return
 
-            warnings.warn(
-                f"The maximum-share shock is weakly identified within the band: posterior-median "
-                f"eigenvalue ratio lambda_2/lambda_1 = {ratio:.3f} > 0.9, so the maximiser is "
-                "nearly degenerate and the returned rotation within that plane is arbitrary. See "
-                "the max_share_eigen_ratio_* diagnostics.",
-                UserWarning,
-                stacklevel=4,
-            )
+        import warnings
+
+        self._warned_weak_for = key
+        warnings.warn(
+            f"The maximum-share shock is weakly identified within the band: posterior-median "
+            f"eigenvalue ratio lambda_2/lambda_1 = {ratio:.3f} > 0.9, so the maximiser is "
+            "nearly degenerate and the returned rotation within that plane is arbitrary. Warned "
+            "once per posterior; under time-varying volatility the ratio depends on the period's "
+            "Cholesky factor, so this is the first period to cross the threshold and other "
+            "periods will differ. See the max_share_eigen_ratio_* diagnostics, or "
+            "max_share_diagnostics() with an explicit L for the per-draw, per-period picture.",
+            UserWarning,
+            stacklevel=4,
+        )
 
     def max_share_diagnostics(
         self,
@@ -1490,7 +1539,7 @@ class MaxShare(ImpulsoModel):
             `"condition_max"` is the worst condition number of
             `I - sum_j A_j e^{-i w j}` across the band's grid.
         """
-        vals, _, bad, rho, condition = self._band_eigen(L, var_names, posterior, n_lags)
+        vals, _, bad, rho, condition, _ = self._band_eigen(L, var_names, posterior, n_lags)
         share, ratio = self._share_and_ratio(vals, bad)
         return {
             "share": share,
