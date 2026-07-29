@@ -95,6 +95,49 @@ def test_pandemic_break_fit_forecast_and_irf():
     assert np.isfinite(irf).all()
 
 
+def test_selected_tightness_stamps_metropolis_acceptance_rate():
+    """A fit with a free hyperparameter carries the Metropolis rate (issue #178)."""
+    data = _synthetic_var_data(60, seed=4)
+    model = ConjugateVAR(lags=1, prior=NIWPrior(select=True), draws=DRAWS, tune=DRAWS, seed=4)
+
+    attrs = model.fit(data).idata.posterior.attrs
+    rate = attrs["metropolis_acceptance_rate"]
+
+    assert isinstance(rate, float)
+    assert np.isfinite(rate)
+    assert 0.0 < rate <= 1.0
+
+
+def test_volatility_break_stamps_metropolis_acceptance_rate():
+    """A volatility break also frees hyperparameters, so the rate is stamped."""
+    start = 55
+    data = _synthetic_var_data(70, seed=5, spike_start_level=start + 1)
+    model = ConjugateVAR(
+        lags=1,
+        prior=NIWPrior(),
+        volatility=PandemicBreak(start=start),
+        draws=DRAWS,
+        tune=DRAWS,
+        seed=5,
+    )
+
+    rate = model.fit(data).idata.posterior.attrs["metropolis_acceptance_rate"]
+
+    assert isinstance(rate, float)
+    assert 0.0 < rate <= 1.0
+
+
+def test_fixed_prior_fast_path_omits_metropolis_acceptance_rate():
+    """No Metropolis chain runs on the fast path, so the attr is absent, not 1.0."""
+    data = _synthetic_var_data(60, seed=6)
+    model = ConjugateVAR(lags=1, prior=NIWPrior(select=False), draws=DRAWS, tune=DRAWS, seed=6)
+
+    attrs = model.fit(data).idata.posterior.attrs
+
+    assert "in_sample_length" in attrs  # the other stamp still lands
+    assert "metropolis_acceptance_rate" not in attrs
+
+
 def test_rejects_exog_bearing_data():
     """ConjugateVAR estimates endogenous dynamics only (issue #121)."""
     rng = np.random.default_rng(3)
