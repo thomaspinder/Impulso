@@ -10,6 +10,7 @@ from impulso.spec import VAR
 if TYPE_CHECKING:
     from types import ModuleType
 
+    from impulso._granger import toda_yamamoto
     from impulso._linalg import lag_matrices
     from impulso._ma import compute_ma_phi
     from impulso.conjugate import ConjugateVAR
@@ -101,6 +102,7 @@ __all__ = [
     "kpss_test",
     "lag_matrices",
     "select_lag_order",
+    "toda_yamamoto",
 ]
 
 
@@ -148,6 +150,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "ErrorDistribution": "impulso.protocols",
     "VolatilityProcess": "impulso.protocols",
     "GrangerCausalityResult": "impulso.results",
+    "toda_yamamoto": "impulso._granger",
     "compute_ma_phi": "impulso._ma",
     "lag_matrices": "impulso._linalg",
 }

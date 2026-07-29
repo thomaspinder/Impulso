@@ -1,7 +1,7 @@
-"""Tests for Bayesian Granger causality.
+"""Tests for Bayesian Granger causality and the Toda-Yamamoto mode.
 
 The load-bearing group is `TestIndexing`. Everything else in the feature —
-directionality, calibration — is downstream of
+directionality, calibration, the augmentation contract — is downstream of
 reading the right columns out of the stacked coefficient matrix `B`, and a
 lag-major/variable-major slip there is silent: it still returns plausible
 numbers, for the wrong pair. Those tests therefore run against a hand-built
@@ -14,12 +14,13 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from impulso import VARData
+from impulso import GrangerCausalityResult, VARData, toda_yamamoto
 from impulso._granger import _coefficient_indices
 from impulso._linalg import lag_matrices
 from impulso.conjugate import ConjugateVAR
 from impulso.fitted import FittedVAR
 from impulso.priors import NIWPrior
+from impulso.results import IntegrationOrderResult
 from impulso.volatility import Constant
 
 # --------------- helpers ---------------
@@ -104,6 +105,21 @@ def _null_data(seed: int, T: int = 200) -> VARData:
     for t in range(1, T):
         y[t] = 0.5 * y[t - 1] + 0.1 * rng.standard_normal(2)
     return _var_data(y, ["y1", "y2"])
+
+
+def _i1_unidirectional(seed: int = 7, T: int = 400) -> VARData:
+    """Both series I(1); x's increments drive y's, never the reverse.
+
+    x is a driftless random walk; y accumulates 0.5 times x's increment
+    plus its own small noise. Seed chosen so that `integration_order`
+    settles both series at d = 1 with nothing left inconclusive.
+    """
+    rng = np.random.default_rng(seed)
+    x = np.cumsum(rng.standard_normal(T))
+    y = np.zeros(T)
+    for t in range(2, T):
+        y[t] = y[t - 1] + 0.5 * (x[t - 1] - x[t - 2]) + 0.05 * rng.standard_normal()
+    return _var_data(np.column_stack([x, y]), ["x", "y"])
 
 
 # --------------- 1. indexing (load-bearing) ---------------
@@ -319,6 +335,155 @@ def test_null_system_is_mostly_inside_the_rope():
     assert len(p_ropes) == 40
     assert float(np.median(p_ropes)) > 0.5
     assert min(p_ropes) > 0.1
+
+
+# --------------- 7. Toda-Yamamoto contract ---------------
+
+
+def _integration_order_result(order: dict[str, int], inconclusive: list[str]) -> IntegrationOrderResult:
+    """Hand-built diagnostics, so the refusal contract needs no statsmodels."""
+    return IntegrationOrderResult(
+        order=order,
+        alpha=0.05,
+        max_order=2,
+        regression="c",
+        inconclusive=inconclusive,
+        table=pd.DataFrame(
+            {"joint_status": ["inconclusive"] * len(order)},
+            index=pd.MultiIndex.from_tuples([(name, 0) for name in order], names=["variable", "d"]),
+        ),
+    )
+
+
+class TestTodaYamamoto:
+    def test_inconclusive_diagnostics_are_refused_by_name(self):
+        diagnostics = _integration_order_result({"y1": 1, "y2": 2}, ["y2"])
+        with pytest.raises(ValueError, match="y2") as excinfo:
+            toda_yamamoto(
+                _null_data(0),
+                "y2",
+                "y1",
+                lags=1,
+                integration_order_result=diagnostics,
+            )
+        message = str(excinfo.value)
+        assert "under-augment" in message
+        assert "summary()" in message
+        assert "d=" in message
+
+    def test_explicit_d_splits_tested_from_fitted_lags(self):
+        result = toda_yamamoto(_null_data(0), "y2", "y1", lags=1, d=1)
+        assert result.n_lags_tested == 1
+        assert result.n_lags_fitted == 2
+        assert result.augmentation == 1
+        assert result.augmentation_source == "user"
+        assert result.integration_order_result is None
+        # The augmented lag is fitted but never reported.
+        assert list(result.summary().index) == ["L1", "norm"]
+        assert result.coef_draws.shape[-1] == 1
+
+    def test_injected_clean_diagnostics_are_consulted_and_attached(self):
+        diagnostics = _integration_order_result({"y1": 1, "y2": 1}, [])
+        result = toda_yamamoto(
+            _null_data(0),
+            "y2",
+            "y1",
+            lags=1,
+            integration_order_result=diagnostics,
+        )
+        assert result.augmentation == 1
+        assert result.augmentation_source == "integration_order"
+        assert result.integration_order_result is diagnostics
+
+    def test_d_max_of_zero_still_records_that_diagnostics_ran(self):
+        diagnostics = _integration_order_result({"y1": 0, "y2": 0}, [])
+        result = toda_yamamoto(
+            _null_data(0),
+            "y2",
+            "y1",
+            lags=2,
+            integration_order_result=diagnostics,
+        )
+        assert result.augmentation == 0
+        assert result.augmentation_source == "integration_order"
+        assert result.n_lags_fitted == result.n_lags_tested == 2
+
+    def test_explicit_d_needs_no_statsmodels(self, monkeypatch):
+        """The `d=` route must not even try to import the optional extra."""
+        import impulso._stationarity as stationarity
+
+        def _absent(module, *, extra):
+            raise ImportError(f"{module} is not installed")
+
+        monkeypatch.setattr(stationarity, "require", _absent)
+        result = toda_yamamoto(_null_data(0), "y2", "y1", lags=1, d=1)
+        assert result.augmentation_source == "user"
+        assert np.isfinite(result.median())
+
+    def test_exogenous_data_points_at_the_manual_route(self):
+        data = _null_data(0)
+        with_exog = VARData(
+            endog=np.asarray(data.endog),
+            endog_names=list(data.endog_names),
+            exog=np.ones((len(data.index), 1)),
+            exog_names=["trend"],
+            index=data.index,
+        )
+        with pytest.raises(ValueError, match="granger_causality") as excinfo:
+            toda_yamamoto(with_exog, "y2", "y1", lags=1, d=0)
+        assert "VAR(lags=p + d)" in str(excinfo.value)
+
+    def test_unknown_variable_is_refused_before_fitting(self):
+        with pytest.raises(ValueError, match=r"unknown variable\(s\)"):
+            toda_yamamoto(_null_data(0), "gdp", "y1", lags=1, d=0)
+
+    @pytest.mark.parametrize(("lags", "match"), [("nope", "lags must be an int"), (0, "lags must be >= 1")])
+    def test_invalid_lag_specification_is_refused(self, lags, match):
+        with pytest.raises(ValueError, match=match):
+            toda_yamamoto(_null_data(0), "y2", "y1", lags=lags, d=0)
+
+    def test_negative_d_is_refused(self):
+        with pytest.raises(ValueError, match="d must be non-negative"):
+            toda_yamamoto(_null_data(0), "y2", "y1", lags=1, d=-1)
+
+    def test_criterion_string_selects_the_test_lag_order(self):
+        result = toda_yamamoto(_null_data(0), "y2", "y1", lags="bic", max_lags=4, d=1)
+        assert result.n_lags_tested >= 1
+        assert result.n_lags_fitted == result.n_lags_tested + 1
+
+    def test_returns_a_granger_causality_result(self):
+        assert isinstance(toda_yamamoto(_null_data(0), "y2", "y1", lags=1, d=0), GrangerCausalityResult)
+
+
+class TestTodaYamamotoEndToEnd:
+    """Full path on an I(1) system, diagnostics included."""
+
+    def test_augmented_fit_recovers_the_direction(self):
+        pytest.importorskip("statsmodels")
+        data = _i1_unidirectional()
+
+        forward = toda_yamamoto(data, "x", "y", lags=2, rope=0.1, draws=400, seed=0)
+        assert forward.augmentation_source == "integration_order"
+        assert forward.augmentation >= 1
+        assert forward.n_lags_fitted == forward.n_lags_tested + forward.augmentation
+        assert forward.integration_order_result is not None
+        assert forward.integration_order_result.d_max == forward.augmentation
+
+        # Reuse the diagnostics rather than re-running them for the reverse
+        # direction; the injected path is asserted separately above.
+        reverse = toda_yamamoto(
+            data,
+            "y",
+            "x",
+            lags=2,
+            rope=0.1,
+            draws=400,
+            seed=0,
+            integration_order_result=forward.integration_order_result,
+        )
+        assert forward.p_rope is not None
+        assert reverse.p_rope is not None
+        assert forward.p_rope < reverse.p_rope
 
 
 # --------------- 8. NUTS smoke ---------------

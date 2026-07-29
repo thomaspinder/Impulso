@@ -122,6 +122,12 @@ class TestRuntimeChecks:
 
 
 class TestGrangerPublicAPI:
+    def test_toda_yamamoto_importable(self):
+        from impulso import toda_yamamoto
+        from impulso._granger import toda_yamamoto as direct
+
+        assert toda_yamamoto is direct
+
     def test_granger_causality_result_importable(self):
         from impulso import GrangerCausalityResult
         from impulso.results import GrangerCausalityResult as direct
@@ -131,6 +137,7 @@ class TestGrangerPublicAPI:
     def test_granger_names_in_all(self):
         import impulso
 
+        assert "toda_yamamoto" in impulso.__all__
         assert "GrangerCausalityResult" in impulso.__all__
 
     def test_granger_causality_is_a_fitted_var_method(self):
