@@ -153,6 +153,32 @@ class FittedVAR(ImpulsoBaseModel):
         extra_dims = sigma.ndim - inflation.ndim
         return sigma * inflation.reshape(inflation.shape + (1,) * extra_dims)
 
+    def _resolve_exog_future(self, exog_future: np.ndarray | None, steps: int) -> np.ndarray | None:
+        """Validate a future exogenous block against the fitted posterior.
+
+        Checked here rather than left to the propagation `einsum`: the block
+        is routinely generated now (`DeterministicDesign.exog_future`), and a
+        mis-shaped or mis-ordered one must not surface as an opaque einsum
+        error. `conditional_forecast` enforces the same contract.
+        """
+        if self.has_exog and exog_future is None:
+            raise ValueError("exog_future is required when model includes exogenous variables")
+        if not self.has_exog and exog_future is not None:
+            raise ValueError("exog_future provided but model has no exogenous variables")
+        if exog_future is None:
+            return None
+        if "B_exog" not in self.idata.posterior:
+            raise ValueError(
+                "This FittedVAR's data carries exogenous regressors the estimator "
+                "never consumed (no B_exog in the posterior); refit with an "
+                "estimator that supports them before forecasting."
+            )
+        block = np.asarray(exog_future, dtype=float)
+        n_exog = self.idata.posterior["B_exog"].shape[-1]
+        if block.shape != (steps, n_exog):
+            raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {block.shape}.")
+        return block
+
     def forecast(
         self,
         steps: int,
@@ -192,10 +218,7 @@ class FittedVAR(ImpulsoBaseModel):
 
         from impulso.results import ForecastResult
 
-        if self.has_exog and exog_future is None:
-            raise ValueError("exog_future is required when model includes exogenous variables")
-        if not self.has_exog and exog_future is not None:
-            raise ValueError("exog_future provided but model has no exogenous variables")
+        exog_future = self._resolve_exog_future(exog_future, steps)
 
         rng = np.random.default_rng(seed) if not isinstance(seed, np.random.Generator) else seed
 

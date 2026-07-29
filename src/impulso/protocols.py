@@ -6,6 +6,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     import arviz as az
+    import pandas as pd
     import pymc as pm
     import pytensor.tensor as pt
     import xarray as xr
@@ -25,6 +26,60 @@ class Sampler(Protocol):
     """Contract for posterior sampling strategies."""
 
     def sample(self, model: "pm.Model") -> "az.InferenceData": ...
+
+
+@runtime_checkable
+class DeterministicTerm(Protocol):
+    """Contract for deterministic regressor terms.
+
+    A term is a total function of a timestamp: given an index it returns
+    real-valued columns with no missing entries, and it does so from the
+    calendar alone — never from the endogenous data. `DeterministicDesign`
+    composes terms into an exogenous design matrix.
+
+    The `(origin, alias)` pair is resolved **once** from the estimation
+    index and handed to every term, for both in-sample construction and
+    out-of-sample extension. Terms that count elapsed time (trends,
+    harmonics) must anchor on it rather than on the position of a row
+    inside the index they are handed; that is what makes
+    `design.extend(index, h)` reproduce the rows `design.build` would
+    have written had the index been `h` periods longer.
+
+    Concrete implementations: `Trend`, `Fourier`, `SeasonalDummies`,
+    `BreakDummy` (all in `impulso.deterministic`).
+    """
+
+    @property
+    def column_names(self) -> list[str]:
+        """Names of the columns this term contributes, in build order.
+
+        Must be knowable without an index — the design's column contract
+        is static — and must have the same length as `build`'s second
+        axis.
+        """
+        ...
+
+    def build(self, index: "pd.DatetimeIndex", origin: "pd.Timestamp", alias: str) -> np.ndarray:
+        """Evaluate the term on `index`.
+
+        Args:
+            index: Timestamps to evaluate at. Not necessarily the
+                estimation index — `DeterministicDesign.extend` passes a
+                future index while keeping `origin` and `alias` fixed.
+            origin: First timestamp of the estimation index; the zero
+                point for elapsed-time counts.
+            alias: pandas period alias for the sampling frequency (e.g.
+                `"M"`, `"Q-DEC"`, `"D"`, `"15D"`), used to convert
+                timestamps to integer period ordinals. Note that a
+                multiplied alias stores ordinals in its *base* unit, so
+                elapsed time must be divided by the multiplier to be
+                counted in sampling periods.
+
+        Returns:
+            Float array of shape `(len(index), len(self.column_names))`
+            containing only finite values.
+        """
+        ...
 
 
 @runtime_checkable

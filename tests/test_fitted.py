@@ -500,3 +500,72 @@ class TestInnovationCovariance:
         ratios = np.diagonal(actual, axis1=-2, axis2=-1) / np.diagonal(sigma, axis1=-2, axis2=-1)
         np.testing.assert_allclose(ratios[0, 0], 2.0)
         np.testing.assert_allclose(ratios[0, 1], 1.5)
+
+
+class TestForecastExogValidation:
+    """`forecast` validates the future exogenous block before propagating it.
+
+    Users generate this block programmatically now
+    (`DeterministicDesign.exog_future`), so a mis-shaped one must fail with a
+    named contract rather than an opaque einsum error deep in the loop.
+    """
+
+    @pytest.fixture
+    def fitted_with_exog(self, synthetic_idata_2v, var_data_2v):
+        import xarray as xr
+
+        rng = np.random.default_rng(3)
+        exog = rng.standard_normal((var_data_2v.endog.shape[0], 2))
+        data = VARData(
+            endog=var_data_2v.endog,
+            endog_names=list(var_data_2v.endog_names),
+            exog=exog,
+            exog_names=["x1", "x2"],
+            index=var_data_2v.index,
+        )
+        idata = synthetic_idata_2v.copy()
+        idata.posterior["B_exog"] = xr.DataArray(
+            rng.standard_normal((2, 50, 2, 2)),
+            dims=["chain", "draw", "var", "exog"],
+            coords={"exog": ["x1", "x2"]},
+        )
+        return FittedVAR.model_construct(
+            idata=idata,
+            n_lags=1,
+            data=data,
+            var_names=["y1", "y2"],
+        )
+
+    def test_correct_shape_forecasts(self, fitted_with_exog):
+        result = fitted_with_exog.forecast(
+            steps=4,
+            exog_future=np.zeros((4, 2)),
+            include_shock_uncertainty=False,
+        )
+        assert result.median().shape == (4, 2)
+
+    def test_wrong_column_count_raises(self, fitted_with_exog):
+        with pytest.raises(ValueError, match=r"exog_future must have shape \(4, 2\), got \(4, 1\)"):
+            fitted_with_exog.forecast(steps=4, exog_future=np.zeros((4, 1)))
+
+    def test_wrong_step_count_raises(self, fitted_with_exog):
+        with pytest.raises(ValueError, match=r"exog_future must have shape \(4, 2\), got \(6, 2\)"):
+            fitted_with_exog.forecast(steps=4, exog_future=np.zeros((6, 2)))
+
+    def test_posterior_without_b_exog_raises(self, synthetic_idata_2v, var_data_2v):
+        rng = np.random.default_rng(4)
+        data = VARData(
+            endog=var_data_2v.endog,
+            endog_names=list(var_data_2v.endog_names),
+            exog=rng.standard_normal((var_data_2v.endog.shape[0], 1)),
+            exog_names=["x1"],
+            index=var_data_2v.index,
+        )
+        fitted = FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=data,
+            var_names=["y1", "y2"],
+        )
+        with pytest.raises(ValueError, match="never consumed"):
+            fitted.forecast(steps=3, exog_future=np.zeros((3, 1)))
