@@ -714,3 +714,99 @@ class TestLongRunRestriction:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+
+    # --- 17-19. from_zero_restrictions -------------------------------------
+
+    def test_from_zero_restrictions_recovers_the_ordering(self, permanent_transitory_2v):
+        fx = permanent_transitory_2v
+        scheme = LongRunRestriction.from_zero_restrictions(
+            restrictions={"y1": ["transitory"]},
+            var_names=["y1", "y2"],
+            shock_names=["permanent", "transitory"],
+        )
+        assert scheme.ordering == ["y1", "y2"]
+        assert scheme.shock_names == ["permanent", "transitory"]
+        np.testing.assert_array_equal(self._identify(scheme, fx), self._identify(self._scheme(), fx))
+
+    def test_from_zero_restrictions_forwards_kwargs(self):
+        scheme = LongRunRestriction.from_zero_restrictions(
+            restrictions={"y1": ["transitory"]},
+            var_names=["y1", "y2"],
+            shock_names=["permanent", "transitory"],
+            on_undefined="raise",
+            max_condition=1e6,
+        )
+        assert scheme.on_undefined == "raise"
+        assert scheme.max_condition == 1e6
+
+    def test_from_zero_restrictions_rejects_non_recursive_patterns(self):
+        """Counts (1, 1, 0) are not a permutation of (0, 1, 2) — no ordering makes this triangular."""
+        with pytest.raises(ValueError, match="recursive"):
+            LongRunRestriction.from_zero_restrictions(
+                restrictions={"a": ["s2"], "b": ["s3"]},
+                var_names=["a", "b", "c"],
+                shock_names=["s1", "s2", "s3"],
+            )
+
+    def test_from_zero_restrictions_names_the_offending_variable(self):
+        """Counts are a valid permutation, but the restricted shocks are the wrong ones."""
+        with pytest.raises(ValueError, match="'b'"):
+            LongRunRestriction.from_zero_restrictions(
+                restrictions={"a": ["s2", "s3"], "b": ["s2"]},
+                var_names=["a", "b", "c"],
+                shock_names=["s1", "s2", "s3"],
+            )
+
+    def test_from_zero_restrictions_rejects_unknown_names(self):
+        with pytest.raises(ValueError, match="var_names"):
+            LongRunRestriction.from_zero_restrictions(
+                restrictions={"nope": ["transitory"]},
+                var_names=["y1", "y2"],
+                shock_names=["permanent", "transitory"],
+            )
+        with pytest.raises(ValueError, match="shock_names"):
+            LongRunRestriction.from_zero_restrictions(
+                restrictions={"y1": ["nope"]},
+                var_names=["y1", "y2"],
+                shock_names=["permanent", "transitory"],
+            )
+
+    def test_from_zero_restrictions_requires_one_shock_per_variable(self):
+        with pytest.raises(ValueError, match="one per variable"):
+            LongRunRestriction.from_zero_restrictions(
+                restrictions={"y1": ["transitory"]},
+                var_names=["y1", "y2"],
+                shock_names=["permanent"],
+            )
+
+
+class TestLongRunRestrictionRecovery:
+    """End-to-end: does the scheme recover a known long-run structure from data?"""
+
+    def test_recovers_p_true_from_simulated_data(self):
+        import pandas as pd
+
+        from impulso.conjugate import ConjugateVAR
+        from impulso.data import VARData
+        from impulso.priors import NIWPrior
+
+        A1 = np.array([[0.5, 0.1], [0.2, 0.4]])
+        P_true = (np.eye(2) - A1) @ np.array([[1.0, 0.0], [0.5, 0.8]])
+
+        rng = np.random.default_rng(0)
+        T = 2000
+        y = np.zeros((T, 2))
+        for t in range(1, T):
+            y[t] = A1 @ y[t - 1] + P_true @ rng.standard_normal(2)
+        data = VARData(
+            endog=y,
+            endog_names=["y1", "y2"],
+            index=pd.date_range("1900-01-01", periods=T, freq="QS"),
+        )
+
+        fitted = ConjugateVAR(lags=1, prior=NIWPrior(), draws=200, seed=0).fit(data)
+        identified = fitted.set_identification_strategy(
+            LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
+        )
+        P_median = np.median(identified.shock_matrix().values, axis=(0, 1))
+        np.testing.assert_allclose(P_median, P_true, atol=0.05)
