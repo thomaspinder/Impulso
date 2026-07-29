@@ -132,3 +132,30 @@ class TestVolatilityPublicAPI:
 
         assert "Constant" in impulso.__all__
         assert "VolatilityProcess" in impulso.__all__
+
+
+class TestEvidencePublicAPI:
+    def test_model_evidence_importable_from_impulso(self):
+        from impulso import ModelEvidence
+        from impulso.evidence import ModelEvidence as DirectModelEvidence
+
+        assert ModelEvidence is DirectModelEvidence
+
+    def test_evidence_comparison_importable_from_impulso(self):
+        from impulso import EvidenceComparison
+        from impulso.evidence import EvidenceComparison as DirectEvidenceComparison
+
+        assert EvidenceComparison is DirectEvidenceComparison
+
+    def test_compare_evidence_importable_from_impulso(self):
+        from impulso import compare_evidence
+        from impulso.evidence import compare_evidence as direct_compare_evidence
+
+        assert compare_evidence is direct_compare_evidence
+
+    def test_evidence_names_in_all(self):
+        import impulso
+
+        assert "ModelEvidence" in impulso.__all__
+        assert "EvidenceComparison" in impulso.__all__
+        assert "compare_evidence" in impulso.__all__

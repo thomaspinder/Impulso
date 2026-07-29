@@ -10,6 +10,7 @@ from impulso._base import ImpulsoBaseModel
 from impulso._linalg import lag_matrices, sigma_from_cholesky
 from impulso._ma import compute_ma_phi
 from impulso.data import VARData
+from impulso.evidence import ModelEvidence
 from impulso.protocols import IdentificationScheme, VolatilityProcess
 
 if TYPE_CHECKING:
@@ -39,6 +40,11 @@ class FittedVAR(ImpulsoBaseModel):
             the model cannot be re-conditioned on new data. Typed as Any so
             that importing `impulso.fitted` does not pull in PyMC (see the
             lazy-import convention).
+        evidence: The closed-form log marginal likelihood of the fitted model
+            plus the metadata needed to compare it, or None when the estimator
+            has no closed-form evidence (the PyMC/NUTS `VAR` path). Populated
+            by `ConjugateVAR.fit`; pass fits carrying it to
+            `impulso.compare_evidence` for Bayes factors.
     """
 
     idata: az.InferenceData = Field(repr=False)
@@ -47,6 +53,7 @@ class FittedVAR(ImpulsoBaseModel):
     var_names: list[str]
     volatility: VolatilityProcess
     pymc_model: Any = Field(default=None, repr=False)
+    evidence: ModelEvidence | None = Field(default=None, repr=False)
 
     @property
     def has_exog(self) -> bool:
