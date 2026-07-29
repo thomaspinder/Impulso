@@ -212,6 +212,15 @@ class VolatilityProcess(Protocol):
 
     Adapters own their downstream computation: time-`t` query and
     forward simulation for forecasts.
+
+    Optional capability: `posterior_var_names(self) -> tuple[str, ...]`,
+    naming the posterior variables the adapter is responsible for. It is
+    *not* a required protocol method — `impulso.diagnostics.assign_blocks`
+    reads it via `getattr(volatility, "posterior_var_names", None)` (the
+    same pattern as `IdentificationScheme._samples_rotations`) to route an
+    adapter's own variables into the report's covariance or volatility
+    block. Adapters that omit it lose nothing beyond block attribution:
+    unrecognised variables land in the report's `other` block.
     """
 
     name: str

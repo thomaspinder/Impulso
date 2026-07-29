@@ -118,6 +118,20 @@ class ConjugateVolatility(ImpulsoModel):
         """Absolute in-sample-equivalent time indices for forecast steps `0..steps-1`."""
         raise NotImplementedError
 
+    # --- optional diagnostics capability ---
+    def posterior_var_names(self) -> tuple[str, ...]:
+        """Posterior variables this adapter is responsible for.
+
+        The optional `VolatilityProcess` capability read by
+        `impulso.diagnostics.assign_blocks`. The break's free
+        hyperparameters *are* its posterior variables — the conjugate
+        sampler packs one entry per `hyperparameter_priors` key — so the
+        two stay in sync by construction. They route to the report's
+        volatility block, since `is_time_varying` is True: they parameterise
+        the scale path `s_t`, not the base covariance.
+        """
+        return tuple(self.hyperparameter_priors())
+
     # --- query surface (shared) ---
     def cholesky_at(self, posterior: xr.Dataset, t: int | None) -> np.ndarray:
         """Cholesky factor `L_t = s_t * L_base` at time `t` for every draw.

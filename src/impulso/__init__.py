@@ -12,8 +12,17 @@ if TYPE_CHECKING:
 
     from impulso._linalg import lag_matrices
     from impulso._ma import compute_ma_phi
+    from impulso._stability import companion_matrix, spectral_radius
     from impulso.conjugate import ConjugateVAR
     from impulso.conjugate_volatility import ConjugateVolatility, PandemicBreak
+    from impulso.diagnostics import (
+        BlockDiagnostics,
+        ConvergenceReport,
+        ConvergenceThresholds,
+        DiagnosticMessage,
+        StabilitySummary,
+        convergence_report,
+    )
     from impulso.evidence import EvidenceComparison, ModelEvidence, compare_evidence
     from impulso.fitted import FittedVAR
     from impulso.identification import Cholesky, LongRunRestriction, ProxySVAR, SignRestriction
@@ -48,13 +57,17 @@ if TYPE_CHECKING:
 
 __all__ = [
     "VAR",
+    "BlockDiagnostics",
     "Cholesky",
     "CointegrationTestResult",
     "ConditionalForecastResult",
     "ConjugateVAR",
     "ConjugateVolatility",
     "Constant",
+    "ConvergenceReport",
+    "ConvergenceThresholds",
     "CounterfactualResult",
+    "DiagnosticMessage",
     "DynamicMultiplierResult",
     "ErrorDistribution",
     "EvidenceComparison",
@@ -83,6 +96,7 @@ __all__ = [
     "ShockPath",
     "SignRestriction",
     "StationarityTestResult",
+    "StabilitySummary",
     "StochasticVolatility",
     "StudentT",
     "VARData",
@@ -90,14 +104,17 @@ __all__ = [
     "VolatilityProcess",
     "VolatilityResult",
     "adf_test",
+    "companion_matrix",
     "compare_evidence",
     "compute_ma_phi",
+    "convergence_report",
     "enable_runtime_checks",
     "integration_order",
     "johansen_test",
     "kpss_test",
     "lag_matrices",
     "select_lag_order",
+    "spectral_radius",
 ]
 
 
@@ -145,6 +162,14 @@ _LAZY_IMPORTS: dict[str, str] = {
     "VolatilityProcess": "impulso.protocols",
     "compute_ma_phi": "impulso._ma",
     "lag_matrices": "impulso._linalg",
+    "companion_matrix": "impulso._stability",
+    "spectral_radius": "impulso._stability",
+    "convergence_report": "impulso.diagnostics",
+    "ConvergenceReport": "impulso.diagnostics",
+    "ConvergenceThresholds": "impulso.diagnostics",
+    "BlockDiagnostics": "impulso.diagnostics",
+    "DiagnosticMessage": "impulso.diagnostics",
+    "StabilitySummary": "impulso.diagnostics",
 }
 """Map of lazily-exported name to the module that defines it.
 
@@ -229,6 +254,7 @@ def enable_runtime_checks() -> None:
     from beartype.roar import BeartypeDecorHintPep484585Exception
 
     import impulso.data
+    import impulso.diagnostics
     import impulso.fitted
     import impulso.identified
     import impulso.spec
@@ -242,6 +268,7 @@ def enable_runtime_checks() -> None:
         impulso.spec,
         impulso.fitted,
         impulso.identified,
+        impulso.diagnostics,
         impulso.sv.data,
         impulso.sv.spec,
         impulso.sv.fitted,

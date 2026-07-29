@@ -197,3 +197,51 @@ class TestIdentificationPublicAPI:
         import impulso
 
         assert "LongRunRestriction" in impulso.__all__
+class TestDiagnosticsPublicAPI:
+    def test_convergence_report_importable_from_impulso(self):
+        from impulso import convergence_report
+        from impulso.diagnostics import convergence_report as direct
+
+        assert convergence_report is direct
+
+    def test_result_types_importable_from_impulso(self):
+        import impulso
+        from impulso import diagnostics
+
+        for name in (
+            "BlockDiagnostics",
+            "ConvergenceReport",
+            "ConvergenceThresholds",
+            "DiagnosticMessage",
+            "StabilitySummary",
+        ):
+            assert getattr(impulso, name) is getattr(diagnostics, name)
+
+    def test_stability_primitives_importable_from_impulso(self):
+        from impulso import companion_matrix, spectral_radius
+        from impulso._stability import companion_matrix as direct_companion
+        from impulso._stability import spectral_radius as direct_radius
+
+        assert companion_matrix is direct_companion
+        assert spectral_radius is direct_radius
+
+    def test_diagnostics_names_in_all(self):
+        import impulso
+
+        for name in (
+            "BlockDiagnostics",
+            "ConvergenceReport",
+            "ConvergenceThresholds",
+            "DiagnosticMessage",
+            "StabilitySummary",
+            "companion_matrix",
+            "convergence_report",
+            "spectral_radius",
+        ):
+            assert name in impulso.__all__
+
+    def test_all_entries_resolve(self):
+        import impulso
+
+        for name in impulso.__all__:
+            assert getattr(impulso, name) is not None

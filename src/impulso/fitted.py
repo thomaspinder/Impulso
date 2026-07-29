@@ -15,6 +15,7 @@ from impulso.observation import Gaussian
 from impulso.protocols import ErrorDistribution, IdentificationScheme, VolatilityProcess
 
 if TYPE_CHECKING:
+    from impulso.diagnostics import ConvergenceReport, ConvergenceThresholds
     from impulso.identified import IdentifiedVAR
     from impulso.results import ConditionalForecastResult, DynamicMultiplierResult, ForecastResult
     from impulso.scenario import VariablePath
@@ -505,6 +506,68 @@ class FittedVAR(ImpulsoBaseModel):
             var_names=self.var_names,
             exog_names=list(exog_names),
             cumulative=cumulative,
+        )
+
+    def convergence_report(
+        self,
+        thresholds: "ConvergenceThresholds | None" = None,
+        hdi_prob: float = 0.89,
+        stability_draws: int | None = None,
+    ) -> "ConvergenceReport":
+        """Diagnose this posterior's convergence and dynamic stability.
+
+        Reports R-hat and both effective sample sizes *per parameter block*
+        — lag coefficients, intercept, exogenous coefficients, covariance,
+        volatility latents — each with the coordinate attaining the worst
+        value, so a mixing problem is attributed to a part of the model
+        rather than to the model as a whole. Divergences are reported once,
+        globally: a divergent transition is a property of a trajectory, not
+        of any single parameter.
+
+        Alongside the sampling metrics the report computes the
+        companion-matrix spectral radius of every draw, built from the
+        posterior's `B` on the assumption Impulso's own estimators satisfy
+        — lag blocks concatenated in lag order along the trailing axis.
+        Draws whose radius reaches 1 are explosive; the report says how many
+        there are and what breaks because of them, but explosive draws never
+        fail a report, because mass near a unit root is a legitimate
+        posterior statement about level data.
+
+        Two failure modes get named messages with remedies:
+        `rhat_without_divergences` (the characteristic VAR pathology — an
+        ill-conditioned posterior from near-collinear lag regressors that
+        NUTS mixes badly across without ever diverging) and
+        `explosive_draws`.
+
+        A `ConjugateVAR` fit is supported with honest gaps: its posterior
+        has a single chain, so R-hat is None throughout and the report says
+        why, and it carries no sampler statistics, so divergences are None.
+        Stability is computed in full.
+
+        Args:
+            thresholds: Cut-offs driving the report's status. Defaults to
+                `ConvergenceThresholds()`.
+            hdi_prob: Default probability mass for the spectral-radius
+                interval.
+            stability_draws: Approximate number of draws per chain to retain
+                for the spectral-radius computation, thinned by a
+                deterministic stride. Use on large posteriors, where one
+                eigendecomposition per draw dominates the cost.
+
+        Returns:
+            A `ConvergenceReport`. Nothing is warned or raised for a bad
+            posterior — the returned object is the channel.
+        """
+        from impulso.diagnostics import convergence_report
+
+        return convergence_report(
+            self.idata,
+            n_lags=self.n_lags,
+            var_names=self.var_names,
+            volatility=self.volatility,
+            thresholds=thresholds,
+            hdi_prob=hdi_prob,
+            stability_draws=stability_draws,
         )
 
     def set_identification_strategy(self, scheme: IdentificationScheme) -> "IdentifiedVAR":

@@ -24,6 +24,7 @@ from impulso.results import (
 )
 
 if TYPE_CHECKING:
+    from impulso.diagnostics import ConvergenceReport, ConvergenceThresholds
     from impulso.scenario import ShockPath, VariablePath
 
 # Type alias for the `at=` parameter used by query methods.
@@ -763,4 +764,44 @@ class IdentifiedVAR(ImpulsoBaseModel):
             conditions=list(conditions or []),
             adjusting=adjusting if adjusting is None else list(adjusting),
             shocks=list(shocks or []),
+        )
+
+    def convergence_report(
+        self,
+        thresholds: "ConvergenceThresholds | None" = None,
+        hdi_prob: float = 0.89,
+        stability_draws: int | None = None,
+    ) -> "ConvergenceReport":
+        """Diagnose the underlying reduced-form posterior.
+
+        Identical to `FittedVAR.convergence_report` — an `IdentifiedVAR`
+        shares its `idata` with the `FittedVAR` it came from, and
+        identification adds nothing that needs diagnosing. The structural
+        shock matrix is deliberately excluded: under `Cholesky` it is a
+        deterministic function of draws already diagnosed in the covariance
+        block, and under `SignRestriction` it is resampled per call, so its
+        R-hat would describe the rotation sampler rather than the posterior.
+
+        Args:
+            thresholds: Cut-offs driving the report's status. Defaults to
+                `ConvergenceThresholds()`.
+            hdi_prob: Default probability mass for the spectral-radius
+                interval.
+            stability_draws: Approximate number of draws per chain to retain
+                for the spectral-radius computation, thinned by a
+                deterministic stride.
+
+        Returns:
+            A `ConvergenceReport` for the reduced-form posterior.
+        """
+        from impulso.diagnostics import convergence_report
+
+        return convergence_report(
+            self.idata,
+            n_lags=self.n_lags,
+            var_names=self.var_names,
+            volatility=self.volatility,
+            thresholds=thresholds,
+            hdi_prob=hdi_prob,
+            stability_draws=stability_draws,
         )

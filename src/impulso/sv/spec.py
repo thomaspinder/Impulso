@@ -228,6 +228,18 @@ class StochasticVolatility(ImpulsoBaseModel):
         R = R_chol.shape[:-2] + (1,) * extra + R_chol.shape[-2:]
         return np.exp(h / 2)[..., :, np.newaxis] * R_chol.reshape(R)
 
+    def posterior_var_names(self) -> tuple[str, ...]:
+        """Posterior variables this adapter is responsible for.
+
+        The optional `VolatilityProcess` capability read by
+        `impulso.diagnostics.assign_blocks`. Only the shared quantities are
+        named: the per-variable latents (`v0_h`, `v0_sigma_eta`, …) carry
+        the `v{i}_` prefix that block assignment already recognises by
+        pattern, so listing them here would duplicate that rule and go
+        stale whenever a new dynamics adapter adds a parameter.
+        """
+        return ("h", "R_chol", "R_chol_offdiag")
+
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
         """Return L_t = diag(exp(h_t / 2)) @ R_chol for the requested t.
 
