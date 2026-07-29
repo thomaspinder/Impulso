@@ -1354,7 +1354,7 @@ class ZeroSignRestriction(ImpulsoModel):
 
         n_chains, n_draws, n_vars, _ = L.shape
         layout = self._compile_layout(var_names, n_vars)
-        B_all = self._require_coefficients(posterior, n_vars)
+        B_all = self._require_coefficients(posterior)
         horizon = self.restriction_horizon
 
         rng = np.random.default_rng(self.random_seed)
@@ -1408,13 +1408,11 @@ class ZeroSignRestriction(ImpulsoModel):
             )
         return P
 
-    def _require_coefficients(self, posterior: "xr.Dataset | None", n_vars: int) -> np.ndarray | None:
+    def _require_coefficients(self, posterior: "xr.Dataset | None") -> np.ndarray | None:
         """Fetch the `B` draws when horizon restrictions need them.
 
         Args:
             posterior: Posterior Dataset, or None.
-            n_vars: Number of endogenous variables (unused beyond the guard,
-                kept for symmetry with the caller).
 
         Returns:
             The `B` draws, or None for impact-only restrictions.
@@ -1422,7 +1420,6 @@ class ZeroSignRestriction(ImpulsoModel):
         Raises:
             ValueError: If `restriction_horizon > 0` and `B` is unavailable.
         """
-        del n_vars
         if self.restriction_horizon == 0:
             return None
         if posterior is None or "B" not in posterior:
