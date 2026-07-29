@@ -1,0 +1,48 @@
+name: Slow Tests
+
+# The `@pytest.mark.slow` tests each run a real NUTS sampler. Running them on
+# every PR across the 3.11-3.14 matrix dominated the CI budget and leaked
+# sampler noise (divergences, multiprocessing crashes) into PR signal, so
+# `main.yml` now runs `-m "not slow"` and this workflow owns the MCMC suite.
+# One Python version is enough: these tests exercise the sampler, not
+# Python-version-specific behaviour.
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Monday 03:00 UTC
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slow-tests:
+    runs-on: ubuntu-latest
+    # 29 MCMC tests take ~1m45s locally on Apple Silicon. Hosted runners are
+    # several times slower on compiled numerical work, and NUTS wall time is
+    # stochastic, so allow generous headroom — the timeout exists to kill a
+    # hang, not to police a slow-but-healthy run.
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.11"
+
+      - name: Run slow (MCMC) tests
+        # No coverage upload: `main.yml` owns the single Codecov report and
+        # does not use flags, so a second upload would clobber it.
+        run: uv run python -m pytest tests -m slow -v

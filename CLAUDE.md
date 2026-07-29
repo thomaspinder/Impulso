@@ -99,7 +99,7 @@ All domain models inherit from one of these. Use `object.__setattr__` only for i
 - **Linter/Formatter**: Ruff — line length 120, target py311, auto-fix enabled
 - **Type checker**: ty (configured for `.venv`, Python 3.11). Ignores `unresolved-attribute`, `not-subscriptable`, and `invalid-argument-type` due to ArviZ/PyMC/pandas dynamic attrs.
 - **Prek**: Ruff checks + standard hooks (trailing whitespace, TOML/YAML/JSON validation)
-- **CI**: GitHub Actions runs quality, tests (3.11–3.14), and a docs build on push/PR. The `build-docs` job smoke-renders on PRs (fast, `IMPULSO_DOCS_CI=1`) and full-renders on push to `main` (real MCMC), restoring the jupyter-cache between runs. No rendered `.md` or figures are committed — notebooks execute at build time. A scheduled/on-release full render runs via `full-render-notebooks.yml`. Tutorials read `IMPULSO_DOCS_CI` (smoke draws) and Sphinx sets `IMPULSO_DOCS_BUILD=1` (disables the sampler progress bar).
+- **CI**: GitHub Actions runs quality, tests (3.11–3.14), and a docs build on push/PR. The PR/push test job runs `-m "not slow"` only; the `@pytest.mark.slow` MCMC suite runs on Python 3.11 via `slow-tests.yml` (weekly schedule, `workflow_dispatch`, and push to `main`). Codecov is uploaded from the fast job only. The `build-docs` job smoke-renders on PRs (fast, `IMPULSO_DOCS_CI=1`) and full-renders on push to `main` (real MCMC), restoring the jupyter-cache between runs. No rendered `.md` or figures are committed — notebooks execute at build time. A scheduled/on-release full render runs via `full-render-notebooks.yml`. Tutorials read `IMPULSO_DOCS_CI` (smoke draws) and Sphinx sets `IMPULSO_DOCS_BUILD=1` (disables the sampler progress bar).
 
 ## Test Fixtures (`conftest.py`)
 
