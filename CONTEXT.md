@@ -34,7 +34,7 @@ The seam that owns *which law the observation error follows* — the likelihood 
 _Avoid_: "likelihood" as the name of the seam (the likelihood is what the adapter *builds*, and the word also gets used for the whole model's `logp`); "error model", "noise distribution".
 
 **Degrees of freedom (ν)**:
-The tail-weight parameter of `StudentT`. Either a fixed float strictly greater than 2, or `"infer"` (the default) to estimate it. The bound at 2 is hardcoded, not configurable: below it the t has infinite variance and every variance-shaped consumer stops being defined. Under both parameterisations the posterior carries `nu` as a deterministic; under inference the free random variable is `nu_excess`, with `nu = 2 + nu_excess` (a *shift*, not a truncation — `Gamma(2, ·)` has zero density at the origin, so the prior vanishes exactly where `ν/(ν−2)` diverges).
+The tail-weight parameter of `StudentT`. Either a fixed float strictly greater than 2, or `"infer"` (the default) to estimate it. The bound at 2 is hardcoded, not configurable: below it the t has infinite variance and every variance-shaped consumer stops being defined. Under both parameterisations the posterior carries `nu` as a deterministic; under inference the free random variable is `nu_excess`, with `nu = 2 + nu_excess` (a *shift*, not a truncation — `Gamma(α, ·)` has zero density at the origin for `α > 1`, so the prior vanishes exactly where `ν/(ν−2)` diverges; `prior_alpha` is constrained to `> 1` to keep that property).
 _Avoid_: "df" as a field name (collides with the DataFrame idiom); "tail parameter".
 
 **Scale matrix (Ω)**:

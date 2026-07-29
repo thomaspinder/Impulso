@@ -431,3 +431,72 @@ class TestInnovationCovariance:
         ratio = fitted.innovation_covariance()[0, 0, 0, 0] / fitted.sigma()[0, 0, 0, 0]
         ratio_last = fitted.innovation_covariance()[-1, -1, 0, 0] / fitted.sigma()[-1, -1, 0, 0]
         assert ratio > ratio_last
+
+    def test_time_varying_sigma_broadcasts_over_the_time_axis(self):
+        """The (C, D, T, n, n) reshape branch, against hand-computed numbers.
+
+        `VAR` rejects `volatility="sv"` with `error_dist="student_t"` at spec
+        level (ADR-0007), so the 5-dim branch is only reachable from a
+        hand-built `FittedVAR` — but `innovation_covariance` documents and
+        handles the shape, so it is pinned here (issue #175).
+
+        The posterior is rigged so the answer is readable by eye: `R_chol` is
+        the identity and `h = log(v)`, which makes `L_t = diag(exp(h_t / 2))`
+        and hence `Sigma_t = diag(v_t)` exactly. The two draws share the same
+        volatility path and differ only in `nu`, so any mis-broadcast of the
+        `(C, D)` inflation onto the `(C, D, T, n, n)` scale matrix shows up as
+        a wrong number rather than a shape error.
+        """
+        import arviz as az
+        import xarray as xr
+
+        from impulso.observation import StudentT
+        from impulso.sv.spec import StochasticVolatility
+
+        n_chains, n_draws, T, n_vars = 1, 2, 3, 2
+        variances = np.array([[1.0, 2.0], [4.0, 8.0], [9.0, 18.0]])  # (T, n_vars)
+        h = np.broadcast_to(np.log(variances), (n_chains, n_draws, T, n_vars)).copy()
+        R_chol = np.broadcast_to(np.eye(n_vars), (n_chains, n_draws, n_vars, n_vars)).copy()
+        nu = np.array([[4.0, 6.0]])  # inflations nu/(nu-2) = 2.0 and 1.5
+
+        posterior = xr.Dataset({
+            "h": (("chain", "draw", "time", "variable"), h),
+            "R_chol": (("chain", "draw", "i", "j"), R_chol),
+            "nu": (("chain", "draw"), nu),
+        })
+        data = VARData(
+            endog=np.zeros((T + 1, n_vars)),
+            endog_names=["y1", "y2"],
+            index=pd.date_range("2000-01-01", periods=T + 1, freq="MS"),
+        )
+        fitted = FittedVAR(
+            idata=az.InferenceData(posterior=posterior),
+            n_lags=1,  # T = endog rows - n_lags = 3, matching h's time axis
+            data=data,
+            var_names=["y1", "y2"],
+            volatility=StochasticVolatility(),
+            error_dist=StudentT(),  # nu comes from the posterior, not the field
+        )
+
+        sigma = fitted.sigma()
+        assert sigma.shape == (n_chains, n_draws, T, n_vars, n_vars)
+        np.testing.assert_allclose(
+            np.diagonal(sigma, axis1=-2, axis2=-1),
+            np.broadcast_to(variances, (n_chains, n_draws, T, n_vars)),
+        )
+
+        # nu = 4 doubles Sigma_t; nu = 6 multiplies it by 3/2. Same path, both draws.
+        expected = np.array([
+            [
+                [[[2.0, 0.0], [0.0, 4.0]], [[8.0, 0.0], [0.0, 16.0]], [[18.0, 0.0], [0.0, 36.0]]],
+                [[[1.5, 0.0], [0.0, 3.0]], [[6.0, 0.0], [0.0, 12.0]], [[13.5, 0.0], [0.0, 27.0]]],
+            ]
+        ])
+        actual = fitted.innovation_covariance()
+        assert actual.shape == sigma.shape
+        np.testing.assert_allclose(actual, expected)
+
+        # The inflation is per draw, so the ratio is flat along the T axis.
+        ratios = np.diagonal(actual, axis1=-2, axis2=-1) / np.diagonal(sigma, axis1=-2, axis2=-1)
+        np.testing.assert_allclose(ratios[0, 0], 2.0)
+        np.testing.assert_allclose(ratios[0, 1], 1.5)

@@ -38,10 +38,27 @@ class TestConfiguration:
     def test_student_t_accepts_nu_just_above_two(self):
         assert StudentT(nu=2.0001).nu == pytest.approx(2.0001)
 
-    @pytest.mark.parametrize(("field", "value"), [("prior_alpha", 0.0), ("prior_beta", -1.0)])
-    def test_non_positive_prior_hyperparameters_rejected(self, field, value):
+    @pytest.mark.parametrize("value", [0.0, -1.0])
+    def test_non_positive_prior_beta_rejected(self, value):
         with pytest.raises(ValidationError):
-            StudentT(**{field: value})
+            StudentT(prior_beta=value)
+
+    @pytest.mark.parametrize("bad_alpha", [1.0, 0.5, 0.0, -1.0])
+    def test_prior_alpha_at_or_below_one_rejected(self, bad_alpha):
+        """alpha <= 1 defeats the zero-density-at-the-origin design (issue #173)."""
+        with pytest.raises(ValidationError, match=r"prior_alpha must be > 1\.0"):
+            StudentT(prior_alpha=bad_alpha)
+
+    @pytest.mark.parametrize("bad_alpha", [1.0, 0.5])
+    def test_prior_alpha_rejection_explains_the_design_property(self, bad_alpha):
+        with pytest.raises(ValidationError, match="density vanishes at the origin"):
+            StudentT(prior_alpha=bad_alpha)
+
+    def test_prior_alpha_just_above_one_accepted(self):
+        assert StudentT(prior_alpha=1.5).prior_alpha == pytest.approx(1.5)
+
+    def test_prior_alpha_defaults_to_two(self):
+        assert StudentT().prior_alpha == 2.0
 
     @pytest.mark.parametrize("adapter", [Gaussian(), StudentT(nu=5.0)])
     def test_frozen(self, adapter):
