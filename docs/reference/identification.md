@@ -9,4 +9,6 @@
 
    Cholesky
    SignRestriction
+   LongRunRestriction
+   ProxySVAR
 ```

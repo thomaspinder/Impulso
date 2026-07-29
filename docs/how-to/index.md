@@ -9,5 +9,6 @@ data-preparation
 custom-priors
 lag-selection
 sign-restrictions
+long-run-restrictions
 heavy-tailed-errors
 ```

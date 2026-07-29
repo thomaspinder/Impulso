@@ -13,8 +13,15 @@ The reduced-form VAR fits dynamics without economic interpretation; the structur
 _Avoid_: "raw" / "interpretable" — they obscure the technical meaning.
 
 **Identification scheme**:
-A rule for recovering structural shocks from reduced-form covariance, implemented as adapters of the `IdentificationScheme` Protocol (`Cholesky`, `SignRestriction`). The scheme is a pure function: it consumes a Cholesky factor `L` and produces a structural shock matrix `B = identify(L)`. It does not own time iteration.
+A rule for recovering structural shocks from reduced-form covariance, implemented as adapters of the `IdentificationScheme` Protocol (`Cholesky`, `SignRestriction`, `LongRunRestriction`, `ProxySVAR`). The scheme is a pure function: it consumes a Cholesky factor `L` and produces a structural shock matrix `B = identify(L)`. It does not own time iteration.
 _Avoid_: "identification strategy" (used colloquially; the Protocol is named "scheme").
+
+**Long-run multiplier (C(1))**:
+The sum of the moving-average coefficients of a stable reduced-form VAR, `C(1) = Σ_h Φ_h = (I − Σ_j A_j)^{-1}` — the total effect of a one-off reduced-form innovation on the *level* of each variable. Exists only when the companion spectral radius is below one; `I − Σ_j A_j` near-singular means it is numerically undefined, which is a distinct failure from divergence.
+
+**Cumulative MA impact matrix (Θ(1))**:
+The structural counterpart, `Θ(1) = C(1) P`: the total effect of each structural shock on each variable's level. Where `Cholesky` and `SignRestriction` constrain the impact matrix `Θ(0) = P`, `LongRunRestriction` constrains `Θ(1)` to be lower-triangular in a stated variable ordering, with positive diagonal (shock `j` raises variable `j`'s long-run level).
+_Avoid_: "Blanchard-Quah identification" as an API name — the scheme is named for what it restricts, not for its first users (the prose citation is fine). "Permanent shock" for anything but the first column: only the shock restricted nowhere is unambiguously permanent.
 
 **Volatility process**:
 The seam that owns how the structural-shock covariance Σ_t is constructed (in PyMC), evolved over time, and queried. Concrete adapters of the `VolatilityProcess` Protocol: `Constant` (homoscedastic Σ; the default) and `StochasticVolatility` (time-varying). The volatility process owns its downstream computation — forecast covariance paths, time-`t` Cholesky query, per-variable volatility paths — so the pipeline never branches on adapter type.
@@ -108,6 +115,7 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 - A **VAR** carries one **prior**, one **volatility process**, and one **observation error distribution**.
 - A **FittedVAR** plus an **identification scheme** produces an **IdentifiedVAR**.
 - An **identification scheme** consumes an `L_t` (queried from the volatility process) and produces a structural shock matrix `B`.
+- An **identification scheme** may additionally consume the posterior lag coefficients: `LongRunRestriction` needs them for the **long-run multiplier**, as `SignRestriction(restriction_horizon > 0)` and `ProxySVAR` already do. `L_t` alone is the minimum, not the maximum, of what a scheme may ask for.
 - An **IdentifiedVAR** computes **IRFs**, FEVDs, and historical decompositions by asking the volatility process for `L_t` at the requested `at`, then applying the identification scheme.
 - A **FittedVAR** fitted with exogenous regressors computes **dynamic multipliers** on its own; no identification scheme is involved, because the driver is already exogenous.
 - A **stochastic volatility** can plug into a **VAR** as its volatility process *or* be fitted standalone on a univariate series.
