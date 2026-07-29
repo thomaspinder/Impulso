@@ -1,8 +1,8 @@
 # Primitives
 
-Moving-average building blocks shared by the IRF, FEVD, and
-dynamic-multiplier machinery, published for downstream libraries that
-compose with Impulso posteriors.
+Moving-average and companion-form building blocks shared by the IRF, FEVD,
+dynamic-multiplier, and stability machinery, published for downstream
+libraries that compose with Impulso posteriors.
 
 ```{eval-rst}
 .. currentmodule:: impulso
@@ -13,4 +13,6 @@ compose with Impulso posteriors.
 
    compute_ma_phi
    lag_matrices
+   companion_matrix
+   spectral_radius
 ```

@@ -121,6 +121,21 @@ _Avoid_: "order of differencing" for `d_max` — `d_max` is the maximum across t
 **Cointegration rank**:
 The number of independent long-run relationships among integrated series, from the Johansen procedure (`johansen_test`). Both sequential tests are reported — `rank_trace` and `rank_max_eigen` — and `rank` is `rank_trace` by documented convention. Decisions rest on **critical values, not p-values** (MacKinnon-Haug-Michelis 1996 tables, as vendored by statsmodels), which is why `alpha` is restricted to 0.10 / 0.05 / 0.01. Rank ≥ 1 means differencing every series discards the long-run relationship. A vector error-correction model (VECM) is **out of scope**; the recommended response is a VAR in levels (the Sims–Stock–Watson stance; the Minnesota prior already shrinks toward random walks).
 _Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "cointegration test" without saying which statistic, since trace and max-eigen can disagree.
+**Convergence report**:
+The VAR-aware verdict on whether a fitted posterior is usable, produced by `convergence_report()` (or the delegating `FittedVAR.convergence_report()` / `IdentifiedVAR.convergence_report()`). It reports R-hat and both effective sample sizes per *parameter block* with the worst coordinate named, the global divergence count, and the posterior distribution of the spectral radius, and carries machine-readable `DiagnosticMessage` codes for the two VAR-specific failure modes. Its `status` — `"passed"` / `"warnings"` / `"failed"` — reserves `"failed"` for sampler pathology; explosive draws warn but never fail. See `docs/adr/0008-convergence-report-blocks-and-thresholds.md`.
+_Avoid_: "diagnostics" as a synonym for this one object — the diagnostics family is wider, and the name `.diagnostics()` is reserved.
+
+**Parameter block**:
+A group of posterior variables that share a role in the model and tend to share sampling behaviour: `coefficient`, `intercept`, `exog`, `covariance`, `volatility`, `identification`, `other`. The unit of attribution in the convergence report — a mixing problem belongs to a block, not to the model as a whole. Assignment is three-tiered (static name map, then the `v{i}_` stochastic-volatility prefix, then the optional `posterior_var_names()` capability on the volatility process), with unrecognised variables falling to `other` rather than raising.
+_Avoid_: "parameter group" / "variable family" — the report's field is `block`.
+
+**Companion matrix**:
+The `(n·p, n·p)` matrix that rewrites a VAR(p) as a first-order system: the lag coefficients `B` form its top block row verbatim and sub-diagonal identity blocks shift the lag state. Built by `companion_matrix(B, n_lags)`; the intercept and exogenous block play no part in it.
+_Avoid_: bare "companion" — always say "companion matrix" in full (see Flagged ambiguities).
+
+**Spectral radius / explosive draw**:
+The largest companion-matrix eigenvalue modulus of a single posterior draw, computed by `spectral_radius(B, n_lags)`. A draw is *stable* below 1 and *explosive* at or above it: an explosive draw's impulse responses diverge with the horizon, its forecast fan is unbounded, its long-horizon FEVD shares are uninterpretable, and its historical-decomposition baseline drifts. Some explosive mass is legitimate on level data under a random-walk prior mean, which is why the convergence report warns on it and never fails.
+_Avoid_: "unstable" for a whole posterior — stability is a per-draw property, summarised by the explosive *fraction* (`p_explosive`).
 
 ## Relationships
 
@@ -138,6 +153,8 @@ _Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "coin
 - A **stationarity pretest** consumes `VARData` (endogenous block only), a DataFrame, or a Series, and produces a result object — never a modified dataset and never a specification. It sits *beside* the pipeline, not in it: nothing downstream of `VAR.fit()` reads its output.
 - **Integration order** feeds **cointegration rank**: the Johansen test is only meaningful for series that are individually integrated, and it is conditioned on a lag order (`k_ar_diff = p - 1`) that `select_lag_order` supplies.
 - A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.
+- A **FittedVAR** produces a **convergence report** on its own; identification adds nothing that needs diagnosing, so `IdentifiedVAR.convergence_report()` returns the same reduced-form answer. The report partitions the posterior into **parameter blocks**, consulting the **volatility process** for the variables it registered.
+- A **convergence report** carries the **spectral radius** of every draw, computed from the **companion matrix** built out of the same `B` that drives the moving-average recursion — so convergence and dynamic stability are answered from one object rather than two.
 
 ## Example dialogue
 
@@ -173,3 +190,5 @@ _Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "coin
 - "Minnesota prior" now denotes two distinct encodings: the independent-Normal `MinnesotaPrior` (NUTS path) and the conjugate `NIWPrior` (`ConjugateVAR`). Name the estimator when it matters.
 - "Σ" now means the *scale* matrix under `StudentT` errors and the covariance under `Gaussian` errors. `sigma()` returns the same object either way; when the number has to be a variance, say so and use `innovation_covariance()`.
 - "Counterfactual" in the wider literature spans shock-path edits (Impulso's meaning), policy-rule replacement (Sims–Zha style; out of scope), and Lucas-robust constructions (McKay–Wolf; out of scope). When comparing with external work, say which one is meant.
+- "Companion" is overloaded: the *companion matrix* is the stacked first-order form of a VAR(p), while the ADPRR "calibrated companion" `q_cal` is the plausibility statistic's partner quantity. They share nothing. Always write "companion matrix" in full; never shorten it to "the companion".
+- `StabilitySummary` (the convergence report's spectral-radius block) is distinct from the `StabilityResult` planned for the ecological-stability work: the former summarises one scalar per draw for a diagnostic verdict, the latter will carry the full complex eigenvalue spectrum and the reactivity/return-rate measures derived from it. Both read `companion_eigenvalues`; neither subsumes the other.
