@@ -173,7 +173,9 @@ class StudentT(ImpulsoModel):
             mean fat tails (nu ≈ 4 is aggressively robust); large values
             approach the Gaussian.
         prior_alpha: Shape of the Gamma prior on the excess degrees of
-            freedom `nu - 2`. Only used when `nu="infer"`.
+            freedom `nu - 2`. Must be strictly greater than 1 so the prior
+            density vanishes at the origin — see `PRIOR_ALPHA_LOWER`. Only
+            used when `nu="infer"`.
         prior_beta: Rate of that Gamma prior. Only used when `nu="infer"`.
     """
 
@@ -181,7 +183,7 @@ class StudentT(ImpulsoModel):
     is_heavy_tailed: bool = True
 
     nu: float | Literal["infer"] = "infer"
-    prior_alpha: float = Field(2.0, gt=0)
+    prior_alpha: float = 2.0
     prior_beta: float = Field(0.1, gt=0)
 
     NU_LOWER: ClassVar[float] = 2.0
@@ -189,6 +191,13 @@ class StudentT(ImpulsoModel):
     variance, which would make `innovation_covariance`, density-forecast
     bands, and variance decompositions meaningless. Users who genuinely want
     infinite-variance innovations should build the PyMC model directly."""
+
+    PRIOR_ALPHA_LOWER: ClassVar[float] = 1.0
+    """Hard lower bound on `prior_alpha`. `Gamma(alpha, ·)` has zero density at
+    the origin only for alpha > 1: at alpha = 1 the density there is the rate
+    itself and for alpha < 1 it is unbounded. Since the prior on nu is that
+    Gamma shifted by `NU_LOWER`, any alpha <= 1 piles mass against the nu = 2
+    infinite-variance boundary the shift exists to avoid."""
 
     @model_validator(mode="after")
     def _validate_nu(self) -> Self:
@@ -199,6 +208,21 @@ class StudentT(ImpulsoModel):
                 "the innovation covariance nu/(nu-2)*Omega diverges and density "
                 "forecasts, FEVD shares, and forecast bands stop being defined. "
                 "Use a larger nu, or nu='infer' to let the data choose."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_prior_alpha(self) -> Self:
+        if self.prior_alpha <= self.PRIOR_ALPHA_LOWER:
+            raise ValueError(
+                f"prior_alpha must be > {self.PRIOR_ALPHA_LOWER}, got {self.prior_alpha}. "
+                "The prior on nu is a Gamma on the excess degrees of freedom shifted by "
+                f"{self.NU_LOWER}, chosen because its density vanishes at the origin — "
+                "exactly where nu/(nu-2) diverges. That property needs alpha > "
+                f"{self.PRIOR_ALPHA_LOWER}: at alpha = 1 the Gamma density at 0 equals the "
+                "rate and below 1 it is unbounded, so the prior would concentrate against "
+                f"the nu = {self.NU_LOWER} infinite-variance boundary instead of avoiding "
+                "it. Use prior_alpha > 1 (the default 2.0 is the reference choice)."
             )
         return self
 
@@ -218,9 +242,10 @@ class StudentT(ImpulsoModel):
         `nu="infer"`, the free random variable is the *excess* degrees of
         freedom `nu_excess ~ Gamma(prior_alpha, prior_beta)` and
         `nu = 2 + nu_excess`. The shift (rather than a truncation) is
-        deliberate: `Gamma(alpha=2, ·)` has zero density at the origin, so
-        the prior vanishes exactly where `nu/(nu-2)` blows up, and the
-        unconstrained NUTS transform is the standard positive-support one.
+        deliberate: `Gamma(alpha, ·)` has zero density at the origin for any
+        `alpha > 1` — which the validator enforces — so the prior vanishes
+        exactly where `nu/(nu-2)` blows up, and the unconstrained NUTS
+        transform is the standard positive-support one.
 
         `chol` is passed straight through, so the manual Cholesky
         parameterisation the volatility seam builds carries over verbatim
