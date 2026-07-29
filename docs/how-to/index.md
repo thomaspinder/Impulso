@@ -10,6 +10,7 @@ custom-priors
 lag-selection
 stationarity-testing
 climate-pitfalls
+predictive-checks
 sign-restrictions
 long-run-restrictions
 heavy-tailed-errors

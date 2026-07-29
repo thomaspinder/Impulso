@@ -1,8 +1,9 @@
 """VAR model specification."""
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
+import arviz as az
 import numpy as np
 from pydantic import Field, model_validator
 
@@ -131,6 +132,9 @@ class VAR(ImpulsoBaseModel):
             degrees of freedom; pass `StudentT(nu=5.0)` to fix them. Heavy-
             tailed errors are rejected in combination with time-varying
             volatility.
+            Governs the exogenous block only; `prior` governs the lag
+            coefficients. Both `VAR.fit` and `VAR.prior_predictive` build the
+            same graph, so it applies to either.
     """
 
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
@@ -201,13 +205,105 @@ class VAR(ImpulsoBaseModel):
         Returns:
             FittedVAR with posterior draws.
         """
-        import pymc as pm
-
-        from impulso._lag_selection import select_lag_order
         from impulso.fitted import FittedVAR
 
         if sampler is None:
             sampler = self._default_sampler()
+
+        model, n_lags = self._build_pymc_model(data)
+
+        # Sample
+        idata = sampler.sample(model)
+
+        return FittedVAR.model_construct(
+            idata=idata,
+            n_lags=n_lags,
+            data=data,
+            var_names=data.endog_names,
+            volatility=self.resolved_volatility,
+            error_dist=self.resolved_error_dist,
+            pymc_model=model,
+        )
+
+    def prior_predictive(
+        self,
+        data: VARData,
+        *,
+        draws: int = 500,
+        random_seed: int | np.random.Generator | None = None,
+    ) -> az.InferenceData:
+        """Simulate data from the prior, before seeing the likelihood.
+
+        Builds the same PyMC graph `fit` builds and calls
+        `pymc.sample_prior_predictive` on it, so the prior that gets
+        simulated is exactly the prior that gets sampled — no hand-rolled
+        second implementation to drift out of sync.
+
+        The simulated `obs` paths are **one-step-ahead given the observed
+        lags**: for each prior draw, `y_t = c + B x_t^obs (+ B_exog z_t) +
+        L_t eps_t` where `x_t^obs` stacks the *observed* lags of `data`.
+        The design matrices are baked into the graph, so this is the prior
+        predictive of the estimation-sample conditional means, not a
+        simulated path iterated from initial conditions. That is what
+        `arviz.plot_ppc(..., group="prior")` expects and what makes the
+        prior comparable to the data on the same time axis.
+
+        Note:
+            Under `volatility="sv"` the per-variable log-volatility priors
+            are seeded from the OLS residuals of `data` (see
+            `StochasticVolatility.build_pymc_latent`), so the "prior" is
+            mildly data-informed in its scale. The constant-volatility
+            default is not.
+
+        Note:
+            PyMC returns a single chain, so the `obs` variable has shape
+            `(1, draws, T - n_lags, n_vars)`.
+
+        Args:
+            data: VARData instance. Anchors the prior simulation on the real
+                lags (and, if present, the real exogenous regressors), and
+                fixes the lag order when `lags` is a selection criterion.
+            draws: Number of prior draws.
+            random_seed: Seed or Generator passed straight through to
+                `pymc.sample_prior_predictive`.
+
+        Returns:
+            ArviZ InferenceData with `prior` (every latent), `prior_predictive`
+            (the simulated `obs`, dims `(chain, draw, time, var)`) and
+            `observed_data` (the realised `obs`) groups.
+        """
+        import pymc as pm
+
+        model, _ = self._build_pymc_model(data)
+        with model:
+            return pm.sample_prior_predictive(draws=draws, random_seed=random_seed)
+
+    def _build_pymc_model(self, data: VARData) -> tuple[Any, int]:
+        """Build the PyMC model graph for this specification.
+
+        Resolves the lag order (running `select_lag_order` when `lags` is a
+        criterion string), assembles the design matrices, and registers the
+        intercept, coefficient, exogenous, volatility and likelihood nodes.
+        The design matrices are baked into the graph as constants, so the
+        returned model is tied to `data`.
+
+        Shared by `fit` (which samples the graph) and `prior_predictive`
+        (which draws from it without conditioning on the observations). Every
+        prior lives here, including the scale-adaptive `B_exog` prior
+        (`_exog_prior_sigma`), so a prior-predictive check cannot describe a
+        different model from the one `fit` estimates.
+
+        Args:
+            data: VARData instance.
+
+        Returns:
+            Tuple of the built `pymc.Model` and the resolved lag order. The
+            model is typed `Any` so that importing `impulso.spec` does not
+            pull in PyMC — the same reason `FittedVAR.pymc_model` is.
+        """
+        import pymc as pm
+
+        from impulso._lag_selection import select_lag_order
 
         # Resolve lags
         if isinstance(self.lags, str):
@@ -301,15 +397,4 @@ class VAR(ImpulsoBaseModel):
             error_dist = self.resolved_error_dist
             error_dist.build_likelihood("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
 
-        # Sample
-        idata = sampler.sample(model)
-
-        return FittedVAR.model_construct(
-            idata=idata,
-            n_lags=n_lags,
-            data=data,
-            var_names=data.endog_names,
-            volatility=self.resolved_volatility,
-            error_dist=error_dist,
-            pymc_model=model,
-        )
+        return model, n_lags
