@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from impulso._lag_selection import select_lag_order
+from impulso._stationarity import adf_test, integration_order, johansen_test, kpss_test
 from impulso.data import VARData
 from impulso.spec import VAR
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from impulso.priors import MinnesotaPrior, NIWPrior
     from impulso.protocols import VolatilityProcess
     from impulso.results import (
+        CointegrationTestResult,
         ConditionalForecastResult,
         CounterfactualResult,
         DynamicMultiplierResult,
@@ -27,9 +29,11 @@ if TYPE_CHECKING:
         ForecastResult,
         HDIResult,
         HistoricalDecompositionResult,
+        IntegrationOrderResult,
         IRFResult,
         LagOrderResult,
         ScenarioResult,
+        StationarityTestResult,
         SVForecastResult,
         VolatilityResult,
     )
@@ -44,6 +48,7 @@ if TYPE_CHECKING:
 __all__ = [
     "VAR",
     "Cholesky",
+    "CointegrationTestResult",
     "ConditionalForecastResult",
     "ConjugateVAR",
     "ConjugateVolatility",
@@ -59,6 +64,7 @@ __all__ = [
     "HistoricalDecompositionResult",
     "IRFResult",
     "IdentifiedVAR",
+    "IntegrationOrderResult",
     "LagOrderResult",
     "MinnesotaPrior",
     "ModelEvidence",
@@ -72,14 +78,19 @@ __all__ = [
     "ScenarioResult",
     "ShockPath",
     "SignRestriction",
+    "StationarityTestResult",
     "StochasticVolatility",
     "VARData",
     "VariablePath",
     "VolatilityProcess",
     "VolatilityResult",
+    "adf_test",
     "compare_evidence",
     "compute_ma_phi",
     "enable_runtime_checks",
+    "integration_order",
+    "johansen_test",
+    "kpss_test",
     "lag_matrices",
     "select_lag_order",
 ]
@@ -112,6 +123,9 @@ _LAZY_IMPORTS: dict[str, str] = {
     "HistoricalDecompositionResult": "impulso.results",
     "HDIResult": "impulso.results",
     "LagOrderResult": "impulso.results",
+    "StationarityTestResult": "impulso.results",
+    "CointegrationTestResult": "impulso.results",
+    "IntegrationOrderResult": "impulso.results",
     "SVData": "impulso.sv.data",
     "StochasticVolatility": "impulso.sv.spec",
     "FittedSV": "impulso.sv.fitted",
