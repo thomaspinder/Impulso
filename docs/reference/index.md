@@ -9,6 +9,8 @@ source docstrings by Sphinx autodoc.
 data
 spec
 priors
+conjugate
+volatility
 samplers
 fitted
 identified
