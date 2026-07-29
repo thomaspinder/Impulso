@@ -773,6 +773,176 @@ class IntegrationOrderResult(ImpulsoBaseModel):
         return max(self.order.values(), default=0)
 
 
+class GrangerCausalityResult(ImpulsoBaseModel):
+    """Posterior Granger-causal strength for one ordered cause-effect pair.
+
+    The headline quantity is the Euclidean norm of the tested lag
+    coefficients of `cause` in the `effect` equation — `‖b‖ = sqrt(sum_k
+    b_k^2)`, where `b_k` multiplies `cause_{t-k}` — evaluated draw by draw,
+    so the result is a posterior for a *magnitude*. That separates "the
+    effect is small" from "the effect is imprecisely estimated", which a
+    Wald-style quadratic form (which divides through by the posterior
+    covariance) deliberately conflates. Per-lag posteriors are reported
+    alongside the norm, so a single dominant lag stays visible instead of
+    being buried in it.
+
+    Granger causality is conditional predictive precedence, not
+    intervention: the statement is that the past of `cause` improves the
+    prediction of `effect` beyond `effect`'s own past, *within this system
+    of variables*. Omitted drivers, temporal aggregation, and simultaneous
+    feedback each break the step from that statement to a mechanism.
+
+    **What `p_rope` is, and what it is not.** `p_rope` is the posterior
+    probability that the strength norm falls inside the region of practical
+    equivalence (ROPE) the analyst supplied: `P(‖b‖ < rope | data)`. It is
+    NOT `P(no causality)`, and it is not a Bayes factor. Under Impulso's
+    continuous coefficient priors the event `b = 0` has probability zero
+    both before and after seeing the data, so no dataset can raise it — a
+    genuine posterior probability of exact non-causality needs a prior that
+    puts point mass on the null (spike-and-slab / edge inclusion), which
+    Impulso does not fit. What `p_rope` quantifies is the posterior
+    probability that the tested coefficients are jointly *practically*
+    negligible at the magnitude you declared. Choosing `rope` is the analyst's job and there is
+    no default, because there is no data-free notion of "small enough";
+    that the choice is explicit and recorded is the honesty of the
+    statement. With `rope=None` the result reports the distribution only
+    and `p_rope` is `None`.
+
+    **Reporting units.** With `standardize=True` (the default) the draws are
+    multiplied by `sd(cause) / sd(effect)`, both sample standard deviations
+    of the estimation data, so a `rope` is read in standard deviations of
+    the effect per standard deviation of the cause. The factor is recorded
+    in `scale`. Under lag augmentation the model is fitted in levels, and
+    the sample standard deviations of integrated series are inflated by
+    their trends, so standardised magnitudes are most meaningful compared
+    within one fitted model rather than across models.
+
+    **Toda-Yamamoto metadata.** Under the lag-augmented procedure the model
+    is fitted with `n_lags_fitted = n_lags_tested + augmentation` lags and
+    only the first `n_lags_tested` are tested; the augmented lags are never
+    reported and `n_lags_tested` is never silently changed to match the
+    fit. `augmentation_source` records where the augmentation came from:
+    `"none"` when there is none, `"user"` when it was passed explicitly,
+    and `"integration_order"` when the integration-order diagnostics were
+    consulted — including the case where they returned `d_max = 0`, so the
+    record shows that they were consulted. Those diagnostics are attached
+    as `integration_order_result` whenever they were consulted.
+    `IntegrationOrderResult.d_max` is a floor rather than a finding
+    whenever its `inconclusive` list is non-empty (a variable still
+    integrated at `max_order` is recorded at `max_order`), which is why
+    `toda_yamamoto` refuses to run in that case rather than
+    under-augmenting silently.
+
+    Attributes:
+        cause: Name of the variable whose lags are tested.
+        effect: Name of the variable whose equation they are tested in.
+        n_lags_tested: Number of lags of `cause` entering the strength
+            norm, counting from lag 1.
+        n_lags_fitted: Lag order of the model that was fitted.
+        augmentation: `n_lags_fitted - n_lags_tested`, the lags fitted but
+            deliberately not tested.
+        augmentation_source: `"none"`, `"user"`, or `"integration_order"`.
+        standardize: Whether the draws are in standardised units.
+        scale: The multiplier applied to the raw coefficient draws — the
+            standardisation factor, or `1.0` when `standardize` is `False`.
+        rope: The region of practical equivalence, in the reporting units,
+            or `None` when none was supplied.
+        coef_draws: Per-lag coefficient draws in the reporting units, shape
+            `(chains, draws, n_lags_tested)`, lag 1 first.
+        integration_order_result: The integration-order diagnostics that
+            fixed the augmentation, when they were consulted.
+    """
+
+    cause: str
+    effect: str
+    n_lags_tested: int
+    n_lags_fitted: int
+    augmentation: int
+    augmentation_source: Literal["none", "integration_order", "user"]
+    standardize: bool
+    scale: float
+    rope: float | None = Field(default=None, gt=0)
+    coef_draws: np.ndarray = Field(repr=False)
+    integration_order_result: IntegrationOrderResult | None = Field(default=None, repr=False)
+
+    @property
+    def norm_draws(self) -> np.ndarray:
+        """Per-draw strength norm `‖b‖`, shape `(chains, draws)`."""
+        return np.linalg.norm(self.coef_draws, axis=-1)
+
+    @property
+    def lag_labels(self) -> list[str]:
+        """Row labels for the tested lags, `["L1", ..., "Lp"]`."""
+        return [f"L{lag}" for lag in range(1, self.n_lags_tested + 1)]
+
+    @property
+    def p_rope(self) -> float | None:
+        """Posterior probability that `‖b‖` falls inside the ROPE.
+
+        `None` when no `rope` was supplied. Read the class docstring before
+        reporting it: this is not the probability of no causality.
+        """
+        if self.rope is None:
+            return None
+        return float((self.norm_draws < self.rope).mean())
+
+    def _stacked(self) -> np.ndarray:
+        """Per-lag draws with the norm appended, shape `(C, D, p + 1)`.
+
+        Stacking lets one `az.hdi` call cover both, and keeps the array
+        three-dimensional — `az.hdi` reads a bare 2-D array as
+        `(draw, shape)` rather than `(chain, draw)` and warns about it.
+        """
+        return np.concatenate([self.coef_draws, self.norm_draws[..., np.newaxis]], axis=-1)
+
+    def median(self) -> float:
+        """Posterior median of the strength norm.
+
+        Returns:
+            Median of `‖b‖` across all draws, in the reporting units.
+        """
+        return float(np.median(self.norm_draws))
+
+    def hdi(self, prob: float = 0.89) -> tuple[float, float]:
+        """Highest-density interval for the strength norm.
+
+        Args:
+            prob: Probability mass for the interval. Default 0.89.
+
+        Returns:
+            Tuple of `(lower, upper)` bounds, in the reporting units.
+        """
+        lower, upper = np.asarray(az.hdi(self._stacked(), hdi_prob=prob))[-1]
+        return float(lower), float(upper)
+
+    def summary(self, prob: float = 0.89) -> pd.DataFrame:
+        """Per-lag and overall posterior summary.
+
+        Args:
+            prob: Probability mass for the HDI columns. Default 0.89.
+
+        Returns:
+            DataFrame indexed by `["L1", ..., "Lp", "norm"]` with columns
+            `median`, `hdi_lower`, `hdi_upper`. When a `rope` was supplied a
+            `p_rope` column is added, filled only on the `norm` row — the
+            ROPE is a statement about the joint magnitude, not about any one
+            lag.
+        """
+        stacked = self._stacked()
+        bounds = np.asarray(az.hdi(stacked, hdi_prob=prob))
+        frame = pd.DataFrame(
+            {
+                "median": np.median(stacked, axis=(0, 1)),
+                "hdi_lower": bounds[:, 0],
+                "hdi_upper": bounds[:, 1],
+            },
+            index=pd.Index([*self.lag_labels, "norm"], name="term"),
+        )
+        if self.rope is not None:
+            frame["p_rope"] = [np.nan] * self.n_lags_tested + [self.p_rope]
+        return frame
+
+
 class VolatilityResult(VARResultBase):
     """Result from univariate SV fit — posterior of conditional SD.
 

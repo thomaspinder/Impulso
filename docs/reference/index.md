@@ -9,6 +9,7 @@ source docstrings by Sphinx autodoc.
 data
 spec
 stationarity
+causality
 priors
 conjugate
 volatility

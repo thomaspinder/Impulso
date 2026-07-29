@@ -16,7 +16,12 @@ from impulso.protocols import ErrorDistribution, IdentificationScheme, Volatilit
 
 if TYPE_CHECKING:
     from impulso.identified import IdentifiedVAR
-    from impulso.results import ConditionalForecastResult, DynamicMultiplierResult, ForecastResult
+    from impulso.results import (
+        ConditionalForecastResult,
+        DynamicMultiplierResult,
+        ForecastResult,
+        GrangerCausalityResult,
+    )
     from impulso.scenario import VariablePath
 
 
@@ -604,6 +609,73 @@ class FittedVAR(ImpulsoBaseModel):
             var_names=self.var_names,
             exog_names=list(exog_names),
             cumulative=cumulative,
+        )
+
+    def granger_causality(
+        self,
+        cause: str,
+        effect: str,
+        *,
+        rope: float | None = None,
+        standardize: bool = True,
+        test_lags: int | None = None,
+    ) -> "GrangerCausalityResult":
+        """Posterior strength of one variable's lags in another's equation.
+
+        Reports the posterior of `‖b‖`, the Euclidean norm of the tested
+        lag coefficients of `cause` in the `effect` equation, together with
+        the per-lag posteriors behind it. A magnitude, not a test
+        statistic: nothing here divides by the posterior covariance, so a
+        small effect and an imprecise one stay distinguishable.
+
+        Supply a `rope` — a region of practical equivalence, in the
+        reporting units — to also get `p_rope = P(‖b‖ < rope | data)`.
+        That is a statement about practical negligibility, **not** the
+        probability of no causality: under continuous coefficient priors
+        `b = 0` has probability zero regardless of the data. See
+        `GrangerCausalityResult` for the full statement.
+
+        Granger causality is conditional predictive precedence within this
+        set of variables, not intervention. An omitted common driver is
+        enough to manufacture it.
+
+        No identification scheme is involved — this reads the reduced-form
+        coefficients directly — and it works under any volatility process,
+        because `B` is time-invariant under all of them.
+
+        Args:
+            cause: Variable whose lags are tested.
+            effect: Variable whose equation they are tested in. Must differ
+                from `cause`.
+            rope: Region of practical equivalence for `p_rope`. Must be
+                positive when given; there is deliberately no default.
+            standardize: If True (default), scale the draws by
+                `sd(cause) / sd(effect)` so magnitudes read as standard
+                deviations of the effect per standard deviation of the
+                cause. The factor is recorded on the result as `scale`.
+            test_lags: Number of lags to test, counting from lag 1.
+                Defaults to every fitted lag. Pass `p` after fitting `p + d`
+                lags to run the Toda-Yamamoto test by hand; the untested
+                lags are recorded as `augmentation`, never dropped from the
+                fit.
+
+        Returns:
+            GrangerCausalityResult for the ordered `cause -> effect` pair.
+
+        Raises:
+            ValueError: If either name is unknown, if `cause == effect`, if
+                `test_lags` is outside `[1, n_lags]`, or if `rope` is not
+                positive.
+        """
+        from impulso._granger import granger_causality
+
+        return granger_causality(
+            self,
+            cause,
+            effect,
+            rope=rope,
+            standardize=standardize,
+            test_lags=test_lags,
         )
 
     def set_identification_strategy(self, scheme: IdentificationScheme) -> "IdentifiedVAR":
