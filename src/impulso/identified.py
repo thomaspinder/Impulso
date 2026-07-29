@@ -20,6 +20,7 @@ from impulso.results import (
     FEVDResult,
     HistoricalDecompositionResult,
     IRFResult,
+    ReverseStressResult,
     ScenarioResult,
 )
 
@@ -601,6 +602,170 @@ class IdentifiedVAR(ImpulsoBaseModel):
         idata = az.InferenceData(posterior_predictive=xr.Dataset({"counterfactual": cf_da, "actual": actual_da}))
         return CounterfactualResult(idata=idata, var_names=self.var_names)
 
+    def _validate_forecast_exog(self, steps: int, exog_future: np.ndarray | None) -> np.ndarray | None:
+        """Validate a forecast-side `exog_future` against the posterior.
+
+        Shared by every forecast-side method on this object: the data must
+        not carry exogenous regressors the estimator never consumed, an
+        explicit `exog_future` needs a `B_exog` to multiply and the right
+        shape, and a model with exogenous data cannot forecast without one.
+
+        Args:
+            steps: Forecast horizon.
+            exog_future: Future exogenous values, or None.
+
+        Returns:
+            The coerced float array, or None.
+
+        Raises:
+            ValueError: On any of the mismatches above.
+        """
+        posterior = self.idata.posterior
+        if self.data.exog is not None and "B_exog" not in posterior:
+            raise ValueError(
+                "This IdentifiedVAR's data carries exogenous regressors the estimator "
+                "never consumed (no B_exog in the posterior); refit with an estimator "
+                "that supports them before scenario analysis."
+            )
+        if exog_future is not None:
+            if "B_exog" not in posterior:
+                raise ValueError("exog_future provided but the posterior carries no B_exog.")
+            exog_future = np.asarray(exog_future, dtype=float)
+            n_exog = posterior["B_exog"].shape[-1]
+            if exog_future.shape != (steps, n_exog):
+                raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {exog_future.shape}.")
+        if self.data.exog is not None and exog_future is None:
+            raise ValueError("exog_future is required when the model includes exogenous variables")
+        return exog_future
+
+    def reverse_stress(
+        self,
+        variable: str,
+        threshold: float,
+        steps: int,
+        horizon: int | None = None,
+        probability: float = 1.0,
+        direction: Literal["below", "above"] = "below",
+        seed: int | np.random.Generator | None = None,
+        exog_future: np.ndarray | None = None,
+    ) -> "ReverseStressResult":
+        """Reverse stress test: which shocks would deliver this outcome?
+
+        Ordinary scenario analysis runs forwards — you name the shocks and
+        read off the outcome. This runs backwards: you name the outcome
+        (`variable` crossing `threshold` at `horizon`) and read off the
+        *shock cocktail* that delivers it. Draw an unconditional density
+        forecast together with the structural shocks behind it
+        (`ADR-0009`), reweight the draws so the stress event carries
+        `probability` (entropic tilting; the default 1.0 is exact
+        conditioning on the event), and report the tilted-weighted mean of
+        the retained shocks — the average structural configuration among
+        the draws that produced the outcome.
+
+        Because the cocktail averages *realised* draws rather than solving
+        a projection problem, it inherits the model's own shock
+        correlations and needs no arbitrary norm choice. Its magnitude
+        `q = ‖E_w[ε]‖²` is in the same one-standard-deviation units as
+        the scenario plausibility statistic, so a cocktail of total size 9
+        is "a 3-sd configuration".
+
+        The result's `q_cal` applies the ADPRR binomial calibration to
+        the tilt's relative entropy, `q_cal = (1 + sqrt(1 - exp(-2·KL/d)))
+        / 2` with `d = steps · n_vars`. This is an *extension* of that
+        calibration to soft conditioning, not a result from the paper: it
+        substitutes the (now finite) entropic divergence for the
+        hard-conditioning `z = q/2` that ADR-0005 documents as infinite.
+
+        Note:
+            Under time-varying volatility the forecast factors are built
+            per simulated volatility path (conditional-on-path, as in
+            `structural_scenario`), and `SignRestriction` is not supported
+            there — the scheme re-samples rotations per call, so no single
+            structural coordinate system spans the forecast steps.
+
+        Args:
+            variable: The endogenous variable to stress.
+            threshold: The threshold it must cross, in its own units.
+            steps: Number of forecast steps to simulate.
+            horizon: The 1-based step the event refers to. Defaults to
+                `steps` (the end of the forecast).
+            probability: Requested probability of the stress event,
+                `0 < p <= 1`. The default 1.0 conditions on it outright;
+                a smaller value softens the conditioning and keeps more
+                of the sample.
+            direction: `"below"` for `variable < threshold` (default) or
+                `"above"`.
+            seed: RNG seed (int) or Generator. Matched seeds reproduce
+                `structural_scenario`'s draws exactly.
+            exog_future: Future exogenous values, shape `(steps, k)`.
+                Required if the posterior carries `B_exog`.
+
+        Returns:
+            ReverseStressResult with the conditioned forecast draws, the
+            structural shocks, the tilting weights, and the cocktail.
+
+        Raises:
+            ValueError: On an unknown variable, a horizon outside
+                `1..steps`, a probability outside `(0, 1]`, a stress event
+                no draw satisfies, `SignRestriction` under time-varying
+                volatility, or exogenous-data mismatches.
+        """
+        from impulso._scenario import structural_forecast_draws
+        from impulso._tilting import build_moments, solve_tilt, tilt_diagnostics
+        from impulso.results import ReverseStressResult
+        from impulso.scenario import ProbabilityTarget
+
+        horizon = steps if horizon is None else horizon
+        if horizon > steps:
+            raise ValueError(f"horizon must lie in 1..steps, got horizon={horizon} with steps={steps}")
+        target = ProbabilityTarget(
+            variable=variable,
+            horizon=horizon,
+            threshold=threshold,
+            probability=probability,
+            direction=direction,
+        )
+        exog_future = self._validate_forecast_exog(steps, exog_future)
+
+        paths, eps = structural_forecast_draws(self, steps, seed=seed, exog_future=exog_future)
+        G, t = build_moments(paths, [target], self.var_names, steps)
+        weights, achieved = solve_tilt(G, t)
+        diagnostics = tilt_diagnostics(weights, stacklevel=3)
+
+        n_chains, n_draws = paths.shape[:2]
+        n_total = n_chains * n_draws
+        cocktail = np.einsum("i,ihj->hj", weights, eps.reshape(n_total, *eps.shape[2:]))
+        q = float(np.sum(cocktail**2))
+        d_total = steps * len(self.var_names)
+        q_cal = float((1.0 + np.sqrt(1.0 - np.exp(-2.0 * diagnostics["kl_divergence"] / d_total))) / 2.0)
+
+        ds = xr.Dataset({
+            "forecast": xr.DataArray(
+                paths, dims=["chain", "draw", "step", "variable"], coords={"variable": self.var_names}
+            ),
+            "structural_shocks": xr.DataArray(
+                eps, dims=["chain", "draw", "step", "shock"], coords={"shock": self.shock_names}
+            ),
+            "tilting_weights": xr.DataArray(weights.reshape(n_chains, n_draws), dims=["chain", "draw"]),
+            "shock_cocktail": xr.DataArray(cocktail, dims=["step", "shock"], coords={"shock": self.shock_names}),
+        })
+        ds.attrs.update(diagnostics)
+        ds.attrs["baseline_probability"] = float(G[:, 0].mean())
+        ds.attrs["achieved_probability"] = float(achieved[0])
+        ds.attrs["q"] = q
+        ds.attrs["q_cal"] = q_cal
+        return ReverseStressResult(
+            idata=az.InferenceData(posterior_predictive=ds),
+            steps=steps,
+            var_names=self.var_names,
+            shock_names=self.shock_names,
+            variable=variable,
+            threshold=float(threshold),
+            horizon=horizon,
+            direction=direction,
+            probability=float(probability),
+        )
+
     def structural_scenario(
         self,
         steps: int,
@@ -710,22 +875,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             )
         if path_uncertainty not in ("none", "unconditional"):
             raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
-        posterior = self.idata.posterior
-        if self.data.exog is not None and "B_exog" not in posterior:
-            raise ValueError(
-                "This IdentifiedVAR's data carries exogenous regressors the estimator "
-                "never consumed (no B_exog in the posterior); refit with an estimator "
-                "that supports them before scenario analysis."
-            )
-        if exog_future is not None:
-            if "B_exog" not in posterior:
-                raise ValueError("exog_future provided but the posterior carries no B_exog.")
-            exog_future = np.asarray(exog_future, dtype=float)
-            n_exog = posterior["B_exog"].shape[-1]
-            if exog_future.shape != (steps, n_exog):
-                raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {exog_future.shape}.")
-        if self.data.exog is not None and exog_future is None:
-            raise ValueError("exog_future is required when the model includes exogenous variables")
+        exog_future = self._validate_forecast_exog(steps, exog_future)
 
         paths, q, q_cond, q_cal, r = structural_scenario_engine(
             self,
