@@ -596,27 +596,6 @@ def identified_long_run(permanent_transitory_2v, var_data_2v):
     return fitted.set_identification_strategy(scheme)
 
 
-def _identified_with_singular_draws(permanent_transitory_2v, var_data_2v, n_bad: int = 5):
-    """Same pipeline, but the first `n_bad` draws of chain 0 have M = 0."""
-    from impulso.identification import LongRunRestriction
-    from impulso.volatility import Constant
-
-    idata = permanent_transitory_2v["idata"].copy()
-    B = idata.posterior["B"].values.copy()
-    B[0, :n_bad] = np.eye(2)
-    idata.posterior["B"] = (("chain", "draw", "var", "coeff"), B)
-
-    fitted = FittedVAR(
-        idata=idata,
-        n_lags=1,
-        data=var_data_2v,
-        var_names=["y1", "y2"],
-        volatility=Constant(),
-    )
-    scheme = LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
-    return fitted.set_identification_strategy(scheme)
-
-
 class TestLongRunRestrictionPipeline:
     """LongRunRestriction through the FittedVAR -> IdentifiedVAR pipeline."""
 
@@ -659,8 +638,8 @@ class TestLongRunRestrictionPipeline:
 
     # --- 23. undefined draws stay undefined through FEVD -------------------
 
-    def test_fevd_propagates_nan_draws(self, permanent_transitory_2v, var_data_2v):
-        identified = _identified_with_singular_draws(permanent_transitory_2v, var_data_2v)
+    def test_fevd_propagates_nan_draws(self, identified_long_run_nan_draws):
+        identified = identified_long_run_nan_draws
         with pytest.warns(UserWarning, match="long-run multiplier"):
             fevd = identified.fevd(horizon=5)
         shares = fevd.idata.posterior_predictive["fevd"].values
@@ -684,8 +663,8 @@ class TestLongRunRestrictionPipeline:
 
     # --- 25. undefined draws do not crash the decomposition ----------------
 
-    def test_historical_decomposition_survives_nan_draws(self, permanent_transitory_2v, var_data_2v):
-        identified = _identified_with_singular_draws(permanent_transitory_2v, var_data_2v)
+    def test_historical_decomposition_survives_nan_draws(self, identified_long_run_nan_draws):
+        identified = identified_long_run_nan_draws
         with pytest.warns(UserWarning, match="long-run multiplier"):
             hd = identified.historical_decomposition()
         contributions = hd.idata.posterior_predictive["hd"].values

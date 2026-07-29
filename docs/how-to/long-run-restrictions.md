@@ -17,7 +17,7 @@ scheme = LongRunRestriction(
 
 That single zero says the demand shock has no permanent effect on the level of output. Shock `j` has no long-run effect on any variable ordered before it, so the ordering is the restriction — with two variables there is exactly one.
 
-If naming the zeros directly is clearer than reasoning about an ordering, use the alternative constructor. It recovers the ordering from the pattern, and refuses patterns that no ordering can produce:
+If naming the zeros directly is clearer than reasoning about an ordering, use the alternative constructor. It recovers both orderings from the pattern — the variables' and the shocks', so neither list has to be given in order — and refuses patterns that no ordering can produce:
 
 ```python
 scheme = LongRunRestriction.from_zero_restrictions(

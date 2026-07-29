@@ -404,6 +404,30 @@ class TestPartialIdentification:
         assert scn.idata.posterior_predictive["plausibility"].values.min() >= 3.0 - 1e-10
 
 
+class TestNaNShockMatrixGuard:
+    """#187: NaN draws are named, not surfaced as LAPACK's 'SVD did not converge'."""
+
+    def test_nan_draws_error_before_the_rank_check(self, identified_long_run_nan_draws):
+        with (
+            pytest.warns(UserWarning, match="long-run multiplier"),
+            pytest.raises(ValueError) as excinfo,
+        ):
+            identified_long_run_nan_draws.structural_scenario(
+                steps=3,
+                conditions=[VariablePath(variable="y1", values=0.4)],
+                seed=0,
+            )
+        message = str(excinfo.value)
+        assert not isinstance(excinfo.value, np.linalg.LinAlgError)
+        assert "NaN for 5/100 posterior draws" in message
+        assert "on_undefined='nan'" in message
+        assert "on_undefined='raise'" in message
+
+    def test_nan_free_identification_is_unaffected(self, identified_2v):
+        scn = identified_2v.structural_scenario(steps=3, conditions=[VariablePath(variable="y1", values=0.4)], seed=0)
+        assert np.isfinite(scn.idata.posterior_predictive["forecast"].values).all()
+
+
 class TestNumericalGuards:
     def test_near_collinear_adjusting_block_warns(self):
         """cond(C_A C_A') check fires where the full-Gram check cannot."""
