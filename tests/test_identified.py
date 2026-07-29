@@ -692,3 +692,99 @@ class TestLongRunRestrictionPipeline:
 
         assert np.isnan(contributions[0, :5]).all()
         assert not np.isnan(contributions[0, 5:]).any()
+
+
+@pytest.fixture
+def identified_max_share(single_driver_2v, var_data_2v):
+    """IdentifiedVAR over the exact-arithmetic max-share fixture."""
+    from impulso.identification import MaxShare
+    from impulso.volatility import Constant
+
+    fitted = FittedVAR(
+        idata=single_driver_2v["idata"],
+        n_lags=1,
+        data=var_data_2v,
+        var_names=["y1", "y2"],
+        volatility=Constant(),
+    )
+    return fitted.set_identification_strategy(MaxShare(target="y2", band=(6, 32)))
+
+
+class TestMaxSharePipeline:
+    """MaxShare through the FittedVAR -> IdentifiedVAR pipeline."""
+
+    def test_shock_matrix_labels_and_attrs(self, identified_max_share, single_driver_2v):
+        P = identified_max_share.shock_matrix()
+
+        assert P.dims == ("chain", "draw", "response", "shock")
+        assert list(P.coords["response"].values) == ["y1", "y2"]
+        assert list(P.coords["shock"].values) == ["max_share", "unidentified_1"]
+        expected = np.broadcast_to(single_driver_2v["P_true"][:, 0], P.values[..., :, 0].shape)
+        np.testing.assert_allclose(P.values[..., :, 0], expected, atol=1e-8)
+        assert P.attrs["max_share_share_median"] >= 1 - 1e-10
+        assert P.attrs["max_share_singular_draws"] == 0.0
+        assert "sign_restriction_acceptance_rate" not in P.attrs
+
+    def test_fevd_masks_the_unidentified_column(self, identified_max_share):
+        with pytest.warns(UserWarning, match="unidentified"):
+            fevd = identified_max_share.fevd(horizon=10)
+        shares = fevd.idata.posterior_predictive["fevd"].values
+
+        identified_col = shares[..., 0]
+        assert np.isfinite(identified_col).all()
+        assert ((identified_col >= 0.0) & (identified_col <= 1.0)).all()
+        assert np.isnan(shares[..., 1]).all()
+
+    def test_fevd_recovers_the_full_share_for_the_target(self, identified_max_share):
+        """The fixture's shock 0 drives y2 entirely, so its FEVD share is 1."""
+        with pytest.warns(UserWarning, match="unidentified"):
+            fevd = identified_max_share.fevd(horizon=20)
+        shares = fevd.idata.posterior_predictive["fevd"].values
+        np.testing.assert_allclose(shares[..., 1, 0], 1.0, atol=1e-10)
+
+    def test_fevd_keeps_nan_draws_nan(self, single_driver_2v, var_data_2v):
+        """A blanked draw must not surface as a clean 0.0 share."""
+        from impulso.identification import MaxShare
+        from impulso.volatility import Constant
+
+        idata = single_driver_2v["idata"].copy()
+        B = idata.posterior["B"].values.copy()
+        phi = 2.0 * np.pi / 12.0  # unit-circle root at a period inside the band
+        B[0, :5] = np.array([[np.cos(phi), -np.sin(phi)], [np.sin(phi), np.cos(phi)]])
+        idata.posterior["B"] = (("chain", "draw", "var", "coeff"), B)
+
+        fitted = FittedVAR(
+            idata=idata,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+        )
+        scheme = MaxShare(target="y2", band=(6, 32), max_condition=100.0)
+        identified = fitted.set_identification_strategy(scheme)
+        with pytest.warns(UserWarning, match="numerically undefined"):
+            fevd = identified.fevd(horizon=5)
+        shares = fevd.idata.posterior_predictive["fevd"].values
+
+        assert np.isnan(shares[0, :5, :, :, 0]).all()
+        assert np.isfinite(shares[0, 5:, :, :, 0]).all()
+
+    def test_historical_decomposition_collapses_the_remainder(self, identified_max_share, var_data_2v):
+        hd = identified_max_share.historical_decomposition()
+        contributions = hd.idata.posterior_predictive["hd"]
+
+        assert list(contributions.coords["shock"].values) == ["max_share", "unidentified_remainder"]
+        baseline = hd.idata.posterior_predictive["baseline"].values
+        reconstructed = contributions.values.sum(axis=-1) + baseline
+        expected = np.broadcast_to(var_data_2v.endog[1:], reconstructed.shape)
+        np.testing.assert_allclose(reconstructed, expected, atol=1e-8)
+
+    def test_impulse_response_shapes_and_labels(self, identified_max_share):
+        irf = identified_max_share.impulse_response(horizon=5)
+        da = irf.idata.posterior_predictive["irf"]
+
+        assert da.shape == (2, 50, 6, 2, 2)
+        assert list(da.coords["shock"].values) == ["max_share", "unidentified_1"]
+        assert list(da.coords["response"].values) == ["y1", "y2"]
+        impact = da.values[..., 0, :, 0]
+        np.testing.assert_allclose(impact, np.broadcast_to([0.3, 0.7], impact.shape), atol=1e-8)

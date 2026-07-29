@@ -9,7 +9,7 @@ import xarray as xr
 from pydantic import Field, PrivateAttr, model_validator
 
 from impulso._base import ImpulsoBaseModel, ImpulsoModel
-from impulso._linalg import lag_matrices
+from impulso._linalg import companion_spectral_radius, householder_from_e1, lag_matrices
 from impulso._ma import compute_ma_phi
 
 if TYPE_CHECKING:
@@ -1033,6 +1033,455 @@ class ProxySVAR(ImpulsoBaseModel):
         tss = np.einsum("cdt,cdt->cd", u_policy_c, u_policy_c)
         rss = tss - ess
         return ess / (rss / (T - 2))
+
+    def shock_coords(self, n_vars: int) -> list[str]:
+        """Identified shock first, then rotation-arbitrary padding."""
+        return SignRestriction._build_shock_coords([self.shock_name], n_vars)
+
+
+def _nan_stat(fn, arr: np.ndarray, *args) -> float:
+    """Apply a NaN-aware summary to an array that may be entirely NaN.
+
+    `np.nanmedian` and friends emit a RuntimeWarning and return NaN for an
+    all-NaN slice. Diagnostics are reported even when every draw was
+    blanked, so the empty case is short-circuited instead of warned about.
+    """
+    if not np.isfinite(arr).any():
+        return float("nan")
+    return float(fn(arr, *args))
+
+
+class MaxShare(ImpulsoModel):
+    """Maximum-share identification over a frequency band.
+
+    Identifies the single structural shock that accounts for the largest
+    possible fraction of one target variable's variance over a stated band
+    of frequencies — the "main business-cycle shock" of
+    {cite:t}`angeletosCollardDellas2020`, in the frequency-domain form of
+    {cite:t}`faust1998` and {cite:t}`uhlig2004`. Nothing is searched for:
+    the maximiser is an eigenvector, computed in closed form per draw.
+
+    The reduced-form transfer function is
+    `C(w) = (I - sum_j A_j e^{-i w j})^-1`, so for a candidate impact
+    column `p = L q` (with `q` a real unit vector and `L L' = Sigma`) the
+    target variable's variance over the band `B` is proportional to
+    `q' M q` with `M = int_B (C_i L)^* (C_i L) dw`, where `C_i` is the
+    target's row of `C`. `M` is Hermitian positive semi-definite, and for
+    real `q` only its real part contributes (its imaginary part is
+    antisymmetric), so the maximiser is the leading eigenvector of the
+    real symmetric matrix `Re(M)` and the achieved share is
+    `lambda_max / trace`. The integral is evaluated with a uniform
+    midpoint rule over `n_frequencies` points, which never lands on
+    `w = 0` and so admits an unbounded upper period.
+
+    Only one column is identified. The remaining columns are completed
+    orthogonally via a Householder reflection, so `P P' = Sigma` holds to
+    machine precision and downstream code needing a full invertible matrix
+    keeps working — but they are rotation-arbitrary and are labelled
+    `unidentified_1..`. `IdentifiedVAR.fevd` masks their shares to NaN and
+    `IdentifiedVAR.historical_decomposition` collapses them into a single
+    `unidentified_remainder` column, exactly as for `ProxySVAR`.
+
+    Sign convention: the identified column is flipped so that the shock
+    raises the target variable on impact.
+
+    Two failure modes are reported separately:
+
+    - `I - sum_j A_j e^{-i w j}` near-singular at some grid frequency (a
+      root essentially on the unit circle *at a frequency in the band*),
+      so the transfer function is numerically undefined there. Controlled
+      by `on_undefined` and `max_condition`.
+    - Explosive draws (companion spectral radius above one). The band
+      arithmetic still succeeds — the transfer function may be perfectly
+      well conditioned — but the spectral density is not that of a
+      stationary process, so the "variance share" has no interpretation.
+      Those draws are always returned finite and always warned about.
+
+    Attributes:
+        target: Endogenous variable whose band variance is maximised.
+        band: `(low_period, high_period)` in **periods of the sampling
+            interval**, not radians. Quarterly business cycles are
+            `(6, 32)`; the monthly analogue is `(18, 96)`. Internally the
+            band is `w in [2*pi/high_period, 2*pi/low_period]`. Requires
+            `2 <= low_period < high_period <= inf`; period 2 is the
+            Nyquist frequency and `high_period=inf` selects everything
+            down to (but excluding) the zero frequency.
+        shock_name: Label of the identified shock column.
+        n_frequencies: Midpoint-rule quadrature points across the band.
+            The default of 192 puts the band integral within roughly
+            `1e-6` of its converged value for typical macro VARs; raise it
+            for very narrow bands or near-unit-root draws.
+        on_undefined: `"nan"` (default) blanks draws whose transfer
+            function is numerically singular somewhere in the band and
+            warns; `"raise"` errors instead. NaN draws propagate into
+            IRF/FEVD and are rejected outright by the scenario methods.
+        max_condition: Condition-number threshold above which
+            `I - sum_j A_j e^{-i w j}` counts as numerically singular.
+            Default `1e8`.
+
+    Note:
+        Explaining most of a variable's band variance is a statement about
+        variance, not a causal claim. The scheme finds *a* direction in
+        shock space; whether it deserves an economic name is an
+        interpretation the data cannot supply.
+    """
+
+    target: str
+    band: tuple[float, float]
+    shock_name: str = "max_share"
+    n_frequencies: int = Field(default=192, ge=16)
+    on_undefined: Literal["nan", "raise"] = "nan"
+    max_condition: float = Field(default=1e8, gt=0.0)
+
+    # Single-call scratchpad, mirroring ProxySVAR._last_diagnostics:
+    # identify() writes the band diagnostics; the pipeline reads them back
+    # and attaches them to the shock-matrix attrs.
+    _last_diagnostics: dict[str, float] = PrivateAttr(default_factory=dict)
+
+    # Memoised frequency sweep. The accumulator `K`, the conditioning
+    # screen and the spectral radii depend only on (posterior, n_lags,
+    # target) — not on L, which enters afterwards as `M = L' Re(K) L`. So
+    # under time-varying volatility, where the pipeline calls identify()
+    # once per period with the same posterior, the frequency loop runs
+    # once instead of T times (and the warnings fire once, not T times).
+    # Keyed by object identity: valid while the caller holds the same
+    # posterior object, which is exactly the per-t loop's lifetime.
+    _spectral_cache: tuple | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _validate_band(self) -> "MaxShare":
+        """Reject bands that are not valid period intervals, and bad labels."""
+        low, high = self.band
+        if not np.isfinite(low) or np.isnan(high):
+            raise ValueError(
+                f"band must be (low_period, high_period) in periods of the sampling interval; "
+                f"got {self.band}. The lower bound must be finite."
+            )
+        if low < 2.0:
+            raise ValueError(
+                f"band lower bound must be at least 2 periods (the Nyquist frequency); got {low}. "
+                "The band is given in periods of the sampling interval — quarterly business "
+                "cycles are band=(6, 32), not radians."
+            )
+        if low >= high:
+            raise ValueError(
+                f"band must satisfy low_period < high_period; got {self.band}. The band is given "
+                "in periods of the sampling interval, shortest first — quarterly business cycles "
+                "are band=(6, 32), and band=(32, inf) is the low-frequency band."
+            )
+        if self.shock_name.startswith("unidentified_"):
+            raise ValueError(
+                f"shock_name may not start with the reserved prefix 'unidentified_' (got "
+                f"{self.shock_name!r}). Downstream guards read that prefix to mask "
+                "rotation-arbitrary columns, so such a name would silently hide the identified "
+                "shock from FEVD and historical decomposition."
+            )
+        return self
+
+    def identify(
+        self,
+        L: np.ndarray,
+        var_names: list[str],
+        posterior: "xr.Dataset | None" = None,
+        data: "VARData | None" = None,
+        n_lags: int | None = None,
+    ) -> np.ndarray:
+        """Apply maximum-share identification over the frequency band.
+
+        Args:
+            L: Lower-triangular Cholesky factor, shape (chains, draws, n_vars, n_vars).
+            var_names: Variable names in the data's natural order.
+            posterior: Full posterior; required, because the transfer
+                function is built from the lag coefficients `B`.
+            data: Unused. Accepted for Protocol uniformity.
+            n_lags: Lag order. Inferred from `B`'s trailing axis if omitted.
+
+        Returns:
+            Structural shock matrix, shape (chains, draws, n_vars, n_vars).
+            Rows follow `var_names` (the data's order) by construction;
+            column 0 is the identified shock and columns 1.. are an
+            arbitrary orthogonal completion. Draws whose transfer function
+            is numerically undefined inside the band are NaN when
+            `on_undefined="nan"`.
+
+        Raises:
+            ValueError: If `posterior` is missing or carries no `B`, if
+                `target` is not an endogenous variable, or if
+                `on_undefined="raise"` and some draw is undefined.
+        """
+        del data  # unused
+        vals, vecs, bad, rho, condition = self._band_eigen(L, var_names, posterior, n_lags)
+
+        q = vecs[..., -1]  # eigh returns eigenvalues ascending
+        q = q * self._orientation(L, q, var_names.index(self.target))[..., np.newaxis]
+        P = L @ householder_from_e1(q)
+
+        share, ratio = self._share_and_ratio(vals, bad)
+        self._last_diagnostics = {
+            "max_share_share_median": _nan_stat(np.nanmedian, share),
+            "max_share_share_q05": _nan_stat(np.nanquantile, share, 0.05),
+            "max_share_share_q95": _nan_stat(np.nanquantile, share, 0.95),
+            "max_share_eigen_ratio_median": _nan_stat(np.nanmedian, ratio),
+            "max_share_eigen_ratio_q95": _nan_stat(np.nanquantile, ratio, 0.95),
+            "max_share_singular_draws": float(bad.sum()),
+            "max_share_singular_fraction": float(bad.mean()),
+            "max_share_condition_max": float(np.max(condition)),
+            "max_share_explosive_draws": float((rho > 1.0).sum()),
+            "max_share_explosive_fraction": float((rho > 1.0).mean()),
+            "max_share_spectral_radius_median": float(np.median(rho)),
+            "max_share_spectral_radius_max": float(rho.max()),
+        }
+        self._warn_weakly_identified()
+
+        if bad.any():
+            P = np.where(bad[..., np.newaxis, np.newaxis], np.nan, P)
+        return P
+
+    def _band_eigen(
+        self,
+        L: np.ndarray,
+        var_names: list[str],
+        posterior: "xr.Dataset | None",
+        n_lags: int | None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Eigendecomposition of the band variance form `M = L' Re(K) L`.
+
+        Returns:
+            Tuple `(vals, vecs, bad, rho, condition)`: eigenvalues in
+            ascending order and their eigenvectors, `(C, D, n)` and
+            `(C, D, n, n)`; the numerically-undefined mask, the companion
+            spectral radii and the worst in-band condition number, each
+            `(C, D)`.
+        """
+        if posterior is None or "B" not in posterior:
+            raise ValueError(
+                "MaxShare.identify requires the full posterior with 'B' (the VAR lag "
+                "coefficients): the transfer function C(w) = (I - sum_j A_j e^{-i w j})^-1 is "
+                "built from them. Pass posterior=fitted.idata.posterior to identify() — "
+                "FittedVAR.set_identification_strategy(...) supplies it automatically."
+            )
+        if self.target not in var_names:
+            raise ValueError(f"target {self.target!r} is not an endogenous variable; data has {list(var_names)}.")
+
+        n_vars = L.shape[-1]
+        if n_lags is None:
+            n_lags = posterior["B"].shape[-1] // n_vars
+        K, bad, rho, condition = self._spectral_accumulator(posterior, n_lags, n_vars, var_names.index(self.target))
+
+        M = np.swapaxes(L, -1, -2) @ K @ L
+        M = 0.5 * (M + np.swapaxes(M, -1, -2))
+        vals, vecs = np.linalg.eigh(M)
+        return vals, vecs, bad, rho, condition
+
+    def _spectral_accumulator(
+        self, posterior: "xr.Dataset", n_lags: int, n_vars: int, target_index: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Sweep the band and accumulate `K = sum_w Re(conj(x_w) x_w')`.
+
+        `x_w` is the target's row of the transfer function, obtained from
+        the single batched solve `F(w)' x = e_target` (a plain transpose,
+        not a conjugate one: `x' = e_target' F^-1`). Because `K` does not
+        involve `L`, the whole loop is memoised on
+        `(id(posterior), n_lags, target_index)` — see `_spectral_cache`.
+
+        Returns:
+            Tuple `(K, bad, rho, condition)`: the real symmetric
+            accumulator `(C, D, n, n)`; the mask of draws whose transfer
+            function is numerically singular at some grid frequency; the
+            companion spectral radii; and the worst in-band condition
+            number, the last three all `(C, D)`.
+        """
+        cache_key = (id(posterior), n_lags, target_index)
+        if self._spectral_cache is not None and self._spectral_cache[0] == cache_key:
+            return self._spectral_cache[1]
+
+        A = lag_matrices(posterior["B"].values, n_lags)
+        rho = companion_spectral_radius(A)
+        A_stack = np.stack(A, axis=0)  # (p, C, D, n, n)
+        lags = np.arange(1, n_lags + 1)
+
+        eye = np.eye(n_vars)
+        e_target = np.zeros((n_vars, 1))
+        e_target[target_index, 0] = 1.0
+
+        K = np.zeros((*rho.shape, n_vars, n_vars))
+        bad = np.zeros(rho.shape, dtype=bool)
+        condition_max = np.zeros(rho.shape)
+        for omega in self._frequencies():
+            F = eye - np.tensordot(np.exp(-1j * omega * lags), A_stack, axes=(0, 0))
+            # cond() returns inf for a singular matrix rather than raising,
+            # which is what makes the sanitise-then-blank strategy possible.
+            condition = np.linalg.cond(F)
+            condition_max = np.maximum(condition_max, np.where(np.isfinite(condition), condition, np.inf))
+            bad |= ~np.isfinite(condition) | (condition > self.max_condition)
+            # A batched solve raises for the whole batch if any slice is
+            # singular, so sanitise first and blank the offenders in identify().
+            F_safe = np.where(bad[..., np.newaxis, np.newaxis], eye, F)
+            x = np.linalg.solve(np.swapaxes(F_safe, -1, -2), e_target)[..., 0]  # (C, D, n)
+            # Re(conj(x) x') = Re(x) Re(x)' + Im(x) Im(x)' — symmetric PSD
+            # by construction, so no separate symmetrisation is needed.
+            xr_, xi = x.real, x.imag
+            K += xr_[..., :, np.newaxis] * xr_[..., np.newaxis, :] + xi[..., :, np.newaxis] * xi[..., np.newaxis, :]
+
+        self._report(bad, rho > 1.0)
+        result = (K, bad, rho, condition_max)
+        self._spectral_cache = (cache_key, result)
+        return result
+
+    def _frequencies(self) -> np.ndarray:
+        """Midpoint-rule quadrature nodes across the band, in radians.
+
+        The band is given in periods, so `w = 2 pi / period` and the
+        interval runs from `2 pi / high_period` (zero when `high_period`
+        is infinite) up to `2 pi / low_period`. Midpoints never land on an
+        endpoint, which is what keeps `high_period=inf` — and hence the
+        excluded zero frequency — safe.
+        """
+        low, high = self.band
+        omega_lo = 0.0 if np.isinf(high) else 2.0 * np.pi / high
+        omega_hi = 2.0 * np.pi / low
+        step = (omega_hi - omega_lo) / self.n_frequencies
+        return omega_lo + step * (np.arange(self.n_frequencies) + 0.5)
+
+    @staticmethod
+    def _orientation(L: np.ndarray, q: np.ndarray, target_index: int) -> np.ndarray:
+        """Signs flipping each draw's column so the shock raises the target.
+
+        An eigenvector is only defined up to sign. The convention is that
+        the identified shock moves the target variable up on impact. When
+        the target's impact loading is exactly zero the convention is
+        vacuous there, so the largest-magnitude loading is made positive
+        instead — an arbitrary but deterministic tie-break.
+        """
+        p = (L @ q[..., np.newaxis])[..., 0]
+        sign = np.sign(p[..., target_index])
+        largest = np.argmax(np.abs(p), axis=-1)[..., np.newaxis]
+        fallback = np.sign(np.take_along_axis(p, largest, axis=-1)[..., 0])
+        return np.where(sign != 0.0, sign, np.where(fallback != 0.0, fallback, 1.0))
+
+    @staticmethod
+    def _share_and_ratio(vals: np.ndarray, bad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Achieved band share and eigenvalue ratio, per draw.
+
+        The share is `lambda_max / trace`: the fraction of the target's
+        band variance the identified shock explains. The ratio
+        `lambda_2 / lambda_max` is the degeneracy diagnostic — near one,
+        the maximiser is only pinned down within a two-dimensional plane
+        and the returned rotation is whatever LAPACK happened to pick.
+        Blanked draws are NaN in both.
+        """
+        total = vals.sum(axis=-1)
+        top = vals[..., -1]
+        share = np.where(total > 0.0, top / np.where(total > 0.0, total, 1.0), np.nan)
+        if vals.shape[-1] > 1:
+            ratio = np.where(top > 0.0, vals[..., -2] / np.where(top > 0.0, top, 1.0), np.nan)
+        else:
+            ratio = np.zeros_like(share)
+        return np.where(bad, np.nan, share), np.where(bad, np.nan, ratio)
+
+    def _report(self, bad: np.ndarray, explosive: np.ndarray) -> None:
+        """Warn (or raise) about undefined and explosive draws.
+
+        The two conditions are distinct. A singular `I - sum_j A_j
+        e^{-i w j}` is an arithmetic failure — the transfer function does
+        not exist at that frequency. An explosive draw is an
+        interpretation failure — the arithmetic is fine, but the process
+        is non-stationary, so "share of variance" means nothing. Bayesian
+        posteriors near a unit root routinely contain explosive draws, so
+        those are reported, never blanked.
+        """
+        import warnings
+
+        total = int(bad.size)
+        n_bad = int(bad.sum())
+        if n_bad:
+            if self.on_undefined == "raise":
+                raise ValueError(
+                    f"The transfer function C(w) = (I - sum_j A_j e^{{-i w j}})^-1 is numerically "
+                    f"undefined for {n_bad}/{total} posterior draws at one or more frequencies in "
+                    f"band={self.band} (condition number above max_condition="
+                    f"{self.max_condition:g}). Pass on_undefined='nan' to blank those draws "
+                    "instead, or raise max_condition if the loss of precision is acceptable."
+                )
+            warnings.warn(
+                f"The transfer function C(w) = (I - sum_j A_j e^{{-i w j}})^-1 is numerically "
+                f"undefined for {n_bad}/{total} posterior draws at one or more frequencies in "
+                f"band={self.band} (condition number above max_condition={self.max_condition:g}); "
+                "those draws are returned as NaN. NaN draws propagate into IRF and FEVD, and the "
+                "scenario methods reject them.",
+                UserWarning,
+                stacklevel=4,
+            )
+        n_explosive = int(explosive.sum())
+        if n_explosive:
+            warnings.warn(
+                f"{n_explosive}/{total} posterior draws are explosive (companion spectral radius "
+                "above 1), so their spectral density is not that of a stationary process and the "
+                "band variance share has no interpretation for them. They are still identified "
+                "arithmetically and returned finite — check max_share_diagnostics() before "
+                "reading the results.",
+                UserWarning,
+                stacklevel=4,
+            )
+
+    def _warn_weakly_identified(self) -> None:
+        """Warn when the leading eigenvalue is barely separated from the next.
+
+        At a ratio near one the band-variance form is close to having a
+        repeated top eigenvalue, so the maximiser is determined only up to
+        a rotation within that plane. The returned column is then whatever
+        the eigensolver produced and is not reproducible across LAPACK
+        builds. Threshold fixed at 0.9 — it is a smoke alarm, not a tuning
+        knob.
+        """
+        ratio = self._last_diagnostics.get("max_share_eigen_ratio_median", np.nan)
+        if np.isfinite(ratio) and ratio > 0.9:
+            import warnings
+
+            warnings.warn(
+                f"The maximum-share shock is weakly identified within the band: posterior-median "
+                f"eigenvalue ratio lambda_2/lambda_1 = {ratio:.3f} > 0.9, so the maximiser is "
+                "nearly degenerate and the returned rotation within that plane is arbitrary. See "
+                "the max_share_eigen_ratio_* diagnostics.",
+                UserWarning,
+                stacklevel=4,
+            )
+
+    def max_share_diagnostics(
+        self,
+        L: np.ndarray,
+        var_names: list[str],
+        posterior: "xr.Dataset",
+        n_lags: int | None = None,
+    ) -> dict[str, np.ndarray]:
+        """Per-draw band shares, degeneracy and conditioning.
+
+        Args:
+            L: Lower-triangular Cholesky factor, shape
+                `(chains, draws, n_vars, n_vars)` — e.g.
+                `identified.volatility.cholesky_at(posterior)`.
+            var_names: Variable names in the data's natural order.
+            posterior: Posterior Dataset carrying `B`
+                (`fitted.idata.posterior`).
+            n_lags: Lag order. Inferred from `B`'s trailing axis if omitted.
+
+        Returns:
+            Dict of `(chains, draws)` arrays. `"share"` is the fraction of
+            the target's band variance the identified shock explains;
+            `"eigen_ratio"` is `lambda_2/lambda_1`, near one when the
+            maximiser is degenerate; `"spectral_radius"` is the companion
+            spectral radius, above one for explosive draws; and
+            `"condition_max"` is the worst condition number of
+            `I - sum_j A_j e^{-i w j}` across the band's grid.
+        """
+        vals, _, bad, rho, condition = self._band_eigen(L, var_names, posterior, n_lags)
+        share, ratio = self._share_and_ratio(vals, bad)
+        return {
+            "share": share,
+            "eigen_ratio": ratio,
+            "spectral_radius": rho,
+            "condition_max": condition,
+        }
 
     def shock_coords(self, n_vars: int) -> list[str]:
         """Identified shock first, then rotation-arbitrary padding."""

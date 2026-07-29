@@ -288,3 +288,53 @@ def synthetic_sv_idata_2v():
         "v1_sigma_eta": (("chain", "draw"), np.abs(rng.standard_normal((n_chains, n_draws)))),
     })
     return az.InferenceData(posterior=posterior)
+
+
+@pytest.fixture
+def single_driver_2v():
+    """Exact-arithmetic 2-var VAR(1) where one shock drives `y2` entirely.
+
+    Built backwards from the answer so max-share identification has a
+    closed form to be checked against:
+
+        A_1    = [[0.5, 0.0], [0.0, 0.3]]   (diagonal — rows decouple)
+        P_true = [[0.3, 0.9], [0.7, 0.0]]   (row 1 loads only on shock 0)
+        Sigma  = P_true @ P_true.T = [[0.90, 0.21], [0.21, 0.49]]
+
+    Because `A_1` is diagonal the transfer function is diagonal too, so
+    row 1 of `C(w) P_true` is `c_2(w) * [0.7, 0]` at *every* frequency:
+    shock 0 explains 100% of `y2`'s variance in every band, and the
+    unique maximiser is `p = [0.3, 0.7]` exactly. `P_true` is deliberately
+    not lower-triangular, so it is distinguishable from `chol(Sigma)`.
+
+    Returns:
+        Dict with keys `A1`, `P_true`, `Sigma`, `L` (Cholesky factor of
+        Sigma, broadcast over draws) and `idata` — an InferenceData with
+        2 chains x 50 draws whose draws all equal the truth, laid out like
+        `synthetic_idata_2v`.
+    """
+    n_chains, n_draws, n_vars = 2, 50, 2
+
+    A1 = np.array([[0.5, 0.0], [0.0, 0.3]])
+    P_true = np.array([[0.3, 0.9], [0.7, 0.0]])
+    Sigma = P_true @ P_true.T
+    L = np.linalg.cholesky(Sigma)
+
+    shape = (n_chains, n_draws, n_vars, n_vars)
+    posterior = xr.Dataset({
+        "B": xr.DataArray(np.broadcast_to(A1, shape).copy(), dims=["chain", "draw", "var", "coeff"]),
+        "intercept": xr.DataArray(np.zeros((n_chains, n_draws, n_vars)), dims=["chain", "draw", "var"]),
+        "Sigma": xr.DataArray(
+            np.broadcast_to(Sigma, shape).copy(),
+            dims=["chain", "draw", "var1", "var2"],
+            coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
+        ),
+        "L": xr.DataArray(np.broadcast_to(L, shape).copy(), dims=["chain", "draw", "var1", "var2"]),
+    })
+    return {
+        "A1": A1,
+        "P_true": P_true,
+        "Sigma": Sigma,
+        "L": np.broadcast_to(L, shape).copy(),
+        "idata": az.InferenceData(posterior=posterior),
+    }

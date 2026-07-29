@@ -893,3 +893,400 @@ class TestLongRunRestrictionMultipleLags:
         scheme = LongRunRestriction(ordering=["y1"], shock_names=["permanent"])
         with pytest.raises(ValueError, match="cover every variable"):
             scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=2)
+# ----------------------------------------------------------------------
+# MaxShare — frequency-band maximum-share identification (issue #145)
+# ----------------------------------------------------------------------
+
+
+def _posterior_with_B(B):
+    """Minimal posterior carrying only the lag coefficients."""
+    import xarray as xr
+
+    return xr.Dataset({"B": xr.DataArray(B, dims=["chain", "draw", "var", "coeff"])})
+
+
+def _stable_draw():
+    """One stable, non-diagonal VAR(1) draw with a correlated Sigma.
+
+    Deliberately different from `single_driver_2v`: here no shock explains
+    everything, so the maximiser is interior and worth checking against
+    brute force.
+    """
+    A1 = np.array([[0.6, 0.15], [0.1, 0.4]])
+    Sigma = np.array([[1.0, 0.3], [0.3, 0.7]])
+    L = np.linalg.cholesky(Sigma)
+    shape = (1, 1, 2, 2)
+    return (
+        A1,
+        Sigma,
+        _posterior_with_B(np.broadcast_to(A1, shape).copy()),
+        np.broadcast_to(L, shape).copy(),
+    )
+
+
+def _reference_band_form(A1: np.ndarray, L: np.ndarray, target: int, band: tuple[float, float]) -> np.ndarray:
+    """Independent, unvectorised build of `Re(M)` by trapezoid quadrature.
+
+    Deliberately shares no code with the implementation: it inverts
+    `F(w)` explicitly, takes the target row, and integrates on a dense
+    uniform grid. Used to check the eigen solution really is the
+    band-variance maximiser.
+    """
+    omega_lo = 0.0 if np.isinf(band[1]) else 2.0 * np.pi / band[1]
+    omega_hi = 2.0 * np.pi / band[0]
+    omegas = np.linspace(omega_lo, omega_hi, 4097)
+    integrand = []
+    for omega in omegas:
+        C = np.linalg.inv(np.eye(A1.shape[0]) - A1 * np.exp(-1j * omega))
+        row = C[target] @ L
+        integrand.append(np.conj(row)[:, np.newaxis] * row[np.newaxis, :])
+    return np.trapezoid(np.array(integrand), omegas, axis=0).real
+
+
+class TestMaxShare:
+    """Construction, validation and labelling."""
+
+    def test_defaults(self):
+        from impulso.identification import MaxShare
+
+        scheme = MaxShare(target="gdp", band=(6, 32))
+        assert scheme.shock_name == "max_share"
+        assert scheme.n_frequencies == 192
+        assert scheme.on_undefined == "nan"
+        assert scheme.max_condition == 1e8
+
+    def test_frozen(self):
+        from impulso.identification import MaxShare
+
+        scheme = MaxShare(target="gdp", band=(6, 32))
+        with pytest.raises(ValidationError):
+            scheme.target = "inflation"
+
+    def test_satisfies_protocol(self):
+        from impulso.identification import MaxShare
+
+        assert isinstance(MaxShare(target="gdp", band=(6, 32)), IdentificationScheme)
+
+    def test_band_below_nyquist_rejected(self):
+        from impulso.identification import MaxShare
+
+        with pytest.raises(ValidationError, match="periods of the sampling interval"):
+            MaxShare(target="gdp", band=(1.5, 32))
+
+    def test_band_reversed_rejected(self):
+        from impulso.identification import MaxShare
+
+        with pytest.raises(ValidationError, match="low_period < high_period"):
+            MaxShare(target="gdp", band=(32, 6))
+
+    def test_unbounded_upper_period_accepted(self):
+        from impulso.identification import MaxShare
+
+        scheme = MaxShare(target="gdp", band=(32, float("inf")))
+        assert scheme._frequencies()[0] > 0.0
+
+    def test_infinite_lower_bound_rejected(self):
+        from impulso.identification import MaxShare
+
+        with pytest.raises(ValidationError, match="lower bound must be finite"):
+            MaxShare(target="gdp", band=(float("inf"), float("inf")))
+
+    def test_n_frequencies_floor(self):
+        from impulso.identification import MaxShare
+
+        with pytest.raises(ValidationError):
+            MaxShare(target="gdp", band=(6, 32), n_frequencies=8)
+
+    def test_reserved_shock_name_rejected(self):
+        from impulso.identification import MaxShare
+
+        with pytest.raises(ValidationError, match="reserved prefix"):
+            MaxShare(target="gdp", band=(6, 32), shock_name="unidentified_1")
+
+    def test_shock_coords_pad_with_unidentified(self):
+        from impulso.identification import MaxShare
+
+        scheme = MaxShare(target="gdp", band=(6, 32))
+        assert scheme.shock_coords(3) == ["max_share", "unidentified_1", "unidentified_2"]
+
+    def test_identify_requires_posterior(self):
+        from impulso.identification import MaxShare
+
+        _, _, _, L = _stable_draw()
+        with pytest.raises(ValueError, match="requires the full posterior with 'B'"):
+            MaxShare(target="y1", band=(6, 32)).identify(L, ["y1", "y2"], posterior=None)
+
+    def test_identify_requires_B_in_posterior(self):
+        import xarray as xr
+
+        from impulso.identification import MaxShare
+
+        _, _, _, L = _stable_draw()
+        with pytest.raises(ValueError, match="requires the full posterior with 'B'"):
+            MaxShare(target="y1", band=(6, 32)).identify(L, ["y1", "y2"], posterior=xr.Dataset())
+
+    def test_unknown_target_lists_variables(self):
+        from impulso.identification import MaxShare
+
+        _, _, posterior, L = _stable_draw()
+        with pytest.raises(ValueError, match=r"\['y1', 'y2'\]"):
+            MaxShare(target="nope", band=(6, 32)).identify(L, ["y1", "y2"], posterior=posterior, n_lags=1)
+
+
+class TestMaxShareRecovery:
+    """Exact analytic recovery on a fixture with a known answer."""
+
+    def test_recovers_the_true_column(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        scheme = MaxShare(target="y2", band=(6, 32))
+        P = scheme.identify(
+            single_driver_2v["L"], ["y1", "y2"], posterior=single_driver_2v["idata"].posterior, n_lags=1
+        )
+        expected = np.broadcast_to(single_driver_2v["P_true"][:, 0], P[..., :, 0].shape)
+        np.testing.assert_allclose(P[..., :, 0], expected, atol=1e-8)
+
+    def test_share_is_one_and_not_degenerate(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        scheme = MaxShare(target="y2", band=(6, 32))
+        scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=single_driver_2v["idata"].posterior, n_lags=1)
+        assert scheme._last_diagnostics["max_share_share_median"] >= 1 - 1e-10
+        assert abs(scheme._last_diagnostics["max_share_eigen_ratio_median"]) < 1e-8
+
+    def test_band_invariance(self, single_driver_2v):
+        """One shock drives y2 at every frequency, so the band cannot matter."""
+        from impulso.identification import MaxShare
+
+        posterior = single_driver_2v["idata"].posterior
+        narrow = MaxShare(target="y2", band=(6, 32)).identify(
+            single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1
+        )
+        wide = MaxShare(target="y2", band=(2.5, 200)).identify(
+            single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1
+        )
+        np.testing.assert_allclose(narrow[..., :, 0], wide[..., :, 0], atol=1e-8)
+
+    def test_reproduces_sigma_and_stays_in_data_order(self, single_driver_2v):
+        """`P P' = Sigma` in the data's own coordinates — no hidden permutation."""
+        from impulso.identification import MaxShare
+
+        P = MaxShare(target="y2", band=(6, 32)).identify(
+            single_driver_2v["L"], ["y1", "y2"], posterior=single_driver_2v["idata"].posterior, n_lags=1
+        )
+        reconstructed = P @ np.swapaxes(P, -1, -2)
+        np.testing.assert_allclose(reconstructed, np.broadcast_to(single_driver_2v["Sigma"], P.shape), atol=1e-10)
+
+    def test_sign_convention_raises_the_target(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        P = MaxShare(target="y2", band=(6, 32)).identify(
+            single_driver_2v["L"], ["y1", "y2"], posterior=single_driver_2v["idata"].posterior, n_lags=1
+        )
+        assert (P[..., 1, 0] > 0).all()
+
+    def test_deterministic(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        posterior = single_driver_2v["idata"].posterior
+        first = MaxShare(target="y2", band=(6, 32)).identify(
+            single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1
+        )
+        second = MaxShare(target="y2", band=(6, 32)).identify(
+            single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1
+        )
+        np.testing.assert_array_equal(first, second)
+
+    def test_n_lags_inferred_from_B(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        P = MaxShare(target="y2", band=(6, 32)).identify(
+            single_driver_2v["L"], ["y1", "y2"], posterior=single_driver_2v["idata"].posterior
+        )
+        np.testing.assert_allclose(P[0, 0, :, 0], single_driver_2v["P_true"][:, 0], atol=1e-8)
+
+
+class TestMaxShareOptimality:
+    """The returned column really is the band-variance maximiser."""
+
+    def test_beats_every_rotation_on_a_dense_grid(self):
+        from impulso.identification import MaxShare
+
+        A1, _, posterior, L = _stable_draw()
+        band = (6.0, 32.0)
+        scheme = MaxShare(target="y1", band=band)
+        P = scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=1)
+
+        M = _reference_band_form(A1, L[0, 0], target=0, band=band)
+        q = np.linalg.solve(L[0, 0], P[0, 0, :, 0])
+        q = q / np.linalg.norm(q)
+        achieved = q @ M @ q / np.trace(M)
+
+        theta = np.linspace(0.0, np.pi, 1024, endpoint=False)
+        candidates = np.stack([np.cos(theta), np.sin(theta)], axis=-1)
+        grid = np.einsum("ki,ij,kj->k", candidates, M, candidates) / np.trace(M)
+        assert achieved >= grid.max() - 1e-6
+
+    def test_reported_share_matches_independent_recomputation(self):
+        from impulso.identification import MaxShare
+
+        A1, _, posterior, L = _stable_draw()
+        band = (6.0, 32.0)
+        scheme = MaxShare(target="y1", band=band)
+        P = scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=1)
+
+        M = _reference_band_form(A1, L[0, 0], target=0, band=band)
+        q = np.linalg.solve(L[0, 0], P[0, 0, :, 0])
+        q = q / np.linalg.norm(q)
+        assert scheme._last_diagnostics["max_share_share_median"] == pytest.approx(q @ M @ q / np.trace(M), abs=1e-5)
+
+
+class TestMaxShareParseval:
+    """The band share over the full spectrum is the infinite-horizon FEVD share."""
+
+    def test_full_band_share_equals_time_domain_share(self):
+        from impulso._ma import compute_ma_phi
+        from impulso.identification import MaxShare
+
+        _, _, posterior, L = _stable_draw()
+        scheme = MaxShare(target="y1", band=(2.0, float("inf")))
+        P = scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=1)
+
+        Phi = compute_ma_phi([posterior["B"].values], 400)[0, 0]  # (H+1, n, n)
+        Theta = Phi @ P[0, 0]
+        time_domain = (Theta[:, 0, 0] ** 2).sum() / (Theta[:, 0, :] ** 2).sum()
+        assert scheme._last_diagnostics["max_share_share_median"] == pytest.approx(time_domain, abs=1e-6)
+
+
+class TestMaxShareScreensAndDiagnostics:
+    """Explosive draws, singular draws, memoisation and degeneracy."""
+
+    def test_explosive_draws_are_warned_but_kept(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        posterior = _posterior_with_B(np.broadcast_to(1.05 * np.eye(2), (2, 50, 2, 2)).copy())
+        scheme = MaxShare(target="y2", band=(6, 32))
+        with pytest.warns(UserWarning, match="explosive"):
+            P = scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+
+        assert np.isfinite(P).all()
+        assert scheme._last_diagnostics["max_share_explosive_draws"] == 100.0
+        assert scheme._last_diagnostics["max_share_explosive_fraction"] == 1.0
+        assert scheme._last_diagnostics["max_share_singular_draws"] == 0.0
+
+    def test_singular_draws_are_blanked_and_counted(self, single_driver_2v):
+        """A unit-circle root at a period inside the band blanks that draw.
+
+        The midpoint grid never lands exactly on the root frequency, so
+        the worst in-band condition number is a few hundred rather than
+        infinite; `max_condition` is tightened accordingly.
+        """
+        from impulso.identification import MaxShare
+
+        B = np.broadcast_to(single_driver_2v["A1"], (2, 50, 2, 2)).copy()
+        phi = 2.0 * np.pi / 12.0  # period 12 lies inside band=(6, 32)
+        B[0, :5] = np.array([[np.cos(phi), -np.sin(phi)], [np.sin(phi), np.cos(phi)]])
+
+        scheme = MaxShare(target="y2", band=(6, 32), max_condition=100.0)
+        with pytest.warns(UserWarning, match="numerically undefined"):
+            P = scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=_posterior_with_B(B), n_lags=1)
+
+        assert np.isnan(P[0, :5]).all()
+        assert np.isfinite(P[0, 5:]).all()
+        assert np.isfinite(P[1]).all()
+        assert scheme._last_diagnostics["max_share_singular_draws"] == 5.0
+        assert scheme._last_diagnostics["max_share_singular_fraction"] == pytest.approx(0.05)
+        assert scheme._last_diagnostics["max_share_condition_max"] > 100.0
+
+    def test_on_undefined_raise(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        B = np.broadcast_to(single_driver_2v["A1"], (2, 50, 2, 2)).copy()
+        phi = 2.0 * np.pi / 12.0
+        B[0, :5] = np.array([[np.cos(phi), -np.sin(phi)], [np.sin(phi), np.cos(phi)]])
+
+        scheme = MaxShare(target="y2", band=(6, 32), max_condition=100.0, on_undefined="raise")
+        with pytest.raises(ValueError, match="numerically undefined"):
+            scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=_posterior_with_B(B), n_lags=1)
+
+    def test_second_identify_reuses_the_cache_and_stays_quiet(self, single_driver_2v):
+        """Under SV the pipeline calls identify() once per period."""
+        import warnings
+
+        from impulso.identification import MaxShare
+
+        posterior = _posterior_with_B(np.broadcast_to(1.05 * np.eye(2), (2, 50, 2, 2)).copy())
+        scheme = MaxShare(target="y2", band=(6, 32))
+        with pytest.warns(UserWarning, match="explosive"):
+            first = scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            second = scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+        np.testing.assert_array_equal(first, second)
+
+    def test_weak_identification_is_warned(self, monkeypatch, single_driver_2v):
+        """A repeated top eigenvalue means the maximiser is a plane, not a ray."""
+        from impulso.identification import MaxShare
+
+        def flat_accumulator(self, posterior, n_lags, n_vars, target_index):
+            shape = posterior["B"].values.shape[:2]
+            return (
+                np.broadcast_to(np.eye(n_vars), (*shape, n_vars, n_vars)).copy(),
+                np.zeros(shape, dtype=bool),
+                np.zeros(shape),
+                np.ones(shape),
+            )
+
+        monkeypatch.setattr(MaxShare, "_spectral_accumulator", flat_accumulator)
+        scheme = MaxShare(target="y1", band=(6, 32))
+        identity = np.broadcast_to(np.eye(2), (2, 50, 2, 2)).copy()
+        with pytest.warns(UserWarning, match="weakly identified"):
+            scheme.identify(identity, ["y1", "y2"], posterior=single_driver_2v["idata"].posterior, n_lags=1)
+        assert scheme._last_diagnostics["max_share_eigen_ratio_median"] == pytest.approx(1.0)
+
+    def test_diagnostics_keys_are_floats(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        scheme = MaxShare(target="y2", band=(6, 32))
+        scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=single_driver_2v["idata"].posterior, n_lags=1)
+        assert set(scheme._last_diagnostics) == {
+            "max_share_share_median",
+            "max_share_share_q05",
+            "max_share_share_q95",
+            "max_share_eigen_ratio_median",
+            "max_share_eigen_ratio_q95",
+            "max_share_singular_draws",
+            "max_share_singular_fraction",
+            "max_share_condition_max",
+            "max_share_explosive_draws",
+            "max_share_explosive_fraction",
+            "max_share_spectral_radius_median",
+            "max_share_spectral_radius_max",
+        }
+        assert all(isinstance(v, float) for v in scheme._last_diagnostics.values())
+
+    def test_per_draw_diagnostics(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        scheme = MaxShare(target="y2", band=(6, 32))
+        diagnostics = scheme.max_share_diagnostics(
+            single_driver_2v["L"], ["y1", "y2"], single_driver_2v["idata"].posterior
+        )
+        assert set(diagnostics) == {"share", "eigen_ratio", "spectral_radius", "condition_max"}
+        assert all(v.shape == (2, 50) for v in diagnostics.values())
+        np.testing.assert_allclose(diagnostics["share"], 1.0, atol=1e-10)
+        np.testing.assert_allclose(diagnostics["spectral_radius"], 0.5, atol=1e-12)
+        assert (diagnostics["condition_max"] > 1.0).all()
+
+    def test_per_draw_share_is_nan_for_blanked_draws(self, single_driver_2v):
+        from impulso.identification import MaxShare
+
+        B = np.broadcast_to(single_driver_2v["A1"], (2, 50, 2, 2)).copy()
+        phi = 2.0 * np.pi / 12.0
+        B[0, :5] = np.array([[np.cos(phi), -np.sin(phi)], [np.sin(phi), np.cos(phi)]])
+
+        scheme = MaxShare(target="y2", band=(6, 32), max_condition=100.0)
+        with pytest.warns(UserWarning, match="numerically undefined"):
+            diagnostics = scheme.max_share_diagnostics(single_driver_2v["L"], ["y1", "y2"], _posterior_with_B(B))
+        assert np.isnan(diagnostics["share"][0, :5]).all()
+        assert np.isfinite(diagnostics["share"][0, 5:]).all()
