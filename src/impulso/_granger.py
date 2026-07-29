@@ -244,8 +244,8 @@ def _resolve_augmentation(
         raise ValueError(
             f"the integration order of {consulted.inconclusive} is unsettled: each of these is either "
             f"still non-stationary at max_order={consulted.max_order} (so its recorded order is a floor, "
-            "not a finding) or had ADF and KPSS disagree where the search stopped. d_max would then "
-            "under-augment, and under-augmented Toda-Yamamoto inference is invalid. Inspect the full "
+            "not a finding) or had the two unit-root pretests disagree where the search stopped. d_max "
+            "would then under-augment, and under-augmented Toda-Yamamoto inference is invalid. Inspect the full "
             "table with integration_order(...).summary(), then pass the augmentation explicitly as "
             "d=<int> once you have decided."
         )

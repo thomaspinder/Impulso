@@ -160,6 +160,9 @@ them the way you would record the lag order:
   without its `alpha` and its `regression` is not reproducible.
 - **`d_max`**, the highest integration order in the system. It is the
   augmentation term a Toda-Yamamoto style procedure needs, and it is far
-  easier to carry forward now than to reconstruct later.
+  easier to carry forward now than to reconstruct later. See [Granger
+  causality and Toda-Yamamoto](granger-causality.md) for the procedure that
+  consumes it — including why it refuses to run when `inconclusive` is
+  non-empty.
 - The **cointegration rank** and the lag order it was conditioned on. The
   rank is not invariant to `k_ar_diff`.

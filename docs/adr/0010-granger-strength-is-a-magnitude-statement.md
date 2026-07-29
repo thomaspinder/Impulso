@@ -1,0 +1,19 @@
+# Granger-causal strength is a magnitude statement, not a test
+
+Impulso reports Granger causality as the posterior of `‖b‖`, the Euclidean norm over the tested lags of the cause's coefficients in the effect's equation, evaluated draw by draw — median, highest-density interval (HDI), and the per-lag posteriors alongside it. The only probability statement attached is `p_rope = P(‖b‖ < rope | data)`, against a region of practical equivalence (ROPE) the analyst supplies (Kruschke's formulation). With no `rope` the result reports the distribution and nothing else. There is no default ROPE, and no probability of *no* causality anywhere in the API.
+
+## Considered options
+
+- **A Wald-style quadratic form as the headline** — `b'V⁻¹b` over the posterior, the Bayesian echo of the classical test — rejected: dividing through by the posterior covariance conflates "the effect is small" with "the effect is precisely estimated", which is exactly the distinction a posterior is for. A large quadratic can mean a large effect or a tight posterior around a small one, and the reader cannot tell which. It remains a reasonable *supplementary* statistic and may arrive later; it is not the headline.
+- **A fixed default epsilon for the ROPE** (0.05, say, in standardised units) — rejected: any default is arbitrary, and a default is precisely what makes a threshold invisible. That the analyst had to name a magnitude, and that the magnitude travels with the number in `GrangerCausalityResult.rope`, is the honesty of the statement.
+- **Spike-and-slab / edge-inclusion priors, to report `P(b = 0 | data)` properly** — rejected for this slice, not on principle. It is the only construction that makes the quantity users actually ask for well defined, but it is a different prior and a different estimator, not a post-processing step. Reporting an edge-inclusion probability without fitting one would be a fabrication, and the issue explicitly rules it out.
+- **Savage-Dickey density ratio at `b = 0`** — rejected: it gives a Bayes factor for the point null under a continuous prior, but its value depends on the prior density at zero, which under the Minnesota prior is a shrinkage choice rather than a considered statement about the null. It would export the tightness parameter into what reads as evidence.
+- **Per-lag summaries only, no aggregate** — rejected: a `p`-lag block needs a single number to be comparable across pairs and models, and users would compute one anyway (usually badly, from the per-lag medians rather than draw by draw).
+
+## Consequences
+
+- `p_rope` is `None` unless a `rope` is given. Downstream code must handle that; there is no substitute value.
+- The class docstring carries the full statement of what `p_rope` is not, and the how-to page has a section devoted to it. This is documentation load the feature cannot shed: the wrong reading of the number is the natural one.
+- The norm is scale-dependent, so `standardize=True` is the default and the applied factor is recorded on the result. Under Toda-Yamamoto augmentation the fit is in levels and the sample standard deviations carry the series' trends, so standardised magnitudes compare within a fit rather than across fits — documented on the result and in the how-to.
+- Toda-Yamamoto metadata is kept separable rather than collapsed: `n_lags_tested` and `n_lags_fitted` are distinct fields, and `augmentation_source` records whether the augmentation came from the analyst or from the integration-order diagnostics (including when those returned `d_max = 0`). A procedure that silently tested the lags it happened to fit would be a different, invalid test.
+- `toda_yamamoto` refuses to run on inconclusive diagnostics instead of warning. `d_max` is a floor whenever `IntegrationOrderResult.inconclusive` is non-empty, and an under-augmented test is invalid rather than imprecise, so there is nothing useful to return.

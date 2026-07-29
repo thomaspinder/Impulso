@@ -21,6 +21,7 @@
    StationarityTestResult
    CointegrationTestResult
    IntegrationOrderResult
+   GrangerCausalityResult
    SVForecastResult
    VolatilityResult
 ```
