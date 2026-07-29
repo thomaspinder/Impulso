@@ -169,6 +169,23 @@ class TestIndexing:
         result = hand_built.granger_causality("y2", "y1", standardize=False)
         np.testing.assert_allclose(result.coef_draws, expected)
 
+    def test_transposed_posterior_is_realigned_by_name(self, hand_built):
+        # Hand-built posteriors may order their dims arbitrarily; the
+        # canonical labels are enough to put them back.
+        transposed = hand_built.idata.posterior["B"].transpose("var", "coeff", "chain", "draw")
+        hand_built.idata.posterior["B"] = transposed
+        result = hand_built.granger_causality("y2", "y1", standardize=False)
+        np.testing.assert_allclose(result.coef_draws, np.broadcast_to([0.12, 0.14], (2, 10, 2)))
+
+    def test_unlabelled_posterior_falls_back_to_the_positional_convention(self):
+        # No canonical dim names at all — trust (chain, draw, var, coeff),
+        # the same contract as `dynamic_multiplier`.
+        fitted = _hand_built_fitted(B_2V_2L)
+        values = fitted.idata.posterior["B"].values
+        fitted.idata.posterior["B"] = xr.DataArray(values, dims=["a", "b", "c", "d"])
+        result = fitted.granger_causality("y2", "y1", standardize=False)
+        np.testing.assert_allclose(result.coef_draws, np.broadcast_to([0.12, 0.14], (2, 10, 2)))
+
     def test_three_variable_system_picks_the_right_pair(self):
         fitted = _hand_built_fitted(B_3V_2L)
         result = fitted.granger_causality("y3", "y2", standardize=False)
