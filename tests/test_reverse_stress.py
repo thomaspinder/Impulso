@@ -214,13 +214,13 @@ class TestGuards:
         with pytest.raises(ValueError, match="0 < p <= 1"):
             identified_2v.reverse_stress(variable="y1", threshold=0.0, steps=4, probability=1.5, seed=1)
 
-    def test_exog_future_required_when_the_model_carries_exogenous_data(self, var_data_2v, synthetic_idata_2v):
+    def test_exog_future_required_when_the_model_carries_exogenous_data(self, rng, var_data_2v, synthetic_idata_2v):
         data = VARData(
             endog=var_data_2v.endog,
             endog_names=["y1", "y2"],
             index=var_data_2v.index,
-            exog=np.ones((len(var_data_2v.index), 1)),
-            exog_names=["const"],
+            exog=rng.standard_normal((len(var_data_2v.index), 1)),
+            exog_names=["z"],
         )
         posterior = synthetic_idata_2v.posterior.copy()
         posterior["B_exog"] = xr.DataArray(
