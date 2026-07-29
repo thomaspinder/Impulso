@@ -1,5 +1,7 @@
 """Tests for IdentifiedVAR."""
 
+import warnings
+
 import arviz as az
 import numpy as np
 import pytest
@@ -575,3 +577,118 @@ class TestFEVDIsInvariantToTheErrorLaw:
         from impulso.observation import Gaussian
 
         assert isinstance(identified_cholesky.error_dist, Gaussian)
+
+
+@pytest.fixture
+def identified_long_run(permanent_transitory_2v, var_data_2v):
+    """IdentifiedVAR over the exact-arithmetic long-run fixture."""
+    from impulso.identification import LongRunRestriction
+    from impulso.volatility import Constant
+
+    fitted = FittedVAR(
+        idata=permanent_transitory_2v["idata"],
+        n_lags=1,
+        data=var_data_2v,
+        var_names=["y1", "y2"],
+        volatility=Constant(),
+    )
+    scheme = LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
+    return fitted.set_identification_strategy(scheme)
+
+
+def _identified_with_singular_draws(permanent_transitory_2v, var_data_2v, n_bad: int = 5):
+    """Same pipeline, but the first `n_bad` draws of chain 0 have M = 0."""
+    from impulso.identification import LongRunRestriction
+    from impulso.volatility import Constant
+
+    idata = permanent_transitory_2v["idata"].copy()
+    B = idata.posterior["B"].values.copy()
+    B[0, :n_bad] = np.eye(2)
+    idata.posterior["B"] = (("chain", "draw", "var", "coeff"), B)
+
+    fitted = FittedVAR(
+        idata=idata,
+        n_lags=1,
+        data=var_data_2v,
+        var_names=["y1", "y2"],
+        volatility=Constant(),
+    )
+    scheme = LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
+    return fitted.set_identification_strategy(scheme)
+
+
+class TestLongRunRestrictionPipeline:
+    """LongRunRestriction through the FittedVAR -> IdentifiedVAR pipeline."""
+
+    # --- 20. shock matrix labelling and diagnostics ------------------------
+
+    def test_shock_matrix_labels_and_attrs(self, identified_long_run, permanent_transitory_2v):
+        P = identified_long_run.shock_matrix()
+        assert P.dims == ("chain", "draw", "response", "shock")
+        assert list(P.coords["response"].values) == ["y1", "y2"]
+        assert list(P.coords["shock"].values) == ["permanent", "transitory"]
+        np.testing.assert_allclose(P.values, np.broadcast_to(permanent_transitory_2v["P_true"], P.shape), atol=1e-12)
+        assert P.attrs["long_run_singular_draws"] == 0.0
+        assert P.attrs["long_run_explosive_draws"] == 0.0
+        assert "sign_restriction_acceptance_rate" not in P.attrs
+
+    # --- 21. the headline: cumulative IRF converges to Theta(1) ------------
+
+    def test_cumulative_irf_converges_to_the_imposed_long_run_matrix(
+        self, identified_long_run, permanent_transitory_2v
+    ):
+        """Sum of IRFs over horizons is C(1) P — computed here by brute force."""
+        irf = identified_long_run.impulse_response(horizon=200)
+        cumulative = np.cumsum(irf.idata.posterior_predictive["irf"].values, axis=2)
+        long_run = cumulative[:, :, -1, :, :]
+
+        G = permanent_transitory_2v["G"]
+        np.testing.assert_allclose(long_run, np.broadcast_to(G, long_run.shape), atol=1e-8)
+        # The restriction: the transitory shock has no permanent effect on y1.
+        assert np.abs(long_run[..., 0, 1]).max() < 1e-10
+        np.testing.assert_allclose(long_run[..., 0, 0], 1.0, atol=1e-8)
+
+    # --- 22. FEVD is well-behaved ------------------------------------------
+
+    def test_fevd_shares_sum_to_one_without_warning(self, identified_long_run):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fevd = identified_long_run.fevd(horizon=10)
+        shares = fevd.idata.posterior_predictive["fevd"].values
+        np.testing.assert_allclose(shares.sum(axis=-1), 1.0, atol=1e-10)
+
+    # --- 23. undefined draws stay undefined through FEVD -------------------
+
+    def test_fevd_propagates_nan_draws(self, permanent_transitory_2v, var_data_2v):
+        identified = _identified_with_singular_draws(permanent_transitory_2v, var_data_2v)
+        with pytest.warns(UserWarning, match="long-run multiplier"):
+            fevd = identified.fevd(horizon=5)
+        shares = fevd.idata.posterior_predictive["fevd"].values
+
+        assert np.isnan(shares[0, :5]).all()
+        assert not np.isnan(shares[0, 5:]).any()
+        good = np.concatenate([shares[0, 5:], shares[1]], axis=0)
+        np.testing.assert_allclose(good.sum(axis=-1), 1.0, atol=1e-10)
+
+    # --- 24. historical decomposition stays additive ------------------------
+
+    def test_historical_decomposition_is_additive(self, identified_long_run, var_data_2v):
+        hd = identified_long_run.historical_decomposition()
+        contributions = hd.idata.posterior_predictive["hd"].values
+        baseline = hd.idata.posterior_predictive["baseline"].values
+
+        assert list(hd.idata.posterior_predictive["hd"].coords["shock"].values) == ["permanent", "transitory"]
+        reconstructed = contributions.sum(axis=-1) + baseline
+        expected = var_data_2v.endog[1:]
+        np.testing.assert_allclose(reconstructed, np.broadcast_to(expected, reconstructed.shape), atol=1e-8)
+
+    # --- 25. undefined draws do not crash the decomposition ----------------
+
+    def test_historical_decomposition_survives_nan_draws(self, permanent_transitory_2v, var_data_2v):
+        identified = _identified_with_singular_draws(permanent_transitory_2v, var_data_2v)
+        with pytest.warns(UserWarning, match="long-run multiplier"):
+            hd = identified.historical_decomposition()
+        contributions = hd.idata.posterior_predictive["hd"].values
+
+        assert np.isnan(contributions[0, :5]).all()
+        assert not np.isnan(contributions[0, 5:]).any()

@@ -184,3 +184,16 @@ class TestErrorDistributionPublicAPI:
         import impulso
 
         assert {"Gaussian", "StudentT", "ErrorDistribution"} <= set(impulso.__all__)
+
+
+class TestIdentificationPublicAPI:
+    def test_long_run_restriction_importable_from_impulso(self):
+        from impulso import LongRunRestriction
+        from impulso.identification import LongRunRestriction as Direct
+
+        assert LongRunRestriction is Direct
+
+    def test_long_run_restriction_in_all(self):
+        import impulso
+
+        assert "LongRunRestriction" in impulso.__all__
