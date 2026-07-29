@@ -810,3 +810,66 @@ class TestLongRunRestrictionRecovery:
         )
         P_median = np.median(identified.shock_matrix().values, axis=(0, 1))
         np.testing.assert_allclose(P_median, P_true, atol=0.05)
+
+
+class TestLongRunRestrictionMultipleLags:
+    """The long-run multiplier sums *every* lag block, and the companion grows with p."""
+
+    @staticmethod
+    def _var2_posterior() -> tuple:
+        import xarray as xr
+
+        A1 = np.array([[0.4, 0.1], [0.1, 0.3]])
+        A2 = np.array([[0.2, 0.0], [0.05, 0.1]])
+        M = np.eye(2) - A1 - A2
+        G = np.array([[1.0, 0.0], [0.5, 0.8]])
+        P_true = M @ G
+        L = np.linalg.cholesky(P_true @ P_true.T)
+
+        B = np.broadcast_to(np.concatenate([A1, A2], axis=1), (1, 4, 2, 4)).copy()
+        posterior = xr.Dataset({"B": xr.DataArray(B, dims=["chain", "draw", "var", "coeff"])})
+        return posterior, np.broadcast_to(L, (1, 4, 2, 2)).copy(), P_true, G
+
+    def test_identify_with_two_lags(self):
+        posterior, L, P_true, _ = self._var2_posterior()
+        scheme = LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
+        P = scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=2)
+        np.testing.assert_allclose(P, np.broadcast_to(P_true, P.shape), atol=1e-12)
+
+    def test_n_lags_is_inferred_from_b(self):
+        """B's trailing axis is n_vars * n_lags, so p need not be passed."""
+        posterior, L, P_true, _ = self._var2_posterior()
+        scheme = LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
+        P = scheme.identify(L, ["y1", "y2"], posterior=posterior)
+        np.testing.assert_allclose(P, np.broadcast_to(P_true, P.shape), atol=1e-12)
+
+    def test_cumulative_ma_sum_matches_the_imposed_long_run(self):
+        """Brute-force sum of 400 MA coefficients must reproduce G — pins the lag handling."""
+        from impulso._ma import compute_ma_phi
+
+        posterior, L, _, G = self._var2_posterior()
+        scheme = LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
+        P = scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=2)
+
+        A = [posterior["B"].values[0, 0][:, :2], posterior["B"].values[0, 0][:, 2:]]
+        cumulative = compute_ma_phi(A, 400).sum(axis=0)
+        np.testing.assert_allclose(cumulative @ P[0, 0], G, atol=1e-10)
+
+    def test_companion_spectral_radius_uses_every_lag_block(self):
+        posterior, _, _, _ = self._var2_posterior()
+        scheme = LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
+        rho = scheme.long_run_diagnostics(posterior)["spectral_radius"]
+
+        A1 = np.array([[0.4, 0.1], [0.1, 0.3]])
+        A2 = np.array([[0.2, 0.0], [0.05, 0.1]])
+        companion = np.zeros((4, 4))
+        companion[:2] = np.concatenate([A1, A2], axis=1)
+        companion[2, 0] = companion[3, 1] = 1.0
+        np.testing.assert_allclose(rho, np.abs(np.linalg.eigvals(companion)).max(), rtol=1e-12)
+
+    def test_partial_ordering_is_rejected(self):
+        """`ordering` must cover every variable — a short one is silently wrong otherwise."""
+        posterior, L, _, _ = self._var2_posterior()
+        scheme = LongRunRestriction(ordering=["y1"], shock_names=["permanent"])
+        with pytest.raises(ValueError, match="cover every variable"):
+            scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=2)
