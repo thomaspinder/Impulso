@@ -110,7 +110,6 @@ Shared fixtures available in all test files:
 - **`var_data_2v`**: 2-var VAR(1) DGP, 200 obs (stable coefficients).
 - **`var_data_3v_dgp2`**: 3-var VAR(2) DGP, 200 obs.
 - **`synthetic_idata_2v`**: Synthetic `InferenceData` mimicking a fitted 2-var VAR(1) — no MCMC needed. Use for fast tests of post-fitting logic.
-- **`synthetic_identified_idata_2v`**: Same plus `structural_shock_matrix` (Cholesky of Sigma).
 
 ## Code Conventions
 
