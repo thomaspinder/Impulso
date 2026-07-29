@@ -176,6 +176,33 @@ def _format_period(period: float) -> str:
     return str(int(period)) if float(period).is_integer() else str(float(period))
 
 
+def _format_break_timestamp(timestamp: pd.Timestamp) -> str:
+    """Render a break timestamp for a column name or an error message.
+
+    Midnight — the overwhelmingly common case, and every timestamp on a
+    daily-or-coarser index — renders as a bare ISO date, `2000-02-01`.
+    Anything with an intraday component keeps it, ISO-8601 extended:
+    `2000-02-01T12:00`, with seconds and a fractional part appended only
+    when they are non-zero.
+
+    Two properties matter. The rendering is *injective* — distinct
+    timestamps never collide, so two intraday breaks on the same day
+    stay distinct columns rather than tripping the duplicate-name check
+    — and it round-trips, `pd.Timestamp("2000-02-01T12:00")` recovering
+    the break date from its own column name.
+    """
+    date = timestamp.strftime("%Y-%m-%d")
+    fraction = timestamp.microsecond * 1000 + timestamp.nanosecond
+    if not (timestamp.hour or timestamp.minute or timestamp.second or fraction):
+        return date
+    rendered = f"{date}T{timestamp.hour:02d}:{timestamp.minute:02d}"
+    if timestamp.second or fraction:
+        rendered += f":{timestamp.second:02d}"
+    if fraction:
+        rendered += f".{fraction:09d}".rstrip("0")
+    return rendered
+
+
 # --------------------------------------------------------------------------- #
 # Terms
 # --------------------------------------------------------------------------- #
@@ -351,6 +378,13 @@ class BreakDummy(ImpulsoBaseModel):
     A `"pulse"` break is 1 on `date` alone — a one-off event whose
     influence you want held out of the dynamics.
 
+    The column is named `{kind}_{date}`, with the date rendered as
+    `YYYY-MM-DD` at midnight and `YYYY-MM-DDTHH:MM` (seconds and
+    fractional seconds appended when non-zero) at any other time of day.
+    Intraday sampling therefore keeps two breaks on the same day apart,
+    and a `"pulse"` that missed the index says so with the time
+    included — the dropped time being the usual reason it missed.
+
     Attributes:
         date: Timestamp of the break. Strings, `datetime` objects and
             `numpy.datetime64` are coerced.
@@ -372,7 +406,7 @@ class BreakDummy(ImpulsoBaseModel):
     @property
     def column_names(self) -> list[str]:
         """The single column name contributed by this term."""
-        return [f"{self.kind}_{self.date.strftime('%Y-%m-%d')}"]
+        return [f"{self.kind}_{_format_break_timestamp(self.date)}"]
 
     def build(self, index: pd.DatetimeIndex, origin: pd.Timestamp, alias: str) -> np.ndarray:
         """Evaluate the indicator on `index`. `origin` and `alias` are unused."""
@@ -382,30 +416,31 @@ class BreakDummy(ImpulsoBaseModel):
 
     def _check_in_sample(self, index: pd.DatetimeIndex) -> None:
         """Raise if the break is not identified from the estimation sample."""
+        stamp = _format_break_timestamp(self.date)
         if self.kind == "pulse":
             if self.date not in index:
                 position = int(index.searchsorted(self.date))
                 before = index[position - 1] if position > 0 else None
                 after = index[position] if position < len(index) else None
                 raise ValueError(
-                    f"BreakDummy(kind='pulse', date={self.date.date()}) does not fall on "
+                    f"BreakDummy(kind='pulse', date={stamp}) does not fall on "
                     f"the sampled index, so the column is zero everywhere and its "
-                    f"coefficient is not identified. Nearest sampled dates: "
-                    f"{before.date() if before is not None else None} (before) and "
-                    f"{after.date() if after is not None else None} (after)."
+                    f"coefficient is not identified. Nearest sampled timestamps: "
+                    f"{_format_break_timestamp(before) if before is not None else None} (before) and "
+                    f"{_format_break_timestamp(after) if after is not None else None} (after)."
                 )
             return
         if self.date <= index[0]:
             raise ValueError(
-                f"BreakDummy(kind='level', date={self.date.date()}) is at or before the "
-                f"start of the sample ({index[0].date()}), so the column is 1 everywhere "
-                f"and is collinear with the intercept every estimator fits."
+                f"BreakDummy(kind='level', date={stamp}) is at or before the "
+                f"start of the sample ({_format_break_timestamp(index[0])}), so the column "
+                f"is 1 everywhere and is collinear with the intercept every estimator fits."
             )
         if self.date > index[-1]:
             raise ValueError(
-                f"BreakDummy(kind='level', date={self.date.date()}) is after the end of "
-                f"the sample ({index[-1].date()}), so the shift never occurs in-sample "
-                f"and its coefficient is not identified."
+                f"BreakDummy(kind='level', date={stamp}) is after the end of "
+                f"the sample ({_format_break_timestamp(index[-1])}), so the shift never "
+                f"occurs in-sample and its coefficient is not identified."
             )
 
 
