@@ -187,6 +187,150 @@ class TestDivergences:
         assert report.status == "passed"
 
 
+class TestEnergy:
+    def test_healthy_energy_is_reported_without_a_message(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(), n_lags=1)
+        assert report.ebfmi is not None
+        assert len(report.ebfmi) == 4
+        assert all(value > 0.3 for value in report.ebfmi)
+        assert report.min_ebfmi == min(report.ebfmi)
+        assert "low_ebfmi" not in codes(report)
+
+    def test_slow_energy_exploration_warns(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(energy_rho=0.97), n_lags=1)
+        assert report.min_ebfmi is not None
+        assert report.min_ebfmi < 0.3
+        message = next(m for m in report.messages if m.code == "low_ebfmi")
+        assert message.severity == "warning"
+        assert report.status == "warnings"
+
+    def test_message_names_the_worst_chain(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(energy_rho=0.97), n_lags=1)
+        worst = report.ebfmi.index(min(report.ebfmi))
+        message = next(m for m in report.messages if m.code == "low_ebfmi")
+        assert f"chain {worst}" in message.message
+
+    def test_threshold_is_respected(self, make_var_posterior):
+        idata = make_var_posterior(energy_rho=0.97)
+        lenient = ConvergenceThresholds(ebfmi_warn=0.0)
+        assert "low_ebfmi" not in codes(convergence_report(idata, n_lags=1, thresholds=lenient))
+
+    def test_comparison_is_strict_at_the_threshold(self, make_var_posterior):
+        idata = make_var_posterior(energy_rho=0.97)
+        observed = convergence_report(idata, n_lags=1).min_ebfmi
+        assert observed is not None
+        on_threshold = ConvergenceThresholds(ebfmi_warn=observed)
+        just_above = ConvergenceThresholds(ebfmi_warn=observed + 1e-12)
+        assert "low_ebfmi" not in codes(convergence_report(idata, n_lags=1, thresholds=on_threshold))
+        assert "low_ebfmi" in codes(convergence_report(idata, n_lags=1, thresholds=just_above))
+
+    def test_low_ebfmi_never_fails_the_report(self, make_var_posterior):
+        # An efficiency pathology, not evidence the draws are wrong.
+        report = convergence_report(make_var_posterior(energy_rho=0.99), n_lags=1)
+        assert report.status == "warnings"
+        assert not any(m.severity == "failure" for m in report.messages)
+
+    def test_nutpie_shaped_energy_matches_pymc_shaped(self, make_var_posterior):
+        nutpie = convergence_report(make_var_posterior(nutpie_shaped=True), n_lags=1)
+        pymc = convergence_report(make_var_posterior(), n_lags=1)
+        assert nutpie.ebfmi == pytest.approx(pymc.ebfmi)
+
+    def test_warmup_energy_is_ignored(self, make_var_posterior):
+        # The warmup group carries a constant energy trace, whose BFMI is
+        # undefined; reading it would erase the post-warmup diagnosis.
+        idata = make_var_posterior(nutpie_shaped=True)
+        assert "warmup_sample_stats" in idata.groups()
+        report = convergence_report(idata, n_lags=1)
+        assert report.min_ebfmi is not None
+        assert report.min_ebfmi > 0.3
+
+
+class TestMaxTreedepth:
+    def test_no_saturation_is_reported_as_zero(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(), n_lags=1)
+        assert report.treedepth_saturations == 0
+        assert report.treedepth_saturation_rate == 0.0
+        assert "treedepth_saturation" not in codes(report)
+
+    def test_counts_are_exact_from_pymc_shaped_stats(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(treedepth_hits=40), n_lags=1)
+        assert report.treedepth_saturations == 40
+        assert report.treedepth_saturation_rate == pytest.approx(40 / 800)
+
+    def test_counts_are_exact_from_nutpie_shaped_stats(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(treedepth_hits=40, nutpie_shaped=True), n_lags=1)
+        assert report.treedepth_saturations == 40
+        assert report.treedepth_saturation_rate == pytest.approx(40 / 800)
+
+    def test_backends_agree(self, make_var_posterior):
+        nutpie = convergence_report(make_var_posterior(treedepth_hits=13, nutpie_shaped=True), n_lags=1)
+        pymc = convergence_report(make_var_posterior(treedepth_hits=13), n_lags=1)
+        assert nutpie.treedepth_saturations == pymc.treedepth_saturations == 13
+        assert codes(nutpie) == codes(pymc)
+
+    def test_warmup_saturations_are_ignored(self, make_var_posterior):
+        idata = make_var_posterior(treedepth_hits=0, nutpie_shaped=True)
+        assert "warmup_sample_stats" in idata.groups()
+        assert convergence_report(idata, n_lags=1).treedepth_saturations == 0
+
+    def test_rate_below_the_threshold_is_silent(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(treedepth_hits=7), n_lags=1)
+        assert report.treedepth_saturation_rate is not None
+        assert report.treedepth_saturation_rate < 0.01
+        assert "treedepth_saturation" not in codes(report)
+
+    def test_rate_at_the_threshold_warns(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(treedepth_hits=8), n_lags=1)
+        assert report.treedepth_saturation_rate == pytest.approx(0.01)
+        message = next(m for m in report.messages if m.code == "treedepth_saturation")
+        assert message.severity == "warning"
+        assert report.status == "warnings"
+
+    def test_saturation_never_fails_the_report(self, make_var_posterior):
+        # Deep trees cost wall-clock time and autocorrelation, not correctness.
+        report = convergence_report(make_var_posterior(treedepth_hits=800), n_lags=1)
+        assert report.status == "warnings"
+        assert not any(m.severity == "failure" for m in report.messages)
+
+    def test_message_quotes_the_low_rank_mass_matrix_remedy(self, make_var_posterior):
+        report = convergence_report(make_var_posterior(treedepth_hits=80), n_lags=1)
+        message = next(m for m in report.messages if m.code == "treedepth_saturation")
+        assert "max_treedepth" in message.message
+        assert "low_rank_modified_mass_matrix" in message.message
+
+    def test_custom_threshold_flips_the_message(self, make_var_posterior):
+        idata = make_var_posterior(treedepth_hits=4)
+        strict = ConvergenceThresholds(treedepth_warn_rate=0.001)
+        assert "treedepth_saturation" not in codes(convergence_report(idata, n_lags=1))
+        assert "treedepth_saturation" in codes(convergence_report(idata, n_lags=1, thresholds=strict))
+
+
+class TestMissingEfficiencyStats:
+    def test_stats_present_but_energy_and_treedepth_absent(self, make_var_posterior):
+        idata = make_var_posterior()
+        stripped = InferenceData(
+            posterior=idata.posterior,
+            sample_stats=idata.sample_stats.drop_vars(["energy", "reached_max_treedepth"]),
+        )
+        report = convergence_report(stripped, n_lags=1)
+        assert report.sampler_stats_available is True
+        assert report.divergences == 0
+        assert report.ebfmi is None
+        assert report.min_ebfmi is None
+        assert report.treedepth_saturations is None
+        assert report.treedepth_saturation_rate is None
+        assert report.status == "passed"
+
+    def test_constant_energy_is_reported_as_absent_not_as_a_pathology(self, make_var_posterior):
+        idata = make_var_posterior()
+        stats = idata.sample_stats.copy()
+        stats["energy"] = (("chain", "draw"), np.zeros(stats["energy"].shape))
+        report = convergence_report(InferenceData(posterior=idata.posterior, sample_stats=stats), n_lags=1)
+        assert report.ebfmi is None
+        assert "low_ebfmi" not in codes(report)
+        assert report.status == "passed"
+
+
 class TestMissingSamplerStats:
     @pytest.fixture
     def report(self, make_var_posterior):
@@ -197,6 +341,12 @@ class TestMissingSamplerStats:
         assert report.divergences is None
         assert report.n_transitions is None
         assert report.divergence_rate is None
+
+    def test_efficiency_metrics_are_none_without_stats(self, report):
+        assert report.ebfmi is None
+        assert report.min_ebfmi is None
+        assert report.treedepth_saturations is None
+        assert report.treedepth_saturation_rate is None
 
     def test_message_is_informational_only(self, report):
         message = next(m for m in report.messages if m.code == "sampler_stats_missing")
@@ -344,6 +494,8 @@ class TestThresholds:
         assert (thresholds.rhat_warn, thresholds.rhat_fail) == (1.01, 1.05)
         assert (thresholds.ess_warn, thresholds.ess_fail) == (400.0, 100.0)
         assert thresholds.divergence_fail_rate == 0.01
+        assert thresholds.ebfmi_warn == 0.3
+        assert thresholds.treedepth_warn_rate == 0.01
         assert thresholds.explosive_warn == 0.05
 
 
@@ -374,6 +526,13 @@ class TestRendering:
     def test_summary_reports_unavailable_stats(self, make_var_posterior):
         text = convergence_report(make_var_posterior(divergences=None), n_lags=1).summary()
         assert "divergences: unavailable" in text
+        assert "E-BFMI" not in text
+        assert "max-treedepth" not in text
+
+    def test_summary_carries_the_efficiency_headlines(self, make_var_posterior):
+        text = convergence_report(make_var_posterior(treedepth_hits=8), n_lags=1).summary()
+        assert "min E-BFMI:" in text
+        assert "max-treedepth hits: 8 (1.00%)" in text
 
     def test_repr_is_one_line(self, make_var_posterior):
         text = repr(convergence_report(make_var_posterior(), n_lags=1))
@@ -418,6 +577,29 @@ class TestStabilityArray:
         stability = convergence_report(make_var_posterior(), n_lags=1, stability_draws=10_000).stability
         assert stability.thinned_from is None
         assert stability.radius.shape == (4, 200)
+
+    def test_eigenvalues_are_read_only(self, make_var_posterior):
+        eigenvalues = convergence_report(make_var_posterior(), n_lags=1).stability.eigenvalues
+        with pytest.raises(ValueError, match="read-only"):
+            eigenvalues[0, 0] = 99.0
+
+    def test_eigenvalues_are_pooled_capped_and_strided(self, make_var_posterior):
+        # 4 x 200 = 800 pooled draws, capped at 200: a stride of 4.
+        stability = convergence_report(make_var_posterior(), n_lags=1).stability
+        assert stability.eigenvalues.shape == (200, 2)
+        assert np.iscomplexobj(stability.eigenvalues)
+        np.testing.assert_allclose(
+            np.max(np.abs(stability.eigenvalues), axis=-1),
+            stability.radius.reshape(-1)[::4],
+        )
+
+    def test_small_posteriors_keep_every_eigenvalue(self, make_var_posterior):
+        stability = convergence_report(make_var_posterior(n_chains=1, n_draws=50), n_lags=1).stability
+        assert stability.eigenvalues.shape == (50, 2)
+
+    def test_eigenvalue_trailing_axis_is_the_companion_dimension(self, make_var_posterior):
+        stability = convergence_report(make_var_posterior(n_vars=3, n_lags=2), n_lags=2).stability
+        assert stability.eigenvalues.shape[-1] == 6
 
     def test_rejects_non_positive_thinning(self, make_var_posterior):
         with pytest.raises(ValueError, match="stability_draws must be positive"):

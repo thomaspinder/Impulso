@@ -40,10 +40,11 @@ import pandas as pd
 from pydantic import Field, model_validator
 
 from impulso._base import ImpulsoBaseModel, ImpulsoModel
-from impulso._stability import spectral_radius
+from impulso._stability import companion_eigenvalues
 
 if TYPE_CHECKING:
     import xarray as xr
+    from matplotlib.figure import Figure
 
     from impulso.protocols import VolatilityProcess
 
@@ -82,10 +83,26 @@ _BLOCK_MAP: dict[str, str] = {
 # `v{i}_` prefix (see `impulso.sv.spec`), so the whole family maps by pattern.
 _SV_PREFIX = re.compile(r"^v\d+_")
 
-# The only sampler statistic PyMC and nutpie agree on the name of. Every other
-# stat (tree depth, acceptance rate, energy) is spelled differently by the two
-# backends, so the report reads this one and nothing else.
+# PyMC and nutpie agree on the name of exactly two sampler statistics, and the
+# report reads only those two directly.
 _DIVERGING_KEY = "diverging"
+_ENERGY_KEY = "energy"
+
+# Everything else is spelled differently by the two backends. Max-treedepth
+# saturation is a boolean per transition called `reached_max_treedepth` by PyMC
+# and `maxdepth_reached` by nutpie, so it needs an explicit name map; the first
+# name present wins, and a posterior carrying neither simply has no treedepth
+# statistics.
+_MAX_TREEDEPTH_KEYS: tuple[str, ...] = ("reached_max_treedepth", "maxdepth_reached")
+
+# The eigenvalues behind the spectral radii are kept only so that
+# `StabilitySummary.plot` has something to scatter, and the full set grows as
+# `draws * n_vars * n_lags` complex numbers — roughly 15 MB for 4000 draws of a
+# 240x240 companion matrix, which has no business living on a frozen result.
+# The summary therefore retains a chain-pooled, deterministically strided
+# subset of at most this many draws: more points than a scatter plot can
+# distinguish, and a fixed ceiling regardless of posterior size.
+_PLOT_EIGENVALUE_DRAWS = 200
 
 
 def assign_blocks(
@@ -143,11 +160,12 @@ def assign_blocks(
 class ConvergenceThresholds(ImpulsoModel):
     """Cut-offs separating a passing report from warnings and failures.
 
-    R-hat and ESS comparisons are strict, so a metric sitting exactly on a
-    threshold passes: `max_rhat == 1.01` does not warn. The rate thresholds
-    trigger at the boundary: a divergence rate of exactly
-    `divergence_fail_rate` fails, and an explosive fraction of exactly
-    `explosive_warn` escalates to a warning.
+    R-hat, ESS and E-BFMI comparisons are strict, so a metric sitting exactly
+    on a threshold passes: `max_rhat == 1.01` does not warn, and an E-BFMI of
+    exactly 0.3 does not warn. The rate thresholds trigger at the boundary: a
+    divergence rate of exactly `divergence_fail_rate` fails, a treedepth
+    saturation rate of exactly `treedepth_warn_rate` warns, and an explosive
+    fraction of exactly `explosive_warn` escalates to a warning.
 
     Attributes:
         rhat_warn: R-hat above this warns. Default 1.01, the rank-normalised
@@ -159,6 +177,17 @@ class ConvergenceThresholds(ImpulsoModel):
         ess_fail: Effective sample size below this fails. Default 100.
         divergence_fail_rate: Divergence rate at or above which the report
             fails. Default 0.01; any divergence at all warns.
+        ebfmi_warn: Energy Bayesian fraction of missing information (E-BFMI)
+            below this warns. Default 0.3, the cut-off Betancourt (2016,
+            arXiv:1604.00695) proposes and ArviZ documents on `arviz.bfmi`.
+            E-BFMI never fails a report.
+        treedepth_warn_rate: Fraction of post-warmup transitions that
+            saturated the sampler's maximum tree depth, at or above which the
+            report warns. Default 0.01. Stan and PyMC surface any saturation
+            at all, but a handful of hits in a long run costs only wall-clock
+            time and says nothing about the draws, so Impulso sets the bar at
+            one transition in a hundred and stays silent below it. Treedepth
+            saturation never fails a report.
         explosive_warn: Fraction of explosive draws at or above which the
             explosive-draw message is raised from informational to a
             warning. Default 0.05. Explosive draws never fail a report.
@@ -169,6 +198,8 @@ class ConvergenceThresholds(ImpulsoModel):
     ess_warn: float = 400.0
     ess_fail: float = 100.0
     divergence_fail_rate: float = 0.01
+    ebfmi_warn: float = 0.3
+    treedepth_warn_rate: float = 0.01
     explosive_warn: float = 0.05
 
 
@@ -236,6 +267,11 @@ class StabilitySummary(ImpulsoBaseModel):
     Attributes:
         radius: Read-only spectral radii with shape `(chain, draw)` — after
             thinning, if `stability_draws` was used.
+        eigenvalues: Read-only complex companion-matrix roots with shape
+            `(draws, n_vars * n_lags)`, pooled over chains and strided down
+            to at most 200 draws. Every statistic on this object is derived
+            from `radius`; these are retained for `plot` alone, which is why
+            they are capped rather than kept in full.
         p_explosive: Fraction of draws with radius >= 1.
         max_radius: Largest radius over all draws.
         n_vars: Number of endogenous variables.
@@ -247,6 +283,7 @@ class StabilitySummary(ImpulsoBaseModel):
     """
 
     radius: np.ndarray = Field(repr=False)
+    eigenvalues: np.ndarray = Field(repr=False)
     p_explosive: float
     max_radius: float
     n_vars: int
@@ -256,9 +293,10 @@ class StabilitySummary(ImpulsoBaseModel):
 
     @model_validator(mode="after")
     def _make_readonly(self) -> Self:
-        radius = np.asarray(self.radius).copy()
-        radius.flags.writeable = False
-        object.__setattr__(self, "radius", radius)
+        for field in ("radius", "eigenvalues"):
+            array = np.asarray(getattr(self, field)).copy()
+            array.flags.writeable = False
+            object.__setattr__(self, field, array)
         return self
 
     def median(self) -> float:
@@ -299,6 +337,20 @@ class StabilitySummary(ImpulsoBaseModel):
             index=pd.Index(["stability"], name="quantity"),
         )
 
+    def plot(self) -> Figure:
+        """Spectral-radius histogram beside the eigenvalue scatter.
+
+        This is the single plotting entry point for stability; a report
+        reaches it as `report.stability.plot()`, matching every other result
+        object in the library.
+
+        Returns:
+            Matplotlib Figure with two axes.
+        """
+        from impulso.plotting import plot_stability
+
+        return plot_stability(self)
+
 
 class ConvergenceReport(ImpulsoBaseModel):
     """VAR-aware convergence and stability diagnostics for one posterior.
@@ -314,6 +366,14 @@ class ConvergenceReport(ImpulsoBaseModel):
         n_transitions: Total post-warmup transitions, or None.
         divergence_rate: `divergences / n_transitions`, or None.
         sampler_stats_available: Whether divergence statistics were found.
+        ebfmi: Per-chain energy Bayesian fraction of missing information, in
+            chain order, or None when the posterior carries no `energy`
+            statistic (every conjugate and hand-built posterior).
+        treedepth_saturations: Number of post-warmup transitions that hit the
+            sampler's maximum tree depth, or None when neither backend's
+            treedepth statistic is present.
+        treedepth_saturation_rate: `treedepth_saturations / n_transitions`,
+            or None.
         n_chains: Number of chains in the posterior.
         n_draws: Number of post-warmup draws per chain.
         thresholds: Thresholds used to derive `status`.
@@ -328,11 +388,19 @@ class ConvergenceReport(ImpulsoBaseModel):
     n_transitions: int | None
     divergence_rate: float | None
     sampler_stats_available: bool
+    ebfmi: list[float] | None
+    treedepth_saturations: int | None
+    treedepth_saturation_rate: float | None
     n_chains: int
     n_draws: int
     thresholds: ConvergenceThresholds
     messages: list[DiagnosticMessage]
     status: Literal["passed", "warnings", "failed"]
+
+    @property
+    def min_ebfmi(self) -> float | None:
+        """Worst per-chain E-BFMI, or None when energy was not recorded."""
+        return None if not self.ebfmi else min(self.ebfmi)
 
     @property
     def max_rhat(self) -> float | None:
@@ -369,10 +437,12 @@ class ConvergenceReport(ImpulsoBaseModel):
     def summary(self) -> str:
         """Multi-line human-readable rendering of the whole report."""
         divergences = "unavailable" if self.divergences is None else str(self.divergences)
-        header = [
-            f"Convergence report: {self.status.upper()}",
-            f"  {self.n_chains} chains x {self.n_draws} draws | divergences: {divergences}",
-        ]
+        sampler = [f"{self.n_chains} chains x {self.n_draws} draws", f"divergences: {divergences}"]
+        if self.min_ebfmi is not None:
+            sampler.append(f"min E-BFMI: {self.min_ebfmi:.2f}")
+        if self.treedepth_saturations is not None and self.treedepth_saturation_rate is not None:
+            sampler.append(f"max-treedepth hits: {self.treedepth_saturations} ({self.treedepth_saturation_rate:.2%})")
+        header = [f"Convergence report: {self.status.upper()}", "  " + " | ".join(sampler)]
         table = self.to_dataframe()[["max_rhat", "min_ess_bulk", "min_ess_tail", "max_rhat_coord"]]
         lower, upper = self.stability.hdi()
         stability = (
@@ -526,6 +596,49 @@ def _divergences(idata: az.InferenceData) -> tuple[int | None, int | None, float
     return count, total, (count / total if total else 0.0), True
 
 
+def _ebfmi(idata: az.InferenceData) -> list[float] | None:
+    """Per-chain E-BFMI, or None when the posterior carries no energy trace.
+
+    The array is handed to `arviz.bfmi` rather than the whole
+    `InferenceData`, so only the post-warmup group is ever read — nutpie's
+    `warmup_sample_stats` also carries an `energy` variable, and adaptation
+    energy says nothing about the retained draws.
+    """
+    if "sample_stats" not in idata.groups() or _ENERGY_KEY not in idata.sample_stats:
+        return None
+    energy = idata.sample_stats[_ENERGY_KEY]
+    if {"chain", "draw"} <= set(energy.dims):
+        energy = energy.transpose("chain", "draw")
+    values = np.asarray(energy.values, dtype=float)
+    # A constant energy trace has zero variance and divides by zero inside
+    # ArviZ. That is not a diagnosis, so it is reported as absent, not as a
+    # pathology, and numpy's notice is silenced so a report never warns.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        bfmi = np.atleast_1d(np.asarray(az.bfmi(values), dtype=float))
+    if not bool(np.all(np.isfinite(bfmi))):
+        return None
+    return [float(value) for value in bfmi]
+
+
+def _treedepth(idata: az.InferenceData) -> tuple[int | None, int | None, float | None]:
+    """Max-treedepth saturation count, transition total and rate.
+
+    Both backends record a boolean per transition; only the name differs
+    (see `_MAX_TREEDEPTH_KEYS`). As with divergences, the warmup group is
+    never read: saturation during adaptation is expected and harmless.
+    """
+    if "sample_stats" not in idata.groups():
+        return None, None, None
+    key = next((name for name in _MAX_TREEDEPTH_KEYS if name in idata.sample_stats), None)
+    if key is None:
+        return None, None, None
+    saturated = np.asarray(idata.sample_stats[key].values).astype(bool)
+    count = int(saturated.sum())
+    total = int(saturated.size)
+    return count, total, (count / total if total else 0.0)
+
+
 # --------------------------------------------------------------------------
 # Messages and status
 # --------------------------------------------------------------------------
@@ -666,6 +779,64 @@ def _divergence_messages(
     ]
 
 
+def _ebfmi_messages(
+    ebfmi: list[float] | None,
+    thresholds: ConvergenceThresholds,
+) -> list[DiagnosticMessage]:
+    """The low-energy-fraction finding. A warning, never a failure."""
+    if not ebfmi:
+        return []
+    worst = min(ebfmi)
+    if worst >= thresholds.ebfmi_warn:
+        return []
+    chain = ebfmi.index(worst)
+    return [
+        DiagnosticMessage(
+            code="low_ebfmi",
+            severity="warning",
+            message=(
+                f"E-BFMI falls to {worst:.2f} on chain {chain}, below the warning threshold "
+                f"of {thresholds.ebfmi_warn}. Momentum resampling is not matching the "
+                "marginal energy distribution, so the sampler explores the tails of the "
+                "posterior slowly and effective sample size there is worse than the bulk "
+                "figures suggest. In a VAR this usually means a funnel between the "
+                "shrinkage hyperparameters and the coefficients they govern: reparameterise "
+                "the hierarchy non-centred, tighten the hyperprior, or lengthen `tune`. "
+                "Longer chains alone rarely fix it."
+            ),
+        )
+    ]
+
+
+def _treedepth_messages(
+    saturations: int | None,
+    rate: float | None,
+    n_transitions: int | None,
+    thresholds: ConvergenceThresholds,
+) -> list[DiagnosticMessage]:
+    """The max-treedepth finding. A warning, never a failure."""
+    if not saturations or rate is None or rate < thresholds.treedepth_warn_rate:
+        return []
+    total = n_transitions if n_transitions is not None else 0
+    return [
+        DiagnosticMessage(
+            code="treedepth_saturation",
+            severity="warning",
+            message=(
+                f"{saturations} of {total} transitions saturated the maximum tree depth "
+                f"({rate:.2%}, at or above the warning threshold of "
+                f"{thresholds.treedepth_warn_rate:.2%}). NUTS was cut off before its "
+                "trajectory turned back on itself, so those transitions moved less far than "
+                "they should have and the draws are more autocorrelated than the tuning "
+                "suggests. This costs efficiency, not correctness. Raise `max_treedepth`, or "
+                "better, fix the ill-conditioning that makes long trajectories necessary: "
+                "nutpie's low-rank mass matrix — "
+                f"{_NUTPIE_REMEDY} — usually removes the need for deep trees in a VAR."
+            ),
+        )
+    ]
+
+
 def _chain_messages(n_chains: int) -> list[DiagnosticMessage]:
     """The single-chain note: R-hat is a between-chain statistic."""
     if n_chains >= 2:
@@ -754,9 +925,15 @@ def _stability_summary(
             B = B[:, ::stride]
             thinned_from = n_draws
 
-    radius = spectral_radius(B, n_lags)
+    # One eigendecomposition serves both outputs: the radii are the row-wise
+    # maximum modulus, and `plot` gets a strided subset of the same roots.
+    eigenvalues = companion_eigenvalues(B, n_lags)
+    radius = np.max(np.abs(eigenvalues), axis=-1)
+    pooled = eigenvalues.reshape(-1, eigenvalues.shape[-1])
+    stride = max(1, -(-pooled.shape[0] // _PLOT_EIGENVALUE_DRAWS))
     return StabilitySummary(
         radius=radius,
+        eigenvalues=pooled[::stride],
         p_explosive=float(np.mean(radius >= 1.0)),
         max_radius=float(np.max(radius)),
         n_vars=B.shape[-2],
@@ -779,15 +956,30 @@ def convergence_report(
     """Build a VAR-aware convergence and stability report for a posterior.
 
     Reports R-hat and both effective sample sizes per parameter block, each
-    with the coordinate that attains the worst value; the global divergence
-    count; and the posterior distribution of the companion-matrix spectral
-    radius. See the module docstring for why a VAR needs its own report.
+    with the coordinate that attains the worst value; the global divergence,
+    energy and max-treedepth statistics; and the posterior distribution of
+    the companion-matrix spectral radius. See the module docstring for why a
+    VAR needs its own report.
 
     `"failed"` is reserved for sampler pathology — R-hat above
     `rhat_fail`, effective sample size below `ess_fail`, or a divergence
     rate at or above `divergence_fail_rate`. Explosive draws warn but never
     fail: mass near a unit root is a legitimate posterior statement about
     level data, not evidence that the sampler misbehaved.
+
+    Low E-BFMI and max-treedepth saturation also warn rather than fail, for
+    a different reason: both are statements about *efficiency*, not about
+    wrongness. A saturated tree depth means NUTS stopped a trajectory early,
+    so the draws are more autocorrelated than they need to be; a low E-BFMI
+    means momentum resampling is exploring the energy distribution slowly,
+    so the tails are undersampled. Neither says the retained draws come from
+    the wrong distribution — unlike a divergence, which says the sampler
+    could not follow the geometry at all, or an unmixed R-hat, which says
+    the chains are not describing one distribution. Both are also remediable
+    by changing the sampler or the parameterisation without changing the
+    model, so failing a report on them would block work that is merely
+    slower than it should be. The metrics are on the report either way, so a
+    caller who wants them to be fatal can read the fields and decide.
 
     Cost is dominated by the eigendecomposition of one `(n * p, n * p)`
     companion matrix per draw. Pass `stability_draws` to compute the radii
@@ -840,6 +1032,8 @@ def convergence_report(
     ]
     stability = _stability_summary(posterior, n_lags, hdi_prob, stability_draws)
     divergences, n_transitions, rate, stats_available = _divergences(idata)
+    ebfmi = _ebfmi(idata)
+    treedepth_saturations, treedepth_total, treedepth_rate = _treedepth(idata)
 
     max_rhat = _extreme([block.max_rhat for block in blocks], "max")
     rhat_coord = next((block.max_rhat_coord for block in blocks if block.max_rhat == max_rhat), None)
@@ -854,6 +1048,8 @@ def convergence_report(
         *_ess_messages(min_bulk, bulk_coord, "bulk", thresholds),
         *_ess_messages(min_tail, tail_coord, "tail", thresholds),
         *_divergence_messages(divergences, n_transitions, rate, stats_available, thresholds),
+        *_ebfmi_messages(ebfmi, thresholds),
+        *_treedepth_messages(treedepth_saturations, treedepth_rate, treedepth_total, thresholds),
         *_chain_messages(n_chains),
         *_stability_messages(stability, thresholds),
     ]
@@ -865,6 +1061,9 @@ def convergence_report(
         n_transitions=n_transitions,
         divergence_rate=rate,
         sampler_stats_available=stats_available,
+        ebfmi=ebfmi,
+        treedepth_saturations=treedepth_saturations,
+        treedepth_saturation_rate=treedepth_rate,
         n_chains=n_chains,
         n_draws=int(posterior.sizes["draw"]),
         thresholds=thresholds,

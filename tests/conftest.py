@@ -195,11 +195,13 @@ def permanent_transitory_2v():
 
 # --------------- Diagnostics posterior factory ---------------
 
-# PyMC and nutpie spell almost every sampler statistic differently; only
-# `diverging` is common. The factory can emit either shape so tests can prove
-# the report reads that one key and ignores the rest.
-_PYMC_EXTRA_STATS = ("reached_max_treedepth", "tree_depth", "acceptance_rate", "lp", "energy", "step_size")
-_NUTPIE_EXTRA_STATS = ("maxdepth_reached", "depth", "mean_tree_accept", "logp", "energy", "step_size", "tuning")
+# PyMC and nutpie spell almost every sampler statistic differently; `diverging`
+# and `energy` are the only common ones, and max-treedepth saturation needs a
+# name map. The factory can emit either shape so tests can prove the report
+# reads the right key per backend and ignores the rest.
+_MAX_TREEDEPTH_NAME = {False: "reached_max_treedepth", True: "maxdepth_reached"}
+_PYMC_NOISE_STATS = ("tree_depth", "acceptance_rate", "lp", "step_size")
+_NUTPIE_NOISE_STATS = ("depth", "mean_tree_accept", "logp", "step_size", "tuning")
 
 
 def _coefficient_draws(rng, shape, explosive_frac, bad_coord):
@@ -233,18 +235,48 @@ def _cholesky_draws(rng, sigma_sd, n_chains, n_draws, n_vars):
     return L
 
 
-def _sampler_stats(rng, n_chains, n_draws, divergences, nutpie_shaped):
-    """A `sample_stats` group in either backend's shape, plus nutpie's warmup group."""
+def _flag_draws(n_chains, n_draws, count):
+    """Boolean per-transition flags, `count` of them set at fixed positions."""
     flat = np.zeros(n_chains * n_draws, dtype=bool)
-    flat[:divergences] = True
-    stats = {"diverging": (("chain", "draw"), flat.reshape(n_chains, n_draws))}
-    for name in _NUTPIE_EXTRA_STATS if nutpie_shaped else _PYMC_EXTRA_STATS:
+    flat[:count] = True
+    return flat.reshape(n_chains, n_draws)
+
+
+def _energy_draws(rng, n_chains, n_draws, energy_rho):
+    """AR(1) energy trace whose E-BFMI is approximately `2 * (1 - energy_rho)`.
+
+    `energy_rho=0.3` gives a healthy trace (E-BFMI near 1.4); pushing it
+    toward 1 makes successive energies nearly identical, which is exactly the
+    slow energy exploration a low E-BFMI reports.
+    """
+    energy = np.empty((n_chains, n_draws))
+    energy[:, 0] = rng.standard_normal(n_chains)
+    innovation = np.sqrt(1.0 - energy_rho**2)
+    for t in range(1, n_draws):
+        energy[:, t] = energy_rho * energy[:, t - 1] + innovation * rng.standard_normal(n_chains)
+    return energy
+
+
+def _sampler_stats(rng, n_chains, n_draws, divergences, treedepth_hits, energy_rho, nutpie_shaped):
+    """A `sample_stats` group in either backend's shape, plus nutpie's warmup group."""
+    stats = {
+        "diverging": (("chain", "draw"), _flag_draws(n_chains, n_draws, divergences)),
+        "energy": (("chain", "draw"), _energy_draws(rng, n_chains, n_draws, energy_rho)),
+        _MAX_TREEDEPTH_NAME[nutpie_shaped]: (
+            ("chain", "draw"),
+            _flag_draws(n_chains, n_draws, treedepth_hits),
+        ),
+    }
+    for name in _NUTPIE_NOISE_STATS if nutpie_shaped else _PYMC_NOISE_STATS:
         stats[name] = (("chain", "draw"), rng.standard_normal((n_chains, n_draws)))
     groups = {"sample_stats": xr.Dataset(stats)}
     if nutpie_shaped:
-        # Warmup divergences belong to adaptation and must not be counted.
+        # Warmup divergences, saturations and energy belong to adaptation and
+        # must not be counted.
         groups["warmup_sample_stats"] = xr.Dataset({
-            "diverging": (("chain", "draw"), np.ones((n_chains, n_draws), dtype=bool))
+            "diverging": (("chain", "draw"), np.ones((n_chains, n_draws), dtype=bool)),
+            "maxdepth_reached": (("chain", "draw"), np.ones((n_chains, n_draws), dtype=bool)),
+            "energy": (("chain", "draw"), np.zeros((n_chains, n_draws))),
         })
     return groups
 
@@ -266,11 +298,16 @@ def make_var_posterior():
       indicator is neither autocorrelated nor chain-dependent.
     * `divergences` — divergent-transition count, placed at fixed positions.
       `None` omits the `sample_stats` group entirely.
+    * `treedepth_hits` — number of transitions flagged as having saturated
+      the maximum tree depth, under whichever backend name is in force.
+    * `energy_rho` — AR(1) coefficient of the energy trace. The default 0.3
+      is healthy; values near 1 drive E-BFMI below its warning threshold.
     * `extra_vars` — mapping of posterior variable name to trailing shape.
     * `coords` — attach `var`/`coeff` coords (as `VAR.fit` does) or leave
       the dims bare (as `ConjugateVAR` does).
     * `nutpie_shaped` — emit nutpie's sampler-stat names plus a
-      `warmup_sample_stats` group full of divergences that must be ignored.
+      `warmup_sample_stats` group full of divergences and saturations that
+      must be ignored.
     """
 
     def _make(
@@ -282,6 +319,8 @@ def make_var_posterior():
         bad_coord=None,
         explosive_frac=0.0,
         divergences=0,
+        treedepth_hits=0,
+        energy_rho=0.3,
         extra_vars=None,
         coords=True,
         nutpie_shaped=False,
@@ -312,7 +351,7 @@ def make_var_posterior():
         groups = {"posterior": xr.Dataset(data_vars, coords=posterior_coords)}
 
         if divergences is not None:
-            groups |= _sampler_stats(rng, n_chains, n_draws, divergences, nutpie_shaped)
+            groups |= _sampler_stats(rng, n_chains, n_draws, divergences, treedepth_hits, energy_rho, nutpie_shaped)
 
         return az.InferenceData(**groups)
 
