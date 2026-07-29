@@ -52,6 +52,7 @@ pip install impulso
 ## Learn more
 
 - [Quickstart tutorial](tutorials/quickstart.py) — fit your first Bayesian VAR
+- [Minnesota prior tutorial](tutorials/minnesota-prior.py) — understand and tune the default shrinkage
 - [Forecasting tutorial](tutorials/forecasting.py) — produce probabilistic forecasts
 - [Structural analysis tutorial](tutorials/structural-analysis.py) — impulse responses and variance decompositions
 - [API Reference](reference/index.md) — complete module documentation

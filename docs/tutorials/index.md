@@ -6,6 +6,7 @@ These tutorials walk you through Impulso's core workflow: fitting a Bayesian VAR
 | Tutorial | What you'll learn |
 |----------|-------------------|
 | [Fitting Your First Bayesian VAR](quickstart.py) | Data loading, lag selection, model fitting, posterior inspection |
+| [The Minnesota Prior, From Scratch](minnesota-prior.py) | Why VARs need shrinkage, the prior's maths, prior predictive checks, tuning `tightness` |
 | [Probabilistic Forecasts](forecasting.py) | Multi-step forecasts, credible intervals, fan charts |
 | [Structural Shocks and Their Effects](structural-analysis.py) | Cholesky identification, impulse responses, FEVD, historical decomposition |
 | [Monetary Policy Analysis](monetary-policy.py) | Policy reaction functions, scenario analysis |
@@ -15,13 +16,14 @@ These tutorials walk you through Impulso's core workflow: fitting a Bayesian VAR
 | [Estimating a VAR after March 2020](post-march-2020.py) | Conjugate NIW VAR, COVID volatility break, conditional forecasts, Lenza & Primiceri (2022) replication |
 | [Counterfactuals & Scenario Analysis](scenario-analysis.py) | Historical counterfactuals, conditional forecasts, structural scenarios, plausibility statistics |
 
-Start with the **Quickstart** if you're new to Impulso. The Forecasting and Structural Analysis tutorials build on concepts introduced there.
+Start with the **Quickstart** if you're new to Impulso, then read **The Minnesota Prior** to understand the shrinkage the Quickstart switched on by default. The Forecasting and Structural Analysis tutorials build on concepts introduced there.
 
 ```{toctree}
 :hidden:
 :maxdepth: 1
 
 quickstart
+minnesota-prior
 forecasting
 structural-analysis
 monetary-policy
