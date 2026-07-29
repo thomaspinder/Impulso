@@ -1,5 +1,9 @@
 """Tests for ProxySVAR external-instrument identification."""
 
+import gc
+import warnings
+import weakref
+
 import arviz as az
 import numpy as np
 import pandas as pd
@@ -7,7 +11,7 @@ import pytest
 import xarray as xr
 
 from impulso.data import VARData
-from impulso.identification import ProxySVAR
+from impulso.identification import _CACHE_MISS, ProxySVAR
 
 
 def _make_svar_world(relevance_noise: float = 0.1, T: int = 400, seed: int = 3):
@@ -349,8 +353,22 @@ class TestProxySVARPipelineSlow:
         assert (da.isel(horizon=0).sel(response="y1") > 0).all()
 
 
+@pytest.fixture
+def residual_calls(monkeypatch):
+    """Count `_aligned_residuals` invocations — the expensive cache-missed step."""
+    calls: list[int] = []
+    original = ProxySVAR._aligned_residuals
+
+    def counting(self, posterior, data, n_lags):
+        calls.append(1)
+        return original(self, posterior, data, n_lags)
+
+    monkeypatch.setattr(ProxySVAR, "_aligned_residuals", counting)
+    return calls
+
+
 class TestProxySVARImpactCache:
-    def test_repeated_identify_same_context_hits_cache(self):
+    def test_repeated_identify_same_context_hits_cache(self, residual_calls):
         """Per-t identification (SV path) calls identify once per period
         with the same posterior/data — the impact direction must be
         computed once and reused, and results must be identical."""
@@ -358,19 +376,77 @@ class TestProxySVARImpactCache:
         scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
 
         P1 = scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        assert scheme._impact_cache is not None
-        cached_d = scheme._impact_cache[1]
+        cached_d = scheme._impact_cache.get((idata.posterior, data), (1,))
+        assert cached_d is not _CACHE_MISS
 
         P2 = scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        assert scheme._impact_cache[1] is cached_d  # same object, no recompute
+        assert scheme._impact_cache.get((idata.posterior, data), (1,)) is cached_d
+        assert residual_calls == [1]  # no recompute on the second call
         np.testing.assert_array_equal(P1, P2)
 
-    def test_cache_invalidated_by_new_context(self):
+    def test_cache_invalidated_by_new_context(self, residual_calls):
         data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
         data2, idata2, _P2, _instrument2, L2 = _make_svar_world(relevance_noise=0.05, seed=9)
         scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
 
         scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        d_first = scheme._impact_cache[1]
+        d_first = scheme._impact_cache.get((idata.posterior, data), (1,))
         scheme.identify(L2, ["y1", "y2"], posterior=idata2.posterior, data=data2, n_lags=1)
-        assert scheme._impact_cache[1] is not d_first
+        assert scheme._impact_cache.get((idata2.posterior, data2), (1,)) is not d_first
+        assert len(residual_calls) == 2
+
+    def test_live_posterior_with_different_identity_misses(self, residual_calls):
+        """A distinct-but-live posterior object must never hit the entry
+        stored for another one, even with identical contents."""
+        data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
+        scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
+
+        first = idata.posterior.copy()
+        second = idata.posterior.copy()
+        assert first is not second
+
+        scheme.identify(L, ["y1", "y2"], posterior=first, data=data, n_lags=1)
+        assert scheme._impact_cache.get((second, data), (1,)) is _CACHE_MISS
+        scheme.identify(L, ["y1", "y2"], posterior=second, data=data, n_lags=1)
+        assert len(residual_calls) == 2
+
+    def test_dead_posterior_forces_recompute(self, residual_calls):
+        """Once the cached posterior is collected the weak reference dies,
+        so the next lookup recomputes instead of trusting a recycled id()."""
+        data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
+        scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
+
+        posterior = idata.posterior.copy()
+        scheme.identify(L, ["y1", "y2"], posterior=posterior, data=data, n_lags=1)
+        assert len(residual_calls) == 1
+
+        ref = weakref.ref(posterior)
+        del posterior
+        gc.collect()
+        assert ref() is None  # the cached referent really is gone
+
+        fresh = idata.posterior.copy()
+        assert scheme._impact_cache.get((fresh, data), (1,)) is _CACHE_MISS
+        scheme.identify(L, ["y1", "y2"], posterior=fresh, data=data, n_lags=1)
+        assert len(residual_calls) == 2
+
+    def test_cache_hit_suppresses_the_weak_instrument_warning(self):
+        """Warn-once semantics: the weak-instrument warning is raised on the
+        computing call only, not on every per-t cache hit."""
+        data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=50.0)
+        scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
+
+        with pytest.warns(UserWarning, match="Weak instrument"):
+            scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
+
+    def test_each_instance_gets_its_own_cache(self):
+        data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
+        a = ProxySVAR(instrument=instrument, policy_variable="y1")
+        b = ProxySVAR(instrument=instrument, policy_variable="y1")
+
+        a.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
+        assert b._impact_cache.get((idata.posterior, data), (1,)) is _CACHE_MISS
