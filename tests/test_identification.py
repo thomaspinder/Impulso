@@ -256,6 +256,61 @@ class TestCholeskyNewIdentify:
         # (3) It is a genuine re-decomposition, not a relabelled row swap of L.
         assert np.abs(P - L[..., perm, :]).max() > 1e-6
 
+    def test_matches_textbook_cholesky_of_permuted_sigma(self):
+        """Row-permuting the result reproduces `chol(Pi Sigma Pi')` exactly.
+
+        The QR/LQ construction never forms Sigma, so this pins it against the
+        textbook definition of the ordered Cholesky factor.
+        """
+        rng = np.random.default_rng(0)
+        n_chains, n_draws, n_vars = 2, 8, 3
+        sigma = np.zeros((n_chains, n_draws, n_vars, n_vars))
+        for c in range(n_chains):
+            for d in range(n_draws):
+                A = rng.standard_normal((n_vars, n_vars))
+                sigma[c, d] = A @ A.T + np.eye(n_vars)
+        L = np.linalg.cholesky(sigma)
+
+        var_names = ["a", "b", "c"]
+        ordering = ["c", "a", "b"]
+        perm = np.array([2, 0, 1])
+
+        P = Cholesky(ordering=ordering).identify(L, var_names)
+
+        ix0, ix1 = np.ix_(perm, perm)
+        expected = np.linalg.cholesky(sigma[:, :, ix0, ix1])
+        np.testing.assert_allclose(P[..., perm, :], expected, atol=1e-12)
+
+    def test_identify_is_deterministic(self, synthetic_idata_2v):
+        """Repeated calls return bit-identical output (no RNG in the path)."""
+        L = np.linalg.cholesky(synthetic_idata_2v.posterior["Sigma"].values)
+        scheme = Cholesky(ordering=["v1", "v0"])
+        first = scheme.identify(L, ["v0", "v1"])
+        second = scheme.identify(L, ["v0", "v1"])
+        assert np.array_equal(first, second)
+
+    def test_double_permutation_round_trips(self, synthetic_idata_2v):
+        """Reordering, then reordering back, recovers `L`.
+
+        Guards against transposing `perm` and its inverse: a swapped pair
+        happens to be self-inverse for a reversal, but the intermediate
+        ordering-coordinate factor would not round-trip.
+        """
+        L = np.linalg.cholesky(synthetic_idata_2v.posterior["Sigma"].values)
+        var_names = ["v0", "v1"]
+        reversed_names = ["v1", "v0"]
+        perm = np.array([1, 0])
+
+        # Forward: data order -> reversed ordering. Rows come back in data
+        # order, so permute into ordering coordinates to get a valid factor.
+        P = Cholesky(ordering=reversed_names).identify(L, var_names)
+        L_reversed_world = P[..., perm, :]
+
+        # Backward: treat the reversed world as the data order and ask for
+        # the original ordering. Undo the row permutation the same way.
+        Q = Cholesky(ordering=var_names).identify(L_reversed_world, reversed_names)
+        np.testing.assert_allclose(Q[..., perm, :], L, atol=1e-12)
+
 
 class TestSignRestrictionNewIdentify:
     def test_identify_returns_ndarray_no_horizon(self, synthetic_idata_2v):
