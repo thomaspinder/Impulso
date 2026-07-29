@@ -18,6 +18,9 @@
    CounterfactualResult
    HDIResult
    LagOrderResult
+   StationarityTestResult
+   CointegrationTestResult
+   IntegrationOrderResult
    SVForecastResult
    VolatilityResult
 ```

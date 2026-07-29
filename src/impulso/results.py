@@ -607,6 +607,172 @@ class LagOrderResult(ImpulsoBaseModel):
         return self.criteria_table
 
 
+class StationarityTestResult(ImpulsoBaseModel):
+    """Result from a univariate stationarity or unit-root test.
+
+    One row per tested variable. The meaning of a rejection depends on the
+    test, because the two tests have opposite nulls: the Augmented
+    Dickey-Fuller (ADF) test has a unit-root null, the
+    Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test has a stationarity null.
+    The `conclusion` column already accounts for that, so it can be read
+    directly.
+
+    Attributes:
+        test: Which test produced the table, `"adf"` or `"kpss"`.
+        null_hypothesis: Plain-language statement of the null being tested.
+        regression: Deterministic terms included, e.g. `"c"` or `"ct"`.
+        alpha: Significance level used to form the `reject` and `conclusion`
+            columns.
+        table: One row per variable, indexed by variable name. Columns are
+            `statistic`, `pvalue`, `lags`, `crit_1pct`, `crit_5pct`,
+            `crit_10pct`, `reject`, `conclusion`. KPSS tables also carry
+            `crit_2_5pct` (its table covers that level too) and
+            `pvalue_bounded`, `True` when the reported p-value hit the edge
+            of the published lookup table and is therefore a bound rather
+            than an exact figure. ADF decisions come from the p-value; KPSS
+            decisions compare the statistic against the critical value for
+            `alpha`, because its p-value is clipped to `[0.01, 0.10]`.
+    """
+
+    test: Literal["adf", "kpss"]
+    null_hypothesis: str
+    regression: str
+    alpha: float
+    table: pd.DataFrame = Field(repr=False)
+
+    def summary(self) -> pd.DataFrame:
+        """Return the per-variable test table.
+
+        Returns:
+            DataFrame indexed by variable name.
+        """
+        return self.table
+
+    @property
+    def conclusions(self) -> dict[str, str]:
+        """Per-variable verdict, `"stationary"` or `"non-stationary"`."""
+        return dict(self.table["conclusion"])
+
+    @property
+    def pvalues(self) -> dict[str, float]:
+        """Per-variable p-value."""
+        return {k: float(v) for k, v in self.table["pvalue"].items()}
+
+
+class CointegrationTestResult(ImpulsoBaseModel):
+    """Result from the Johansen cointegration rank test.
+
+    The Johansen procedure walks a sequence of nulls — rank is at most 0,
+    at most 1, and so on — and stops at the first null it fails to reject.
+    Both the trace and maximum-eigenvalue statistics are reported; they can
+    disagree, and when they do the disagreement is information, not an error.
+
+    Only critical values are available for this test, not p-values, so
+    `alpha` is restricted to the levels tabulated by MacKinnon, Haug and
+    Michelis (1996): 0.10, 0.05, and 0.01.
+
+    Attributes:
+        rank_trace: Cointegration rank selected by the trace statistic.
+        rank_max_eigen: Cointegration rank selected by the maximum-eigenvalue
+            statistic.
+        det_order: Deterministic trend order passed to the test: -1 for no
+            deterministic term, 0 for a constant, 1 for a linear trend.
+        k_ar_diff: Number of lagged differences in the vector error-correction
+            model (VECM), i.e. `p - 1` for a VAR(p) in levels.
+        alpha: Significance level whose critical-value column was used.
+        n_obs: Effective number of observations after differencing and
+            lagging.
+        eigenvalues: Estimated eigenvalues, descending.
+        table: One row per null rank `r = 0, ..., n - 1`, indexed by `r`.
+            Columns are `trace_stat`, `trace_crit`, `trace_reject`,
+            `maxeig_stat`, `maxeig_crit`, `maxeig_reject`.
+    """
+
+    rank_trace: int
+    rank_max_eigen: int
+    det_order: int
+    k_ar_diff: int
+    alpha: float
+    n_obs: int
+    eigenvalues: np.ndarray = Field(repr=False)
+    table: pd.DataFrame = Field(repr=False)
+
+    def summary(self) -> pd.DataFrame:
+        """Return the sequential rank-test table.
+
+        Returns:
+            DataFrame indexed by the null rank `r`.
+        """
+        return self.table
+
+    @property
+    def rank(self) -> int:
+        """Cointegration rank, by convention the trace-statistic answer.
+
+        The trace test is the conventional default because it is more robust
+        in small samples. Compare against `rank_max_eigen` before relying on
+        it.
+        """
+        return self.rank_trace
+
+
+class IntegrationOrderResult(ImpulsoBaseModel):
+    """Result from sequential integration-order determination.
+
+    Each variable is tested at its level, then differenced and re-tested,
+    until ADF rejects a unit root or `max_order` is reached. ADF drives the
+    stopping rule; KPSS is recorded alongside it as a cross-check, and the
+    two are combined into a `joint_status` per level:
+
+    - `"stationary"`: ADF rejects, KPSS does not.
+    - `"unit_root"`: ADF does not reject, KPSS does.
+    - `"conflicting"`: both reject.
+    - `"inconclusive"`: neither rejects.
+
+    Attributes:
+        order: Integration order `d` per variable.
+        alpha: Significance level used for every test.
+        max_order: Highest order searched.
+        regression: Deterministic terms used for the level test. Differenced
+            series are always tested with a constant only.
+        inconclusive: Variables whose order should not be taken at face
+            value, either because they were still non-stationary at
+            `max_order` or because the two tests disagreed at the level where
+            the search stopped.
+        table: Long table indexed by `(variable, d)`. Columns are
+            `adf_stat`, `adf_pvalue`, `adf_lags`, `adf_reject`, `kpss_stat`,
+            `kpss_pvalue`, `kpss_lags`, `kpss_reject`, `kpss_pvalue_bounded`,
+            `joint_status`.
+    """
+
+    order: dict[str, int]
+    alpha: float
+    max_order: int
+    regression: str
+    inconclusive: list[str]
+    table: pd.DataFrame = Field(repr=False)
+
+    def summary(self) -> pd.DataFrame:
+        """Return the full level-by-level test table.
+
+        Returns:
+            DataFrame indexed by `(variable, d)`.
+        """
+        return self.table
+
+    @property
+    def d_max(self) -> int:
+        """Highest integration order across the tested variables.
+
+        Consult `inconclusive` first. A variable still non-stationary at
+        `max_order` is recorded with `order = max_order`, which is a floor,
+        not a finding — so whenever `inconclusive` is non-empty `d_max` may
+        understate the true maximum. A Toda-Yamamoto consumer that augments
+        by `d_max` would then under-augment.
+        """
+        return max(self.order.values(), default=0)
+
+
 class VolatilityResult(VARResultBase):
     """Result from univariate SV fit — posterior of conditional SD.
 

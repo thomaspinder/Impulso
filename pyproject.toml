@@ -34,6 +34,7 @@ Documentation = "https://thomaspinder.github.io/impulso/"
 
 [project.optional-dependencies]
 nutpie = ["nutpie>=0.13"]
+diagnostics = ["statsmodels>=0.14.6"]
 
 [dependency-groups]
 dev = [
@@ -46,6 +47,7 @@ dev = [
     "jupyter>=1.0",
     "ipywidgets>=8.1.8",
     "nutpie>=0.13",
+    "statsmodels>=0.14.6",
     "tabulate>=0.10.0",
     "typing-extensions>=4.12",
     "ipython"

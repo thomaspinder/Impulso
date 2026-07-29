@@ -8,6 +8,8 @@ Practical recipes for solving specific problems with Impulso.
 data-preparation
 custom-priors
 lag-selection
+stationarity-testing
+climate-pitfalls
 sign-restrictions
 long-run-restrictions
 heavy-tailed-errors
