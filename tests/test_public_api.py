@@ -197,6 +197,8 @@ class TestIdentificationPublicAPI:
         import impulso
 
         assert "LongRunRestriction" in impulso.__all__
+
+
 class TestDiagnosticsPublicAPI:
     def test_convergence_report_importable_from_impulso(self):
         from impulso import convergence_report

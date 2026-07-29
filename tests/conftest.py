@@ -191,6 +191,8 @@ def permanent_transitory_2v():
         "L": L_draws,
         "idata": az.InferenceData(posterior=posterior),
     }
+
+
 # --------------- Diagnostics posterior factory ---------------
 
 # PyMC and nutpie spell almost every sampler statistic differently; only
