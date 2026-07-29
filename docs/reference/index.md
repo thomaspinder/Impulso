@@ -20,6 +20,7 @@ identification
 scenario
 results
 evidence
+diagnostics
 primitives
 protocols
 plotting

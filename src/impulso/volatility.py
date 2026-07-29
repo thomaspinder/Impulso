@@ -91,6 +91,18 @@ class Constant(ImpulsoModel):
         # from the posterior instead of re-decomposing Σ on every call.
         return pm.Deterministic("L", L)
 
+    def posterior_var_names(self) -> tuple[str, ...]:
+        """Posterior variables this adapter is responsible for.
+
+        The optional `VolatilityProcess` capability read by
+        `impulso.diagnostics.assign_blocks`. `Sigma` appears here even
+        though `spec.py` registers it (the deterministic belongs to the
+        constant parameterisation), and `tril_offdiag` is absent from the
+        posterior when `n_vars == 1` — claiming a name the posterior lacks
+        is harmless, since block assignment iterates over what is there.
+        """
+        return ("sigma_sd", "tril_offdiag", "L", "Sigma")
+
     def cholesky_at(self, posterior: "xr.Dataset", t: int | None) -> np.ndarray:
         """Return the lower-triangular Cholesky factor of Σ for every draw.
 

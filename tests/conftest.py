@@ -193,6 +193,132 @@ def permanent_transitory_2v():
     }
 
 
+# --------------- Diagnostics posterior factory ---------------
+
+# PyMC and nutpie spell almost every sampler statistic differently; only
+# `diverging` is common. The factory can emit either shape so tests can prove
+# the report reads that one key and ignores the rest.
+_PYMC_EXTRA_STATS = ("reached_max_treedepth", "tree_depth", "acceptance_rate", "lp", "energy", "step_size")
+_NUTPIE_EXTRA_STATS = ("maxdepth_reached", "depth", "mean_tree_accept", "logp", "energy", "step_size", "tuning")
+
+
+def _coefficient_draws(rng, shape, explosive_frac, bad_coord):
+    """Lag-coefficient draws centred on `0.5 * I`, with optional pathologies."""
+    n_chains, n_draws, n_vars, n_coeff = shape
+    base = np.zeros((n_vars, n_coeff))
+    base[:, :n_vars] = 0.5 * np.eye(n_vars)
+    if explosive_frac > 0:
+        # Noiseless two-point mixture: every radius is exactly 0.5 or 1.2, so
+        # the reported statistics are exact rather than approximate.
+        B = np.broadcast_to(base, shape).copy()
+        n_explosive = round(explosive_frac * n_draws)
+        for chain in range(n_chains):
+            B[chain, rng.permutation(n_draws)[:n_explosive], 0, 0] = 1.2
+    else:
+        B = base + 0.02 * rng.standard_normal(shape)
+    if bad_coord is not None:
+        row, col = bad_coord
+        B[:, :, row, col] += np.arange(n_chains)[:, None] * 2.0
+    return B
+
+
+def _cholesky_draws(rng, sigma_sd, n_chains, n_draws, n_vars):
+    """Lower-triangular Cholesky draws; the upper triangle is a structural zero."""
+    L = np.zeros((n_chains, n_draws, n_vars, n_vars))
+    diag = np.arange(n_vars)
+    L[..., diag, diag] = sigma_sd
+    for i in range(1, n_vars):
+        for j in range(i):
+            L[..., i, j] = 0.1 * rng.standard_normal((n_chains, n_draws))
+    return L
+
+
+def _sampler_stats(rng, n_chains, n_draws, divergences, nutpie_shaped):
+    """A `sample_stats` group in either backend's shape, plus nutpie's warmup group."""
+    flat = np.zeros(n_chains * n_draws, dtype=bool)
+    flat[:divergences] = True
+    stats = {"diverging": (("chain", "draw"), flat.reshape(n_chains, n_draws))}
+    for name in _NUTPIE_EXTRA_STATS if nutpie_shaped else _PYMC_EXTRA_STATS:
+        stats[name] = (("chain", "draw"), rng.standard_normal((n_chains, n_draws)))
+    groups = {"sample_stats": xr.Dataset(stats)}
+    if nutpie_shaped:
+        # Warmup divergences belong to adaptation and must not be counted.
+        groups["warmup_sample_stats"] = xr.Dataset({
+            "diverging": (("chain", "draw"), np.ones((n_chains, n_draws), dtype=bool))
+        })
+    return groups
+
+
+@pytest.fixture
+def make_var_posterior():
+    """Factory building synthetic VAR posteriors with controlled pathologies.
+
+    Returns a callable accepting:
+
+    * `n_chains`, `n_draws`, `n_vars`, `n_lags` — posterior shape.
+    * `bad_coord` — `(row, col)` index into `B`; that coordinate gets a
+      chain-dependent offset, so R-hat blows up while every other
+      coordinate stays healthy.
+    * `explosive_frac` — fraction of draws per chain whose lag block is
+      `diag(1.2, 0.5, ...)` instead of `diag(0.5, ...)`. Switches `B` to a
+      noiseless two-point mixture so the spectral-radius statistics are
+      exact, with the explosive draws scattered within each chain so the
+      indicator is neither autocorrelated nor chain-dependent.
+    * `divergences` — divergent-transition count, placed at fixed positions.
+      `None` omits the `sample_stats` group entirely.
+    * `extra_vars` — mapping of posterior variable name to trailing shape.
+    * `coords` — attach `var`/`coeff` coords (as `VAR.fit` does) or leave
+      the dims bare (as `ConjugateVAR` does).
+    * `nutpie_shaped` — emit nutpie's sampler-stat names plus a
+      `warmup_sample_stats` group full of divergences that must be ignored.
+    """
+
+    def _make(
+        *,
+        n_chains=4,
+        n_draws=200,
+        n_vars=2,
+        n_lags=1,
+        bad_coord=None,
+        explosive_frac=0.0,
+        divergences=0,
+        extra_vars=None,
+        coords=True,
+        nutpie_shaped=False,
+        seed=0,
+    ):
+        rng = np.random.default_rng(seed)
+        n_coeff = n_vars * n_lags
+        var_names = [f"y{i + 1}" for i in range(n_vars)]
+        coeff_names = [f"L{lag}.{name}" for lag in range(1, n_lags + 1) for name in var_names]
+
+        B = _coefficient_draws(rng, (n_chains, n_draws, n_vars, n_coeff), explosive_frac, bad_coord)
+        sigma_sd = 0.5 + 0.05 * np.abs(rng.standard_normal((n_chains, n_draws, n_vars)))
+        L = _cholesky_draws(rng, sigma_sd, n_chains, n_draws, n_vars)
+
+        data_vars = {
+            "B": (("chain", "draw", "var", "coeff"), B),
+            "intercept": (("chain", "draw", "var"), 0.01 * rng.standard_normal((n_chains, n_draws, n_vars))),
+            "sigma_sd": (("chain", "draw", "var"), sigma_sd),
+            "L": (("chain", "draw", "var1", "var2"), L),
+        }
+        for name, shape in (extra_vars or {}).items():
+            dims = tuple(f"{name}_dim_{k}" for k in range(len(shape)))
+            data_vars[name] = (("chain", "draw", *dims), rng.standard_normal((n_chains, n_draws, *shape)))
+
+        posterior_coords = (
+            {"var": var_names, "coeff": coeff_names, "var1": var_names, "var2": var_names} if coords else None
+        )
+        groups = {"posterior": xr.Dataset(data_vars, coords=posterior_coords)}
+
+        if divergences is not None:
+            groups |= _sampler_stats(rng, n_chains, n_draws, divergences, nutpie_shaped)
+
+        return az.InferenceData(**groups)
+
+    return _make
+
+
 # --------------- SV fixtures ---------------
 
 
