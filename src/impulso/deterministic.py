@@ -188,11 +188,14 @@ class Trend(ImpulsoModel):
     observation, divided by `scale`; higher degrees are integer powers of
     that same column.
 
-    `scale` matters because the exogenous coefficients carry a fixed
-    `Normal(0, 1)` prior: an unscaled 540-month trend reaches 539, and
-    the prior then fights the data. Divide by a fixed, interpretable
-    constant — periods per decade, say — so the coefficient reads as
-    "change per decade".
+    The prior on the exogenous coefficients adapts to each regressor's
+    sample spread (see `VAR.exog_prior_scale`), so an unscaled trend is
+    no longer fought by the prior. `scale` still matters for two other
+    reasons: the coefficient's units, and the sampler's geometry. Divide
+    by a fixed, interpretable constant — periods per decade, say — so
+    the coefficient reads as "change per decade", and so the design
+    column stays O(1) rather than reaching 539 by the end of a 540-month
+    sample.
 
     Warning:
         `scale` must not depend on the sample length. A `T`-dependent

@@ -49,10 +49,14 @@ Trend(degree=1, scale=120.0)   # linear, in units of decades on monthly data
 Trend(degree=2, scale=120.0)   # adds a squared term
 ```
 
-`scale` is not cosmetic. The exogenous coefficients carry a fixed
-`Normal(0, 1)` prior, so an unscaled 540-month trend reaching 539 puts the
-prior in a fight with the data. Divide by a fixed, interpretable constant —
-periods per decade — and the coefficient reads as "change per decade".
+`scale` is not cosmetic, though it is no longer a prior-fighting problem. The
+prior on the exogenous coefficients adapts to each regressor's sample spread
+(see `VAR.exog_prior_scale`), so an unscaled 540-month trend reaching 539 is
+not crushed by a prior fixed in coefficient space. What `scale` still buys you
+is the coefficient's units and the sampler's geometry: divide by a fixed,
+interpretable constant — periods per decade — and the coefficient reads as
+"change per decade" while the design column stays O(1) instead of spanning
+three orders of magnitude.
 
 :::{admonition} Keep `scale` independent of the sample
 :class: warning
