@@ -13,6 +13,8 @@ from impulso.sv.spec import StochasticVolatility
 from impulso.volatility import Constant
 
 if TYPE_CHECKING:
+    import pymc as pm
+
     from impulso.fitted import FittedVAR
 
 _PRIOR_REGISTRY: dict[str, type] = {
@@ -85,13 +87,46 @@ class VAR(ImpulsoBaseModel):
         Returns:
             FittedVAR with posterior draws.
         """
-        import pymc as pm
-
-        from impulso._lag_selection import select_lag_order
         from impulso.fitted import FittedVAR
 
         if sampler is None:
             sampler = self._default_sampler()
+
+        model, n_lags = self._build_pymc_model(data)
+
+        # Sample
+        idata = sampler.sample(model)
+
+        return FittedVAR.model_construct(
+            idata=idata,
+            n_lags=n_lags,
+            data=data,
+            var_names=data.endog_names,
+            volatility=self.resolved_volatility,
+            pymc_model=model,
+        )
+
+    def _build_pymc_model(self, data: VARData) -> tuple["pm.Model", int]:
+        """Build the PyMC model graph for this specification.
+
+        Resolves the lag order (running `select_lag_order` when `lags` is a
+        criterion string), assembles the design matrices, and registers the
+        intercept, coefficient, volatility and likelihood nodes. The design
+        matrices are baked into the graph as constants, so the returned model
+        is tied to `data`.
+
+        Shared by `fit` (which samples the graph) and `prior_predictive`
+        (which draws from it without conditioning on the observations).
+
+        Args:
+            data: VARData instance.
+
+        Returns:
+            Tuple of the built `pymc.Model` and the resolved lag order.
+        """
+        import pymc as pm
+
+        from impulso._lag_selection import select_lag_order
 
         # Resolve lags
         if isinstance(self.lags, str):
@@ -175,14 +210,4 @@ class VAR(ImpulsoBaseModel):
             # observation t uses chol[t].
             pm.MvNormal("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
 
-        # Sample
-        idata = sampler.sample(model)
-
-        return FittedVAR.model_construct(
-            idata=idata,
-            n_lags=n_lags,
-            data=data,
-            var_names=data.endog_names,
-            volatility=self.resolved_volatility,
-            pymc_model=model,
-        )
+        return model, n_lags
