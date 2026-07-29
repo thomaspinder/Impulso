@@ -62,6 +62,13 @@ class VAR(ImpulsoBaseModel):
             return _VOLATILITY_REGISTRY[self.volatility]()
         return self.volatility
 
+    @staticmethod
+    def _default_sampler() -> Sampler:
+        """Default sampler for VAR: cores=1 (macOS PyMC segfault), target_accept=0.8."""
+        from impulso.samplers import NUTSSampler
+
+        return NUTSSampler(cores=1, chains=4)
+
     def fit(
         self,
         data: VARData,
@@ -71,7 +78,9 @@ class VAR(ImpulsoBaseModel):
 
         Args:
             data: VARData instance.
-            sampler: Sampler protocol instance. Defaults to NUTSSampler().
+            sampler: Sampler protocol instance. Defaults to `_default_sampler()`
+                (`cores=1`, `chains=4`, `target_accept=0.8`). Pass an explicit
+                `NUTSSampler(cores=n)` to opt into parallel chains.
 
         Returns:
             FittedVAR with posterior draws.
@@ -80,10 +89,9 @@ class VAR(ImpulsoBaseModel):
 
         from impulso._lag_selection import select_lag_order
         from impulso.fitted import FittedVAR
-        from impulso.samplers import NUTSSampler
 
         if sampler is None:
-            sampler = NUTSSampler()
+            sampler = self._default_sampler()
 
         # Resolve lags
         if isinstance(self.lags, str):
