@@ -197,6 +197,8 @@ class TestIdentificationPublicAPI:
         import impulso
 
         assert "LongRunRestriction" in impulso.__all__
+
+
 class TestPoolingPublicAPI:
     def test_predictive_pool_importable_from_impulso(self):
         from impulso import PredictivePool
