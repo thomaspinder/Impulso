@@ -442,7 +442,7 @@ class TestTodaYamamoto:
         with_exog = VARData(
             endog=np.asarray(data.endog),
             endog_names=list(data.endog_names),
-            exog=np.ones((len(data.index), 1)),
+            exog=np.arange(len(data.index), dtype=float).reshape(-1, 1),
             exog_names=["trend"],
             index=data.index,
         )
