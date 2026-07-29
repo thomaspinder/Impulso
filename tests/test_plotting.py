@@ -172,17 +172,15 @@ def test_plot_volatility_returns_figure(synthetic_sv_idata):
     assert isinstance(fig, Figure)
 
 
-def test_plot_pool_weights_returns_figure():
-    """Smoke test: the pool bar chart renders from a hand-built pool."""
+def _make_pool(weights, log_score_columns):
+    """Hand-build a two-model PredictivePool without running the sampler."""
     import pandas as pd
-    from matplotlib.figure import Figure
 
-    from impulso.plotting import plot_pool_weights
     from impulso.pooling import PredictivePool
 
     labels = ["a", "b"]
     index = pd.DatetimeIndex(pd.date_range("2020-01-01", periods=3, freq="QS"), name="time")
-    log_scores = pd.DataFrame([[-1.0, -2.0], [-1.5, -2.5], [-0.5, -3.0]], index=index, columns=labels)
+    log_scores = pd.DataFrame(np.column_stack(log_score_columns), index=index, columns=labels)
     draws = np.zeros((4, 3, 2))
     da = xr.DataArray(
         draws[np.newaxis],
@@ -190,8 +188,8 @@ def test_plot_pool_weights_returns_figure():
         coords={"variable": ["y1", "y2"], "model": ("draw", np.array(["a", "a", "b", "b"], dtype=object))},
         name="forecast",
     )
-    pool = PredictivePool(
-        weights=pd.Series([0.7, 0.3], index=labels),
+    return PredictivePool(
+        weights=pd.Series(weights, index=labels),
         log_scores=log_scores,
         method="stacking",
         density="gaussian",
@@ -205,7 +203,43 @@ def test_plot_pool_weights_returns_figure():
         ),
         membership=np.array([0, 0, 1, 1]),
     )
+
+
+def test_plot_pool_weights_returns_figure():
+    """Smoke test: the pool bar chart renders from a hand-built pool."""
+    from matplotlib.figure import Figure
+
+    from impulso.plotting import plot_pool_weights
+
+    pool = _make_pool([0.7, 0.3], ([-1.0, -1.5, -0.5], [-2.0, -2.5, -3.0]))
     assert isinstance(plot_pool_weights(pool), Figure)
+
+
+def test_plot_pool_weights_annotation_placement():
+    """Short bars label outside; a near-full bar labels inside, right-aligned (#166)."""
+    from impulso.plotting import plot_pool_weights
+
+    # 'a' takes almost all the weight and scores badly enough that its label is
+    # long, which is the case that used to overflow the right axis.
+    pool = _make_pool([0.98, 0.02], ([-500.0, -400.0, -334.5], [-2.0, -2.5, -3.0]))
+    fig = plot_pool_weights(pool)
+    fig.canvas.draw()
+    ax = fig.axes[0]
+    upper = ax.get_xlim()[1]
+    renderer = fig.canvas.get_renderer()
+    texts = {text.get_text(): text for text in ax.texts}
+
+    inside = texts["log score -1,234.5"]
+    assert inside.get_horizontalalignment() == "right"
+    assert inside.get_position()[0] < 0.98
+    # The whole label must sit within the axes, which is what fails when a long
+    # annotation is parked to the right of a bar that already fills the width.
+    assert inside.get_window_extent(renderer).x1 <= ax.bbox.x1
+
+    outside = texts["log score -7.5"]
+    assert outside.get_horizontalalignment() == "left"
+    assert 0.02 < outside.get_position()[0] < upper
+    assert outside.get_window_extent(renderer).x1 <= ax.bbox.x1
 
 
 def _make_sv_forecast_result(steps=12, index=None):

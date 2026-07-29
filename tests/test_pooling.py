@@ -23,6 +23,7 @@ from impulso.pooling import (
     _gaussian_log_scores,
     _index_freq,
     _log_score_weights,
+    _mixture_draws,
     _pooled_row_scores,
     _spawn,
     _stacking_weights,
@@ -864,6 +865,18 @@ class TestCombinedSample:
         pool = pool_forecasts(fits, holdout, n_draws=37, seed=0)
         assert pool.membership.shape == (37,)
         assert pool.holdout_predictive.idata.posterior_predictive["forecast"].shape[1] == 37
+
+    def test_within_model_draw_indices_span_the_member(self):
+        """Within-model indices are exact integers covering [0, S) (issue #165).
+
+        The stacks label each draw with its own index, so the pooled values
+        read back as the indices that were selected.
+        """
+        size = 50
+        stacks = [np.arange(size, dtype=float).reshape(size, 1, 1), np.full((size, 1, 1), -1.0)]
+        pooled, membership = _mixture_draws(stacks, np.array([1.0, 0.0]), 4000, np.random.default_rng(0))
+        assert set(np.unique(membership)) == {0}
+        assert set(np.unique(pooled[:, 0, 0])) == set(range(size))
 
 
 # --------------------------------------------------------------------------

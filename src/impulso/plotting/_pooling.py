@@ -9,6 +9,9 @@ from matplotlib.figure import Figure
 if TYPE_CHECKING:
     from impulso.pooling import PredictivePool
 
+_INSIDE_LABEL_FRACTION = 0.75
+"""Share of the x-axis a bar must cover before its score label moves inside it."""
+
 
 def plot_pool_weights(
     pool: "PredictivePool",
@@ -40,11 +43,20 @@ def plot_pool_weights(
     ax.set_yticks(positions)
     ax.set_yticklabels(labels)
     ax.set_xlabel("weight")
-    ax.set_xlim(0.0, max(1.0, float(weights.max()) * 1.05))
+    upper = max(1.0, float(weights.max()) * 1.05)
+    ax.set_xlim(0.0, upper)
 
-    offset = 0.01 * ax.get_xlim()[1]
+    offset = 0.01 * upper
     for position, weight, score in zip(positions, weights, scores, strict=True):
-        ax.text(weight + offset, position, f"log score {score:,.1f}", va="center", fontsize=8)
+        # A label parked past the end of a near-full bar runs off the right
+        # axis, so once a bar covers most of the width its label moves inside,
+        # right-aligned against the bar end and recoloured to stay legible.
+        if weight > _INSIDE_LABEL_FRACTION * upper:
+            ax.text(
+                weight - offset, position, f"log score {score:,.1f}", va="center", ha="right", fontsize=8, color="white"
+            )
+        else:
+            ax.text(weight + offset, position, f"log score {score:,.1f}", va="center", ha="left", fontsize=8)
 
     pooled = pool.pooled_log_score()
     ax.set_title(

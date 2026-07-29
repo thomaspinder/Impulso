@@ -407,7 +407,7 @@ def _mixture_draws(
     sizes = np.array([stack.shape[0] for stack in stacks])
     total = int(sizes.min()) if n_draws is None else int(n_draws)
     membership = rng.choice(len(stacks), size=total, p=weights)
-    position = np.floor(rng.random(total) * sizes[membership]).astype(int)
+    position = rng.integers(0, sizes[membership])
     pooled = np.empty((total, *stacks[0].shape[1:]))
     for i, stack in enumerate(stacks):
         picked = membership == i
