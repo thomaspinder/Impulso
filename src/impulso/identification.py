@@ -92,16 +92,13 @@ class _PosteriorCache:
     variable name, a horizon). Do not put arrays there — elementwise
     comparison would not yield a bool.
 
-    Intended adoption (issue #203). The other identity-keyed memos in this
-    module collapse to the same three lines once their branches merge:
+    Adopted by `ProxySVAR._impact_cache` and `LongRunRestriction._lr_cache`
+    (issue #203). The one remaining identity-keyed memo in this module
+    collapses to the same three lines once its branch merges:
 
         MaxShare._spectral_cache:
             self._spectral_cache.get(posterior, (n_lags, target))
             self._spectral_cache.set(posterior, (n_lags, target), value)
-
-        LongRunRestriction._lr_cache:
-            self._lr_cache.get(posterior, (n_lags,))
-            self._lr_cache.set(posterior, (n_lags,), value)
 
     Declare the attribute on the (frozen) scheme with
     `PrivateAttr(default_factory=_PosteriorCache)` so each instance gets
@@ -517,9 +514,10 @@ class LongRunRestriction(ImpulsoModel):
     # volatility, where the pipeline calls identify() once per period with
     # the same posterior, the eigendecomposition runs once instead of T
     # times (and the warnings fire once, not T times). Keyed by object
-    # identity: valid while the caller holds the same posterior object,
-    # which is exactly the per-t loop's lifetime.
-    _lr_cache: tuple | None = PrivateAttr(default=None)
+    # identity, with a weak reference as the validity token: valid while
+    # the caller holds the same posterior object, which is exactly the
+    # per-t loop's lifetime. See `_PosteriorCache`.
+    _lr_cache: _PosteriorCache = PrivateAttr(default_factory=_PosteriorCache)
 
     @model_validator(mode="after")
     def _validate_names(self) -> "LongRunRestriction":
@@ -694,16 +692,17 @@ class LongRunRestriction(ImpulsoModel):
     def _screen(self, posterior: "xr.Dataset", n_lags: int, n_vars: int) -> tuple[np.ndarray, np.ndarray]:
         """Build `M = I - sum_j A_j` and flag the draws where `C(1)` is undefined.
 
-        Memoised on `(id(posterior), n_lags)` — see `_lr_cache`.
+        Memoised on the posterior's identity plus `n_lags` — see
+        `_lr_cache` and `_PosteriorCache`.
 
         Returns:
             Tuple `(M, bad)`: the long-run matrix, shape
             `(chains, draws, n_vars, n_vars)`, and a boolean mask of draws
             whose condition number exceeds `max_condition`.
         """
-        cache_key = (id(posterior), n_lags)
-        if self._lr_cache is not None and self._lr_cache[0] == cache_key:
-            return self._lr_cache[1]
+        cached = self._lr_cache.get(posterior, (n_lags,))
+        if cached is not _CACHE_MISS:
+            return cached
 
         A = lag_matrices(posterior["B"].values, n_lags)
         M = np.eye(n_vars) - np.sum(A, axis=0)
@@ -726,7 +725,7 @@ class LongRunRestriction(ImpulsoModel):
             "long_run_spectral_radius_max": float(rho.max()),
         }
         self._report(bad, explosive)
-        self._lr_cache = (cache_key, (M, bad))
+        self._lr_cache.set(posterior, (n_lags,), (M, bad))
         return M, bad
 
     def _report(self, bad: np.ndarray, explosive: np.ndarray) -> None:

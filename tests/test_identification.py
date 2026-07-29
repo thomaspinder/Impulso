@@ -720,6 +720,21 @@ class TestLongRunRestriction:
             warnings.simplefilter("error")
             scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
 
+    def test_screen_cache_misses_once_the_posterior_is_collected(self, permanent_transitory_2v):
+        """A collected posterior's address can be recycled, so a dead referent
+        must read as a miss rather than serving another posterior's screen (#203)."""
+        fx = permanent_transitory_2v
+        scheme = self._scheme()
+        posterior = self._posterior_with(fx, lambda c, d: None)
+        scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+        ref = weakref.ref(posterior)
+
+        del posterior
+        gc.collect()
+        assert ref() is None
+
+        assert scheme._lr_cache.get(self._posterior_with(fx, lambda c, d: None), (1,)) is _CACHE_MISS
+
     # --- 17-19. from_zero_restrictions -------------------------------------
 
     def test_from_zero_restrictions_recovers_the_ordering(self, permanent_transitory_2v):
