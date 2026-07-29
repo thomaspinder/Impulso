@@ -29,12 +29,14 @@ if TYPE_CHECKING:
         HistoricalDecompositionResult,
         IRFResult,
         LagOrderResult,
+        ReverseStressResult,
         ScenarioResult,
         SVForecastResult,
+        TiltedForecastResult,
         VolatilityResult,
     )
     from impulso.samplers import NUTSSampler
-    from impulso.scenario import ShockPath, VariablePath
+    from impulso.scenario import MomentTarget, ProbabilityTarget, ShockPath, VariablePath
     from impulso.sv.data import SVData
     from impulso.sv.fitted import FittedSV
     from impulso.sv.priors import SVDefaultPrior
@@ -62,10 +64,13 @@ __all__ = [
     "LagOrderResult",
     "MinnesotaPrior",
     "ModelEvidence",
+    "MomentTarget",
     "NIWPrior",
     "NUTSSampler",
     "PandemicBreak",
+    "ProbabilityTarget",
     "ProxySVAR",
+    "ReverseStressResult",
     "SVData",
     "SVDefaultPrior",
     "SVForecastResult",
@@ -73,6 +78,7 @@ __all__ = [
     "ShockPath",
     "SignRestriction",
     "StochasticVolatility",
+    "TiltedForecastResult",
     "VARData",
     "VariablePath",
     "VolatilityProcess",
@@ -104,9 +110,13 @@ _LAZY_IMPORTS: dict[str, str] = {
     "ConditionalForecastResult": "impulso.results",
     "CounterfactualResult": "impulso.results",
     "ScenarioResult": "impulso.results",
+    "TiltedForecastResult": "impulso.results",
+    "ReverseStressResult": "impulso.results",
     "DynamicMultiplierResult": "impulso.results",
     "ShockPath": "impulso.scenario",
     "VariablePath": "impulso.scenario",
+    "ProbabilityTarget": "impulso.scenario",
+    "MomentTarget": "impulso.scenario",
     "IRFResult": "impulso.results",
     "FEVDResult": "impulso.results",
     "HistoricalDecompositionResult": "impulso.results",
