@@ -197,3 +197,50 @@ class TestIdentificationPublicAPI:
         import impulso
 
         assert "LongRunRestriction" in impulso.__all__
+class TestDeterministicPublicAPI:
+    def test_design_and_terms_importable_from_impulso(self):
+        import impulso
+        from impulso.deterministic import (
+            BreakDummy,
+            DeterministicDesign,
+            Fourier,
+            SeasonalDummies,
+            Trend,
+        )
+
+        assert impulso.DeterministicDesign is DeterministicDesign
+        assert impulso.Trend is Trend
+        assert impulso.Fourier is Fourier
+        assert impulso.SeasonalDummies is SeasonalDummies
+        assert impulso.BreakDummy is BreakDummy
+
+    def test_deterministic_term_protocol_importable_from_impulso(self):
+        import impulso
+        from impulso.protocols import DeterministicTerm
+
+        assert impulso.DeterministicTerm is DeterministicTerm
+
+    def test_deterministic_names_in_all(self):
+        import impulso
+
+        for name in (
+            "BreakDummy",
+            "DeterministicDesign",
+            "DeterministicTerm",
+            "Fourier",
+            "SeasonalDummies",
+            "Trend",
+        ):
+            assert name in impulso.__all__
+
+    def test_terms_satisfy_the_protocol(self):
+        from impulso.deterministic import BreakDummy, Fourier, SeasonalDummies, Trend
+        from impulso.protocols import DeterministicTerm
+
+        for term in (
+            Trend(degree=1),
+            Fourier(period=12, order=1),
+            SeasonalDummies(season="month"),
+            BreakDummy(date="2000-01-01"),
+        ):
+            assert isinstance(term, DeterministicTerm)

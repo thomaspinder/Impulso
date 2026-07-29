@@ -14,6 +14,13 @@ if TYPE_CHECKING:
     from impulso._ma import compute_ma_phi
     from impulso.conjugate import ConjugateVAR
     from impulso.conjugate_volatility import ConjugateVolatility, PandemicBreak
+    from impulso.deterministic import (
+        BreakDummy,
+        DeterministicDesign,
+        Fourier,
+        SeasonalDummies,
+        Trend,
+    )
     from impulso.evidence import EvidenceComparison, ModelEvidence, compare_evidence
     from impulso.fitted import FittedVAR
     from impulso.identification import Cholesky, LongRunRestriction, ProxySVAR, SignRestriction
@@ -21,6 +28,7 @@ if TYPE_CHECKING:
     from impulso.observation import Gaussian, StudentT
     from impulso.priors import MinnesotaPrior, NIWPrior
     from impulso.protocols import ErrorDistribution, VolatilityProcess
+    from impulso.protocols import DeterministicTerm, VolatilityProcess
     from impulso.results import (
         CointegrationTestResult,
         ConditionalForecastResult,
@@ -48,6 +56,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "VAR",
+    "BreakDummy",
     "Cholesky",
     "CointegrationTestResult",
     "ConditionalForecastResult",
@@ -55,6 +64,8 @@ __all__ = [
     "ConjugateVolatility",
     "Constant",
     "CounterfactualResult",
+    "DeterministicDesign",
+    "DeterministicTerm",
     "DynamicMultiplierResult",
     "ErrorDistribution",
     "EvidenceComparison",
@@ -63,6 +74,7 @@ __all__ = [
     "FittedVAR",
     "ForecastResult",
     "Gaussian",
+    "Fourier",
     "HDIResult",
     "HistoricalDecompositionResult",
     "IRFResult",
@@ -80,11 +92,13 @@ __all__ = [
     "SVDefaultPrior",
     "SVForecastResult",
     "ScenarioResult",
+    "SeasonalDummies",
     "ShockPath",
     "SignRestriction",
     "StationarityTestResult",
     "StochasticVolatility",
     "StudentT",
+    "Trend",
     "VARData",
     "VariablePath",
     "VolatilityProcess",
@@ -113,6 +127,12 @@ _LAZY_IMPORTS: dict[str, str] = {
     "ConjugateVAR": "impulso.conjugate",
     "ConjugateVolatility": "impulso.conjugate_volatility",
     "PandemicBreak": "impulso.conjugate_volatility",
+    "DeterministicDesign": "impulso.deterministic",
+    "Trend": "impulso.deterministic",
+    "Fourier": "impulso.deterministic",
+    "SeasonalDummies": "impulso.deterministic",
+    "BreakDummy": "impulso.deterministic",
+    "DeterministicTerm": "impulso.protocols",
     "ModelEvidence": "impulso.evidence",
     "EvidenceComparison": "impulso.evidence",
     "compare_evidence": "impulso.evidence",
