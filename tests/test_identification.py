@@ -1316,6 +1316,23 @@ class TestMaxShareScreensAndDiagnostics:
             second = scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
         np.testing.assert_array_equal(first, second)
 
+    def test_cache_misses_once_the_posterior_is_collected(self, single_driver_2v):
+        """A collected posterior's address can be recycled, so a dead referent
+        must read as a miss rather than serving another posterior's sweep (#203)."""
+        from impulso.identification import MaxShare
+
+        B = np.broadcast_to(single_driver_2v["A1"], (2, 50, 2, 2)).copy()
+        scheme = MaxShare(target="y2", band=(6, 32))
+        posterior = _posterior_with_B(B)
+        scheme.identify(single_driver_2v["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+        ref = weakref.ref(posterior)
+
+        del posterior
+        gc.collect()
+        assert ref() is None
+
+        assert scheme._spectral_cache.get(_posterior_with_B(B), (1, 1)) is _CACHE_MISS
+
     def test_weak_identification_is_warned(self, monkeypatch, single_driver_2v):
         """A repeated top eigenvalue means the maximiser is a plane, not a ray."""
         from impulso.identification import MaxShare

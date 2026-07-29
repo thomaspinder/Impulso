@@ -99,6 +99,9 @@ class _PosteriorCache:
         MaxShare._spectral_cache:
             self._spectral_cache.get(posterior, (n_lags, target))
             self._spectral_cache.set(posterior, (n_lags, target), value)
+    Adopted by `ProxySVAR._impact_cache` and `MaxShare._spectral_cache`
+    (issue #203). The one remaining identity-keyed memo in this module
+    collapses to the same three lines once its branch merges:
 
     Declare the attribute on the (frozen) scheme with
     `PrivateAttr(default_factory=_PosteriorCache)` so each instance gets
@@ -1144,9 +1147,10 @@ class MaxShare(ImpulsoModel):
     # under time-varying volatility, where the pipeline calls identify()
     # once per period with the same posterior, the frequency loop runs
     # once instead of T times (and the warnings fire once, not T times).
-    # Keyed by object identity: valid while the caller holds the same
-    # posterior object, which is exactly the per-t loop's lifetime.
-    _spectral_cache: tuple | None = PrivateAttr(default=None)
+    # Keyed by object identity, with a weak reference as the validity
+    # token: valid while the caller holds the same posterior object, which
+    # is exactly the per-t loop's lifetime. See `_PosteriorCache`.
+    _spectral_cache: _PosteriorCache = PrivateAttr(default_factory=_PosteriorCache)
 
     @model_validator(mode="after")
     def _validate_band(self) -> "MaxShare":
@@ -1292,8 +1296,9 @@ class MaxShare(ImpulsoModel):
         `x_w` is the target's row of the transfer function, obtained from
         the single batched solve `F(w)' x = e_target` (a plain transpose,
         not a conjugate one: `x' = e_target' F^-1`). Because `K` does not
-        involve `L`, the whole loop is memoised on
-        `(id(posterior), n_lags, target_index)` — see `_spectral_cache`.
+        involve `L`, the whole loop is memoised on the posterior's identity
+        plus `(n_lags, target_index)` — see `_spectral_cache` and
+        `_PosteriorCache`.
 
         Returns:
             Tuple `(K, bad, rho, condition)`: the real symmetric
@@ -1302,9 +1307,9 @@ class MaxShare(ImpulsoModel):
             companion spectral radii; and the worst in-band condition
             number, the last three all `(C, D)`.
         """
-        cache_key = (id(posterior), n_lags, target_index)
-        if self._spectral_cache is not None and self._spectral_cache[0] == cache_key:
-            return self._spectral_cache[1]
+        cached = self._spectral_cache.get(posterior, (n_lags, target_index))
+        if cached is not _CACHE_MISS:
+            return cached
 
         A = lag_matrices(posterior["B"].values, n_lags)
         rho = companion_spectral_radius(A)
@@ -1336,7 +1341,7 @@ class MaxShare(ImpulsoModel):
 
         self._report(bad, rho > 1.0)
         result = (K, bad, rho, condition_max)
-        self._spectral_cache = (cache_key, result)
+        self._spectral_cache.set(posterior, (n_lags, target_index), result)
         return result
 
     def _frequencies(self) -> np.ndarray:
