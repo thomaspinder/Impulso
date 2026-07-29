@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         DynamicMultiplierResult,
         FEVDResult,
         ForecastResult,
+        GrangerCausalityResult,
         HDIResult,
         HistoricalDecompositionResult,
         IntegrationOrderResult,
@@ -63,6 +64,7 @@ __all__ = [
     "FittedVAR",
     "ForecastResult",
     "Gaussian",
+    "GrangerCausalityResult",
     "HDIResult",
     "HistoricalDecompositionResult",
     "IRFResult",
@@ -145,6 +147,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "StudentT": "impulso.observation",
     "ErrorDistribution": "impulso.protocols",
     "VolatilityProcess": "impulso.protocols",
+    "GrangerCausalityResult": "impulso.results",
     "compute_ma_phi": "impulso._ma",
     "lag_matrices": "impulso._linalg",
 }

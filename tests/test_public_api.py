@@ -121,6 +121,24 @@ class TestRuntimeChecks:
         assert "VIOLATION_CAUGHT" in result.stdout, result.stdout
 
 
+class TestGrangerPublicAPI:
+    def test_granger_causality_result_importable(self):
+        from impulso import GrangerCausalityResult
+        from impulso.results import GrangerCausalityResult as direct
+
+        assert GrangerCausalityResult is direct
+
+    def test_granger_names_in_all(self):
+        import impulso
+
+        assert "GrangerCausalityResult" in impulso.__all__
+
+    def test_granger_causality_is_a_fitted_var_method(self):
+        from impulso.fitted import FittedVAR
+
+        assert callable(FittedVAR.granger_causality)
+
+
 class TestVolatilityPublicAPI:
     def test_constant_importable_from_impulso(self):
         from impulso import Constant
