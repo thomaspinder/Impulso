@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from impulso.conjugate_volatility import ConjugateVolatility, PandemicBreak
     from impulso.evidence import EvidenceComparison, ModelEvidence, compare_evidence
     from impulso.fitted import FittedVAR
-    from impulso.identification import Cholesky, LongRunRestriction, ProxySVAR, SignRestriction
+    from impulso.identification import Cholesky, LongRunRestriction, ProxySVAR, SignRestriction, ZeroSignRestriction
     from impulso.identified import IdentifiedVAR
     from impulso.observation import Gaussian, StudentT
     from impulso.priors import MinnesotaPrior, NIWPrior
@@ -89,6 +89,7 @@ __all__ = [
     "VariablePath",
     "VolatilityProcess",
     "VolatilityResult",
+    "ZeroSignRestriction",
     "adf_test",
     "compare_evidence",
     "compute_ma_phi",
@@ -108,6 +109,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "LongRunRestriction": "impulso.identification",
     "ProxySVAR": "impulso.identification",
     "SignRestriction": "impulso.identification",
+    "ZeroSignRestriction": "impulso.identification",
     "MinnesotaPrior": "impulso.priors",
     "NIWPrior": "impulso.priors",
     "ConjugateVAR": "impulso.conjugate",
