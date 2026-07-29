@@ -27,8 +27,7 @@ if TYPE_CHECKING:
     from impulso.identified import IdentifiedVAR
     from impulso.observation import Gaussian, StudentT
     from impulso.priors import MinnesotaPrior, NIWPrior
-    from impulso.protocols import ErrorDistribution, VolatilityProcess
-    from impulso.protocols import DeterministicTerm, VolatilityProcess
+    from impulso.protocols import DeterministicTerm, ErrorDistribution, VolatilityProcess
     from impulso.results import (
         CointegrationTestResult,
         ConditionalForecastResult,
@@ -73,8 +72,8 @@ __all__ = [
     "FittedSV",
     "FittedVAR",
     "ForecastResult",
-    "Gaussian",
     "Fourier",
+    "Gaussian",
     "HDIResult",
     "HistoricalDecompositionResult",
     "IRFResult",

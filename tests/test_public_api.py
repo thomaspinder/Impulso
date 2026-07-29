@@ -197,6 +197,8 @@ class TestIdentificationPublicAPI:
         import impulso
 
         assert "LongRunRestriction" in impulso.__all__
+
+
 class TestDeterministicPublicAPI:
     def test_design_and_terms_importable_from_impulso(self):
         import impulso

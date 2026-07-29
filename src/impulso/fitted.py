@@ -152,6 +152,7 @@ class FittedVAR(ImpulsoBaseModel):
         inflation = np.asarray(inflation)
         extra_dims = sigma.ndim - inflation.ndim
         return sigma * inflation.reshape(inflation.shape + (1,) * extra_dims)
+
     def _resolve_exog_future(self, exog_future: np.ndarray | None, steps: int) -> np.ndarray | None:
         """Validate a future exogenous block against the fitted posterior.
 

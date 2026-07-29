@@ -500,6 +500,8 @@ class TestInnovationCovariance:
         ratios = np.diagonal(actual, axis1=-2, axis2=-1) / np.diagonal(sigma, axis1=-2, axis2=-1)
         np.testing.assert_allclose(ratios[0, 0], 2.0)
         np.testing.assert_allclose(ratios[0, 1], 1.5)
+
+
 class TestForecastExogValidation:
     """`forecast` validates the future exogenous block before propagating it.
 
