@@ -283,6 +283,14 @@ class StochasticVolatility(ImpulsoBaseModel):
         hyperparameters directly from the full posterior.  The correlation
         Cholesky ``R_chol`` is held constant (Clark-style assumption).
 
+        The extrapolation reproduces the *same* composition
+        ``build_pymc_latent`` used in sample: when the dynamics carries no
+        intrinsic level (``has_explicit_level`` is False, i.e. random walk)
+        the per-variable level ``v{i}_mu`` is added back on, because
+        ``forecast_log_vol`` only extrapolates the level-free ``v{i}_h``.
+        Omitting it scales every forecast standard deviation by
+        ``exp(-mu_i / 2)`` while leaving the in-sample fit untouched (#241).
+
         Args:
             posterior: Dataset with per-variable log-vol paths (`h`)
                 and `R_chol`.
@@ -301,10 +309,13 @@ class StochasticVolatility(ImpulsoBaseModel):
 
         h_forecast = np.zeros((n_chains, n_draws, steps, n_vars))
         for i in range(n_vars):
-            h_forecast[:, :, :, i] = dynamics.forecast_log_vol(
-                posterior,
-                steps,
-                rng,
-                name_prefix=f"v{i}_",
-            )
+            prefix = f"v{i}_"
+            h_i = dynamics.forecast_log_vol(posterior, steps, rng, name_prefix=prefix)
+            if not dynamics.has_explicit_level:
+                # `build_pymc_latent` composed the in-sample path as
+                # `v{i}_h + v{i}_mu`, but `forecast_log_vol` extrapolates
+                # `v{i}_h` alone. Re-apply the level, or the forecast bands
+                # come out at exp(-mu_i / 2) times the in-sample ones (#241).
+                h_i = h_i + posterior[f"{prefix}mu"].values[..., None]
+            h_forecast[:, :, :, i] = h_i
         return self._clark_reconstruct(h_forecast, R_chol)

@@ -290,13 +290,25 @@ def synthetic_sv_idata_2v():
     """Synthetic InferenceData mimicking a fitted multivariate SV model.
 
     Shape: 2 chains, 50 draws, T=20, n_vars=2.
-    Contains: h (2, 50, 20, 2), R_chol (2, 50, 2, 2), v0_mu, v1_mu,
-    v0_sigma_eta, v1_sigma_eta.
+    Contains: h (2, 50, 20, 2), R_chol (2, 50, 2, 2), v0_h, v1_h, v0_mu,
+    v1_mu, v0_sigma_eta, v1_sigma_eta.
+
+    Respects the composition `build_pymc_latent` actually registers under
+    random-walk dynamics: `h[..., i] == v{i}_h + v{i}_mu`, with `v{i}_h`
+    the level-free path and `v{i}_mu` a nonzero per-variable level. An
+    earlier version of this fixture set `v{i}_h = h[..., i]` *and* a
+    nonzero `v{i}_mu`, which asserts `mu_i == 0` — the exact assumption
+    the #241 forecast bug made, so every test built on it was blind to
+    the whole family of level bugs.
     """
     rng = np.random.default_rng(0)
     n_chains, n_draws, T, n_vars = 2, 50, 20, 2
 
-    h = rng.standard_normal((n_chains, n_draws, T, n_vars)) * 0.3 - 1.0
+    # Level-free per-variable RW paths and their separate levels.
+    v_h = rng.standard_normal((n_chains, n_draws, T, n_vars)) * 0.3
+    v_mu = rng.standard_normal((n_chains, n_draws, n_vars)) - 1.0
+    # The invariant: the stacked in-sample log-vol is path + level.
+    h = v_h + v_mu[:, :, None, :]
 
     R_chol = np.zeros((n_chains, n_draws, n_vars, n_vars))
     for c in range(n_chains):
@@ -309,10 +321,10 @@ def synthetic_sv_idata_2v():
     posterior = xr.Dataset({
         "h": (("chain", "draw", "time", "variable"), h),
         "R_chol": (("chain", "draw", "i", "j"), R_chol),
-        "v0_h": (("chain", "draw", "time"), h[:, :, :, 0]),
-        "v1_h": (("chain", "draw", "time"), h[:, :, :, 1]),
-        "v0_mu": (("chain", "draw"), rng.standard_normal((n_chains, n_draws))),
-        "v1_mu": (("chain", "draw"), rng.standard_normal((n_chains, n_draws))),
+        "v0_h": (("chain", "draw", "time"), v_h[:, :, :, 0]),
+        "v1_h": (("chain", "draw", "time"), v_h[:, :, :, 1]),
+        "v0_mu": (("chain", "draw"), v_mu[:, :, 0]),
+        "v1_mu": (("chain", "draw"), v_mu[:, :, 1]),
         "v0_sigma_eta": (("chain", "draw"), np.abs(rng.standard_normal((n_chains, n_draws)))),
         "v1_sigma_eta": (("chain", "draw"), np.abs(rng.standard_normal((n_chains, n_draws)))),
     })
