@@ -893,6 +893,8 @@ class TestLongRunRestrictionMultipleLags:
         scheme = LongRunRestriction(ordering=["y1"], shock_names=["permanent"])
         with pytest.raises(ValueError, match="cover every variable"):
             scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=2)
+
+
 # ----------------------------------------------------------------------
 # MaxShare — frequency-band maximum-share identification (issue #145)
 # ----------------------------------------------------------------------

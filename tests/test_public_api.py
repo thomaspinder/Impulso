@@ -197,6 +197,7 @@ class TestIdentificationPublicAPI:
         import impulso
 
         assert "LongRunRestriction" in impulso.__all__
+
     def test_max_share_importable_from_impulso(self):
         from impulso import MaxShare
         from impulso.identification import MaxShare as Direct
