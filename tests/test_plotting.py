@@ -172,6 +172,42 @@ def test_plot_volatility_returns_figure(synthetic_sv_idata):
     assert isinstance(fig, Figure)
 
 
+def test_plot_pool_weights_returns_figure():
+    """Smoke test: the pool bar chart renders from a hand-built pool."""
+    import pandas as pd
+    from matplotlib.figure import Figure
+
+    from impulso.plotting import plot_pool_weights
+    from impulso.pooling import PredictivePool
+
+    labels = ["a", "b"]
+    index = pd.DatetimeIndex(pd.date_range("2020-01-01", periods=3, freq="QS"), name="time")
+    log_scores = pd.DataFrame([[-1.0, -2.0], [-1.5, -2.5], [-0.5, -3.0]], index=index, columns=labels)
+    draws = np.zeros((4, 3, 2))
+    da = xr.DataArray(
+        draws[np.newaxis],
+        dims=["chain", "draw", "step", "variable"],
+        coords={"variable": ["y1", "y2"], "model": ("draw", np.array(["a", "a", "b", "b"], dtype=object))},
+        name="forecast",
+    )
+    pool = PredictivePool(
+        weights=pd.Series([0.7, 0.3], index=labels),
+        log_scores=log_scores,
+        method="stacking",
+        density="gaussian",
+        var_names=["y1", "y2"],
+        steps=3,
+        origin=pd.Timestamp("2019-10-01"),
+        holdout_predictive=ForecastResult(
+            idata=az.InferenceData(posterior_predictive=xr.Dataset({"forecast": da})),
+            steps=3,
+            var_names=["y1", "y2"],
+        ),
+        membership=np.array([0, 0, 1, 1]),
+    )
+    assert isinstance(plot_pool_weights(pool), Figure)
+
+
 def _make_sv_forecast_result(steps=12, index=None):
     from impulso.results import SVForecastResult
 

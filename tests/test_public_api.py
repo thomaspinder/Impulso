@@ -159,3 +159,34 @@ class TestEvidencePublicAPI:
         assert "ModelEvidence" in impulso.__all__
         assert "EvidenceComparison" in impulso.__all__
         assert "compare_evidence" in impulso.__all__
+
+
+class TestPoolingPublicAPI:
+    def test_predictive_pool_importable_from_impulso(self):
+        from impulso import PredictivePool
+        from impulso.pooling import PredictivePool as DirectPredictivePool
+
+        assert PredictivePool is DirectPredictivePool
+
+    def test_pool_forecasts_importable_from_impulso(self):
+        from impulso import pool_forecasts
+        from impulso.pooling import pool_forecasts as direct_pool_forecasts
+
+        assert pool_forecasts is direct_pool_forecasts
+
+    def test_pooling_names_in_all(self):
+        import impulso
+
+        assert "PredictivePool" in impulso.__all__
+        assert "pool_forecasts" in impulso.__all__
+
+    def test_every_exported_name_resolves(self):
+        import impulso
+
+        for name in impulso.__all__:
+            assert getattr(impulso, name) is not None
+
+    def test_plot_pool_weights_exported(self):
+        import impulso.plotting
+
+        assert "plot_pool_weights" in impulso.plotting.__all__
