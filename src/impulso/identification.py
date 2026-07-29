@@ -1,7 +1,6 @@
 """Identification schemes for structural VAR analysis."""
 
 import weakref
-
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
