@@ -11,6 +11,7 @@ spec
 priors
 conjugate
 volatility
+observation
 samplers
 fitted
 identified
