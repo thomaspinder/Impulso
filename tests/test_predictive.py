@@ -8,6 +8,7 @@ import matplotlib
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import stats
 
 matplotlib.use("Agg")
 
@@ -312,15 +313,16 @@ class TestPredictiveAgainstPyMC:
 
     @pytest.mark.slow
     def test_matches_sample_posterior_predictive(self, var_data_2v_correlated):
-        """Moment agreement with `pm.sample_posterior_predictive` on a real fit.
+        """Distributional agreement with `pm.sample_posterior_predictive` on a real fit.
 
         Both routes reuse the same posterior draws, so the conditional
         means are identical by construction and only the innovation law
         can differ. The comparison is therefore stated on the innovations:
         per-(time, var) means in Monte Carlo standard-error units (a
-        fixed atol would depend on the DGP's scale) plus the pooled
+        fixed atol would depend on the DGP's scale), the pooled
         innovation covariance, which a transposed or mis-scaled Cholesky
-        breaks immediately.
+        breaks immediately, and — issue #232 — the shape of the pooled
+        standardised innovations, which the first two moments cannot see.
 
         The fixture's shocks are strongly cross-correlated on purpose: with
         a near-diagonal Sigma, `L` and `L.T` produce nearly the same
@@ -350,9 +352,12 @@ class TestPredictiveAgainstPyMC:
 
         assert ours.shape == theirs.shape
 
-        mu = fitted_values(fitted.idata.posterior, data, 1)
-        ours_innov = (ours - mu).reshape(-1, 2)
-        theirs_innov = (theirs - mu).reshape(-1, 2)
+        posterior = fitted.idata.posterior
+        mu = fitted_values(posterior, data, 1)
+        ours_resid = ours - mu  # (C, D, T, n)
+        theirs_resid = theirs - mu
+        ours_innov = ours_resid.reshape(-1, 2)
+        theirs_innov = theirs_resid.reshape(-1, 2)
 
         # Per-(time, var) means, normalised by the Monte Carlo standard
         # error of the difference (sigma * sqrt(2 / draws)). 398 cells, so
@@ -368,6 +373,41 @@ class TestPredictiveAgainstPyMC:
             theirs_cov,
             atol=0.05 * np.abs(theirs_cov).max(),
         )
+
+        # --- shape (issue #232) ------------------------------------------
+        # Everything above is first- and second-moment only, so a Student-t
+        # observation likelihood rescaled to matched variance would pass it
+        # untouched (variances agree to ~0.1%; only the tails separate).
+        # Standardising by each draw's own L is an invertible per-draw map
+        # applied identically to both samples, so it can neither create nor
+        # mask a difference — but it removes the across-draw scale mixture
+        # that would otherwise put excess kurtosis in *both* pools and
+        # swamp the signal. Pooled over (chain, draw, time) each sample is
+        # then iid standard normal under the null.
+        L = posterior["L"].values  # (C, D, n, n)
+        ours_eps = np.linalg.solve(L[:, :, np.newaxis, :, :], ours_resid[..., np.newaxis])[..., 0].reshape(-1, 2)
+        theirs_eps = np.linalg.solve(L[:, :, np.newaxis, :, :], theirs_resid[..., np.newaxis])[..., 0].reshape(-1, 2)
+
+        # Excess kurtosis of N iid normals has SE = sqrt(24 / N), so the
+        # difference of two independent pools has SE = sqrt(48 / N).
+        # N = 1 * 400 * 199 = 79_600 gives SE ~ 0.0247, and 6 sigma plus a
+        # 0.02 slack is ~0.167. Measured: |delta| <= 0.077 over 200 null
+        # replications (~1e-11 flake budget at the bound), against >= 1.56
+        # for a t(7) pool rescaled to unit variance — a 10x margin.
+        n_pooled = ours_eps.shape[0]
+        kurt_tol = 6.0 * np.sqrt(48.0 / n_pooled) + 0.02
+        for i, name in enumerate(data.endog_names):
+            ours_k = stats.kurtosis(ours_eps[:, i], fisher=True, bias=False)
+            theirs_k = stats.kurtosis(theirs_eps[:, i], fisher=True, bias=False)
+            assert abs(ours_k - theirs_k) < kurt_tol, f"{name}: excess kurtosis {ours_k:.4f} vs {theirs_k:.4f}"
+
+            # The fourth moment alone is blind to shape changes that keep
+            # it (a skewed or mixture innovation law); the two-sample KS
+            # statistic is not, and it costs a sort. p is uniform under the
+            # null, so 1e-6 is a 1e-6 flake budget per variable; the t(7)
+            # alternative lands at p ~ 1e-20.
+            ks_p = stats.ks_2samp(ours_eps[:, i], theirs_eps[:, i]).pvalue
+            assert ks_p > 1e-6, f"{name}: standardised innovations differ in distribution (KS p={ks_p:.3e})"
 
     @pytest.mark.slow
     def test_observed_falls_within_the_posterior_band(self, var_data_2v):
