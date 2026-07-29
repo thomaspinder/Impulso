@@ -117,8 +117,9 @@ cointegrated, and the cointegrating relationship is the physically meaningful
 part.
 
 ```python
-from impulso import johansen_test
+from impulso import select_lag_order, johansen_test
 
+p = select_lag_order(data, max_lags=8).bic
 result = johansen_test(data, det_order=0, k_ar_diff=p - 1)
 result.rank
 ```

@@ -563,6 +563,30 @@ def test_kpss_flags_bounded_pvalue_without_leaking_a_warning(i2_series):
     assert row["pvalue"] == pytest.approx(0.01)
 
 
+def test_kpss_reemits_warnings_it_did_not_ask_for(monkeypatch, stationary_series):
+    """Only the interpolation warning is absorbed; anything else reaches the caller."""
+    import statsmodels.tsa.stattools as stattools
+    from statsmodels.tools.sm_exceptions import InterpolationWarning
+
+    def fake_kpss(x, regression="c", nlags="auto"):
+        warnings.warn("p-value is smaller than the indicated p-value", InterpolationWarning, stacklevel=2)
+        warnings.warn("invalid value encountered in scalar divide", RuntimeWarning, stacklevel=2)
+        return 1.5, 0.01, 7, {"10%": 0.347, "5%": 0.463, "2.5%": 0.574, "1%": 0.739}
+
+    monkeypatch.setattr(stattools, "kpss", fake_kpss)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = kpss_test(stationary_series)
+
+    assert not any(issubclass(w.category, InterpolationWarning) for w in caught)
+    escaped = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+    assert len(escaped) == 1
+    assert str(escaped[0].message) == "invalid value encountered in scalar divide"
+    # Absorbing the interpolation warning is what the column is for.
+    assert bool(result.table.loc["ar1", "pvalue_bounded"])
+
+
 def test_integration_order_does_not_leak_warnings(mixed_frame):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
