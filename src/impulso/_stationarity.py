@@ -187,12 +187,24 @@ def _kpss_single(
     alpha = 0.01 and always rejects above 0.10. Comparing against the
     critical value is the published test, and agrees with the p-value rule
     everywhere inside that range.
+
+    The clip is detected by catching statsmodels' `InterpolationWarning`, which
+    is absorbed into `pvalue_bounded`. Every other warning raised inside the
+    call is re-emitted unchanged, so nothing else is hidden from the caller.
     """
     kpss, interpolation_warning = _kpss()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         stat, pvalue, used_lag, crit = kpss(x, regression=regression, nlags=nlags)
     bounded = any(issubclass(w.category, interpolation_warning) for w in caught)
+    # The interpolation warning is the only one we absorb — it is reported as
+    # `pvalue_bounded` instead. Anything else statsmodels raised is the
+    # caller's business, so re-emit it outside the recorder with its original
+    # category, message, and provenance (the statsmodels file and line that
+    # raised it), which keeps module-scoped warning filters working.
+    for w in caught:
+        if not issubclass(w.category, interpolation_warning):
+            warnings.warn_explicit(w.message, w.category, w.filename, w.lineno, source=w.source)
     reject = bool(stat > crit[_KPSS_CRIT_KEY[alpha]])
     return {
         "statistic": float(stat),
