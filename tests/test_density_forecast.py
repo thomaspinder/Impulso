@@ -98,6 +98,35 @@ class TestMeanModeRegressionPin:
         np.testing.assert_allclose(hdi.upper.values, expected_upper, rtol=1e-4)
 
 
+class TestDensityModeRegressionPin:
+    """Regression pins: Gaussian *density*-mode values captured BEFORE any change.
+
+    Sentinel for two things at once: that Gaussian models retain their current
+    numbers, and that the RNG stream order inside `forecast` is unchanged. Any
+    reordering of generator consumption (e.g. drawing a mixing variable before
+    the standard normals) shifts every value here.
+    """
+
+    def test_gaussian_density_median_pinned(self, fitted_constant):
+        result = fitted_constant.forecast(steps=5, seed=42)
+        med = result.median()
+        expected = np.array([
+            [0.227643, -0.153848],
+            [0.225367, -0.112458],
+            [0.064284, -0.138994],
+            [0.136689, -0.202966],
+            [0.180533, -0.039111],
+        ])
+        np.testing.assert_allclose(med.values, expected, rtol=1e-4)
+
+    def test_gaussian_density_first_draw_pinned(self, fitted_constant):
+        """Bit-level sentinel on the first consumed innovation."""
+        result = fitted_constant.forecast(steps=5, seed=42)
+        draws = result.idata.posterior_predictive["forecast"].values
+        assert draws.shape == (2, 50, 5, 2)
+        np.testing.assert_allclose(draws[0, 0, 0, :], [0.38093296, -0.79446185], rtol=1e-7)
+
+
 class TestDensityMode:
     """Density mode (include_shock_uncertainty=True, default) draws shocks."""
 
