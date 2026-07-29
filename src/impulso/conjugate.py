@@ -87,7 +87,12 @@ class ConjugateVAR(ImpulsoBaseModel):
             all with a singleton ``chain`` dimension. The posterior's attrs
             carry `in_sample_length` (observations after lag trimming) so
             volatility adapters can anchor forecast paths at the true sample
-            end.
+            end, and — only when at least one hyperparameter was estimated —
+            `metropolis_acceptance_rate`, the acceptance rate of the
+            random-walk Metropolis sampler over the retained draws. On the
+            fixed-prior fast path no Metropolis chain runs (draws come
+            straight from the closed-form posterior), so the attr is absent
+            rather than stamped with a meaningless 1.0.
 
         Raises:
             ValueError: If `data` carries exogenous regressors — the
@@ -128,6 +133,12 @@ class ConjugateVAR(ImpulsoBaseModel):
         # Volatility adapters anchor forecast scale paths at the true sample
         # end (see ConjugateVolatility.forecast_cholesky_path).
         posterior.attrs["in_sample_length"] = data.endog.shape[0] - self.lags
+        # Hyperparameter-sampler quality signal for convergence reporting. Only
+        # meaningful when the Metropolis chain actually ran: with no free
+        # hyperparameters `select_and_sample` takes the closed-form fast path and
+        # returns a placeholder rate of 1.0, so leave the attr off entirely there.
+        if result["hyperparameters"]:
+            posterior.attrs["metropolis_acceptance_rate"] = float(result["acceptance_rate"])
         idata = az.InferenceData(posterior=posterior)
         volatility = self.volatility if self.volatility is not None else Constant()
 
