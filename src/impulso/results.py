@@ -11,7 +11,10 @@ from matplotlib.figure import Figure
 from pydantic import Field, model_validator
 
 from impulso._base import ImpulsoBaseModel
-from impulso.scenario import ShockPath, VariablePath
+from impulso.scenario import MomentTarget, ProbabilityTarget, ShockPath, VariablePath
+
+# Targets accepted by the tilting entry points.
+Target = ProbabilityTarget | MomentTarget
 
 
 def _wide_frame(da: xr.DataArray, row_dim: str, col_dim: str = "shock") -> pd.DataFrame:
@@ -159,6 +162,30 @@ class ForecastResult(VARResultBase):
         from impulso.plotting import plot_forecast
 
         return plot_forecast(self)
+
+    def tilt(self, targets: list[Target], ess_warn_fraction: float = 0.1) -> "TiltedForecastResult":
+        """Reweight these draws to satisfy distributional targets (entropic tilting).
+
+        See `TiltedForecastResult` for what comes back and
+        `ADR-0009` for why this is a post-hoc reweighting layer rather
+        than a re-solve.
+
+        Args:
+            targets: `ProbabilityTarget` / `MomentTarget` list.
+            ess_warn_fraction: Warn when the effective sample size falls
+                below this fraction of the draw count. Default 0.1.
+
+        Returns:
+            TiltedForecastResult carrying these draws by reference plus
+            the tilting weights and diagnostics.
+
+        Raises:
+            ValueError: If this is a mean forecast, or if the targets are
+                unachievable by reweighting these draws.
+        """
+        from impulso._tilting import tilt_result
+
+        return tilt_result(self, list(targets), ess_warn_fraction)
 
 
 class IRFResult(VARResultBase):
@@ -475,6 +502,31 @@ class ConditionalForecastResult(VARResultBase):
 
         return plot_conditional_forecast(self)
 
+    def tilt(self, targets: list[Target], ess_warn_fraction: float = 0.1) -> "TiltedForecastResult":
+        """Reweight these draws to satisfy distributional targets (entropic tilting).
+
+        Chaining hard conditioning with soft targets is the supported way
+        to mix them: the pins hold pathwise on *every* draw here, and
+        reweighting never moves a draw, so the pins survive the tilt
+        exactly — a theorem, not a code path.
+
+        Args:
+            targets: `ProbabilityTarget` / `MomentTarget` list.
+            ess_warn_fraction: Warn when the effective sample size falls
+                below this fraction of the draw count. Default 0.1.
+
+        Returns:
+            TiltedForecastResult carrying these draws by reference plus
+            the tilting weights and diagnostics.
+
+        Raises:
+            ValueError: If this is a mean forecast, or if the targets are
+                unachievable by reweighting these draws.
+        """
+        from impulso._tilting import tilt_result
+
+        return tilt_result(self, list(targets), ess_warn_fraction)
+
 
 class ScenarioResult(ConditionalForecastResult):
     """Result from structural scenario analysis.
@@ -502,6 +554,199 @@ class ScenarioResult(ConditionalForecastResult):
         from impulso.plotting import plot_structural_scenario
 
         return plot_structural_scenario(self)
+
+
+class _WeightedResultMixin:
+    """Shared weighted summaries for tilting-derived results.
+
+    Both tilted forecasts and reverse-stress results summarise the same
+    `"forecast"` draws under a `"tilting_weights"` variable, so the
+    weighted median / HDI / DataFrame surface is written once here.
+    """
+
+    def _weights_flat(self) -> np.ndarray:
+        """Normalised tilting weights flattened over `(chain, draw)`."""
+        return self.idata.posterior_predictive["tilting_weights"].values.ravel()
+
+    def _forecast_flat(self) -> np.ndarray:
+        """Forecast draws reshaped to `(N, steps, n_vars)`."""
+        da = self.idata.posterior_predictive["forecast"]
+        n_chains, n_draws = da.shape[:2]
+        return da.values.reshape(n_chains * n_draws, *da.shape[2:])
+
+    @property
+    def weights(self) -> np.ndarray:
+        """Tilting weights, shape `(chain, draw)`, summing to 1."""
+        return self.idata.posterior_predictive["tilting_weights"].values
+
+    def median(self) -> pd.DataFrame:
+        """Weighted posterior median forecast (step-indexed)."""
+        from impulso._tilting import weighted_quantile
+
+        med = weighted_quantile(self._forecast_flat(), self._weights_flat(), 0.5)
+        df = pd.DataFrame(np.asarray(med), columns=self.var_names)
+        df.index.name = "step"
+        return df
+
+    def base_median(self) -> pd.DataFrame:
+        """Untilted posterior median, for comparison against `median()`."""
+        med = self.idata.posterior_predictive["forecast"].median(dim=("chain", "draw")).values
+        df = pd.DataFrame(med, columns=self.var_names)
+        df.index.name = "step"
+        return df
+
+    def hdi(self, prob: float = 0.89) -> HDIResult:
+        """Weighted highest-density interval for the forecast.
+
+        Args:
+            prob: Probability mass for the HDI. Default 0.89.
+
+        Returns:
+            HDIResult whose `lower` / `upper` DataFrames mirror `median()`.
+        """
+        from impulso._tilting import weighted_hdi
+
+        lower, upper = weighted_hdi(self._forecast_flat(), self._weights_flat(), prob)
+        return HDIResult(
+            lower=pd.DataFrame(lower, columns=self.var_names),
+            upper=pd.DataFrame(upper, columns=self.var_names),
+            prob=prob,
+        )
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Weighted posterior median as a DataFrame (passthrough to `median()`)."""
+        return self.median()
+
+
+class TiltedForecastResult(_WeightedResultMixin, VARResultBase):
+    """Forecast draws reweighted by entropic tilting (ADR-0009).
+
+    The posterior-predictive Dataset carries `"forecast"` — the parent
+    result's draws, held by reference, never copied or moved — plus
+    `"tilting_weights"` `(chain, draw)` and the per-target
+    `"requested"` / `"achieved"` / `"event_draws"` vectors over a
+    `target` coordinate. Dataset attrs hold `ess`, `ess_fraction`, and
+    `kl_divergence`.
+
+    Every summary on this object is weighted: `median()` and `hdi()`
+    read the tilted distribution, while `base_median()` returns the
+    untilted median so the two can be compared directly.
+
+    Attributes:
+        idata: InferenceData with the parent draws and the weights.
+        steps: Number of forecast steps.
+        var_names: Names of forecasted variables.
+        targets: The targets echoed from the call.
+    """
+
+    steps: int
+    var_names: list[str]
+    targets: list[Target] = Field(default_factory=list, repr=False)
+
+    def summary(self) -> dict[str, object]:
+        """Diagnostics and per-target achievement.
+
+        Returns:
+            Dict with `ess`, `ess_fraction`, `kl_divergence`, `n_draws`,
+            and a `targets` list of per-target dicts holding `target`,
+            `requested`, `achieved`, and `draws_in_event` (`None` for
+            moment targets).
+        """
+        pp = self.idata.posterior_predictive
+        rows = []
+        for k, label in enumerate(pp["target"].values.tolist()):
+            count = float(pp["event_draws"].values[k])
+            rows.append({
+                "target": label,
+                "requested": float(pp["requested"].values[k]),
+                "achieved": float(pp["achieved"].values[k]),
+                "draws_in_event": None if np.isnan(count) else int(count),
+            })
+        return {
+            "ess": float(pp.attrs["ess"]),
+            "ess_fraction": float(pp.attrs["ess_fraction"]),
+            "kl_divergence": float(pp.attrs["kl_divergence"]),
+            "n_draws": int(pp["tilting_weights"].size),
+            "targets": rows,
+        }
+
+    def plot(self) -> Figure:
+        """Plot the tilted fan chart against the untilted median."""
+        from impulso.plotting import plot_tilted_forecast
+
+        return plot_tilted_forecast(self)
+
+
+class ReverseStressResult(_WeightedResultMixin, VARResultBase):
+    """Shock cocktail behind a stress event, from reverse stress testing.
+
+    The posterior-predictive Dataset carries `"forecast"`
+    (chain, draw, step, variable), the structural shocks that generated
+    those draws (`"structural_shocks"`, chain, draw, step, shock), the
+    `"tilting_weights"` that condition on the event, and the
+    `"shock_cocktail"` (step, shock) — the tilted-weighted mean of the
+    retained structural shocks, in one-standard-deviation units. Dataset
+    attrs hold `baseline_probability`, `achieved_probability`, `ess`,
+    `ess_fraction`, `kl_divergence`, `q`, and `q_cal`.
+
+    Attributes:
+        idata: InferenceData with the draws, weights, and cocktail.
+        steps: Number of forecast steps.
+        var_names: Names of forecasted variables.
+        shock_names: Structural shock coordinate labels.
+        variable: The stressed variable.
+        threshold: The stress threshold, in the variable's units.
+        horizon: The 1-based forecast step the event refers to.
+        direction: `"below"` or `"above"`.
+        probability: Requested probability of the stress event.
+    """
+
+    steps: int
+    var_names: list[str]
+    shock_names: list[str]
+    variable: str
+    threshold: float
+    horizon: int
+    direction: Literal["below", "above"] = "below"
+    probability: float = 1.0
+
+    def shock_cocktail(self) -> pd.DataFrame:
+        """The shock cocktail as a step-indexed DataFrame.
+
+        Returns:
+            DataFrame indexed by forecast step (1-based) with one column
+            per structural shock, in one-standard-deviation units.
+        """
+        da = self.idata.posterior_predictive["shock_cocktail"]
+        df = pd.DataFrame(da.values, columns=self.shock_names, index=pd.RangeIndex(1, self.steps + 1, name="step"))
+        return df
+
+    def summary(self) -> dict[str, float]:
+        """Event probabilities, tilt diagnostics, and cocktail plausibility.
+
+        Returns:
+            Dict with `baseline_probability`, `requested_probability`,
+            `achieved_probability`, `ess`, `ess_fraction`,
+            `kl_divergence`, `n_draws`, `q`, and `q_cal`.
+        """
+        pp = self.idata.posterior_predictive
+        return {
+            "baseline_probability": float(pp.attrs["baseline_probability"]),
+            "requested_probability": float(self.probability),
+            "achieved_probability": float(pp.attrs["achieved_probability"]),
+            "ess": float(pp.attrs["ess"]),
+            "ess_fraction": float(pp.attrs["ess_fraction"]),
+            "kl_divergence": float(pp.attrs["kl_divergence"]),
+            "n_draws": int(pp["tilting_weights"].size),
+            "q": float(pp.attrs["q"]),
+            "q_cal": float(pp.attrs["q_cal"]),
+        }
+
+    def plot(self) -> Figure:
+        """Plot the stressed variable's tilted fan and the shock cocktail."""
+        from impulso.plotting import plot_reverse_stress
+
+        return plot_reverse_stress(self)
 
 
 class CounterfactualResult(VARResultBase):
