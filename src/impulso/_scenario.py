@@ -22,6 +22,40 @@ if TYPE_CHECKING:
     from impulso.scenario import ShockPath, VariablePath
 
 
+def _require_finite_shock_matrix(P: np.ndarray) -> None:
+    """Reject `NaN` structural shock matrices at the engines' entry seam.
+
+    Both engines are linear solves in `P`: the in-sample one inverts it
+    (`eps_t = P_t⁻¹ u_t`, which silently yields an all-`NaN`
+    counterfactual), the forecast one takes the numerical rank of
+    constraint rows built from it (which dies inside LAPACK as `SVD did
+    not converge`). Neither failure names the cause, so the check runs
+    once where the matrix enters — `structural_shock_context` for
+    `counterfactual`, `_forecast_shock_matrices` for
+    `structural_scenario`.
+
+    Args:
+        P: Structural shock matrices, `(C, D, ..., n, n)`. The leading two
+            axes are chain and draw.
+
+    Raises:
+        ValueError: If any draw carries a `NaN`.
+    """
+    nan_mask = np.isnan(P)
+    if not nan_mask.any():
+        return
+    bad = nan_mask.reshape(P.shape[0], P.shape[1], -1).any(axis=-1)
+    raise ValueError(
+        f"The structural shock matrix is NaN for {int(bad.sum())}/{bad.size} posterior draws, "
+        "and scenario analysis needs a finite P on every draw (its solves would otherwise fail "
+        "opaquely inside LAPACK or return all-NaN paths). The usual cause is an identification "
+        "scheme running with on_undefined='nan', which blanks the draws where its restrictions "
+        "leave the shock matrix undefined — e.g. LongRunRestriction on a draw whose long-run "
+        "multiplier C(1) is numerically singular. Re-identify with on_undefined='raise' to catch "
+        "those draws at identification time, where the diagnostics say how many there are and why."
+    )
+
+
 def structural_shock_context(identified: IdentifiedVAR) -> tuple[np.ndarray, np.ndarray, bool]:
     """Realised structural shocks and the matrices mapping them to residuals.
 
@@ -38,16 +72,19 @@ def structural_shock_context(identified: IdentifiedVAR) -> tuple[np.ndarray, np.
         Tuple `(P, eps, per_t)`: `P` has shape `(C, D, T, n, n)` when
         `per_t` else `(C, D, n, n)`; `eps` has shape `(C, D, T, n)` with
         `eps_t = P_t⁻¹ u_t`.
+
+    Raises:
+        ValueError: If any posterior draw's shock matrix carries a `NaN`.
     """
     from impulso._residuals import reduced_form_residuals
 
     resid = reduced_form_residuals(identified.idata.posterior, identified.data, identified.n_lags)
     per_t = identified.volatility.is_time_varying
+    P = identified.shock_matrix(at="all" if per_t else None).values
+    _require_finite_shock_matrix(P)
     if per_t:
-        P = identified.shock_matrix(at="all").values
         eps = np.einsum("cdtij,cdtj->cdti", np.linalg.inv(P), resid)
     else:
-        P = identified.shock_matrix(at=None).values
         eps = np.einsum("cdij,cdtj->cdti", np.linalg.inv(P), resid)
     return P, eps, per_t
 
@@ -550,29 +587,35 @@ def _forecast_shock_matrices(identified: IdentifiedVAR, steps: int, rng: np.rand
     identifies each forecast Cholesky slice; rotation-sampling schemes
     (the `_samples_rotations` capability flag, e.g. `SignRestriction`)
     cannot yet pin one rotation per draw across steps and error there.
+
+    Raises:
+        ValueError: On a rotation-sampling scheme under time-varying
+            volatility, or if any posterior draw's matrix carries a `NaN`.
     """
     posterior = identified.idata.posterior
     if not identified.volatility.is_time_varying:
         P = identified.shock_matrix(at=None).values  # (C, D, n, n)
-        return np.broadcast_to(P[:, :, np.newaxis, :, :], (*P.shape[:2], steps, *P.shape[2:])).copy()
-    if getattr(identified.scheme, "_samples_rotations", False):
-        raise ValueError(
-            f"structural_scenario under time-varying volatility is not supported for "
-            f"rotation-sampling schemes ({type(identified.scheme).__name__}): rotations are "
-            "re-sampled per identify() call, so no single structural coordinate system "
-            "spans the forecast steps. Use a rotation-free scheme (Cholesky, ProxySVAR), "
-            "or constant volatility."
-        )
-    L_path = identified.volatility.forecast_cholesky_path(posterior, steps=steps, rng=rng)
-    P_path = np.zeros_like(L_path)
-    for h in range(steps):
-        P_path[:, :, h] = identified.scheme.identify(
-            L_path[:, :, h],
-            identified.var_names,
-            posterior=posterior,
-            data=identified.data,
-            n_lags=identified.n_lags,
-        )
+        P_path = np.broadcast_to(P[:, :, np.newaxis, :, :], (*P.shape[:2], steps, *P.shape[2:])).copy()
+    else:
+        if getattr(identified.scheme, "_samples_rotations", False):
+            raise ValueError(
+                f"structural_scenario under time-varying volatility is not supported for "
+                f"rotation-sampling schemes ({type(identified.scheme).__name__}): rotations are "
+                "re-sampled per identify() call, so no single structural coordinate system "
+                "spans the forecast steps. Use a rotation-free scheme (Cholesky, ProxySVAR), "
+                "or constant volatility."
+            )
+        L_path = identified.volatility.forecast_cholesky_path(posterior, steps=steps, rng=rng)
+        P_path = np.zeros_like(L_path)
+        for h in range(steps):
+            P_path[:, :, h] = identified.scheme.identify(
+                L_path[:, :, h],
+                identified.var_names,
+                posterior=posterior,
+                data=identified.data,
+                n_lags=identified.n_lags,
+            )
+    _require_finite_shock_matrix(P_path)
     return P_path
 
 

@@ -193,6 +193,35 @@ def permanent_transitory_2v():
     }
 
 
+@pytest.fixture
+def identified_long_run_nan_draws(permanent_transitory_2v, var_data_2v):
+    """Long-run-identified 2-var VAR whose first 5 draws of chain 0 are NaN.
+
+    Setting `B = I` on those draws makes `M = I - A_1` exactly singular, so
+    `on_undefined="nan"` (the default) blanks them. Callers must expect the
+    "long-run multiplier" warning the first time identification runs.
+    """
+    from impulso.fitted import FittedVAR
+    from impulso.identification import LongRunRestriction
+    from impulso.volatility import Constant
+
+    n_bad = 5
+    idata = permanent_transitory_2v["idata"].copy()
+    B = idata.posterior["B"].values.copy()
+    B[0, :n_bad] = np.eye(2)
+    idata.posterior["B"] = (("chain", "draw", "var", "coeff"), B)
+
+    fitted = FittedVAR(
+        idata=idata,
+        n_lags=1,
+        data=var_data_2v,
+        var_names=["y1", "y2"],
+        volatility=Constant(),
+    )
+    scheme = LongRunRestriction(ordering=["y1", "y2"], shock_names=["permanent", "transitory"])
+    return fitted.set_identification_strategy(scheme)
+
+
 # --------------- SV fixtures ---------------
 
 

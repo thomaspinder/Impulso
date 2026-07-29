@@ -344,6 +344,26 @@ class TestGuards:
             apply_shock_edits(eps, [ShockPath(shock="a", values=0.0)], index, ["a", "b"], _ScaledScheme())
 
 
+class TestNaNShockMatrixGuard:
+    """#187: NaN draws are named, not left to LAPACK or to silent NaN output."""
+
+    def test_nan_draws_error_before_the_inverse(self, identified_long_run_nan_draws):
+        with (
+            pytest.warns(UserWarning, match="long-run multiplier"),
+            pytest.raises(ValueError) as excinfo,
+        ):
+            identified_long_run_nan_draws.counterfactual(shocks=[])
+        message = str(excinfo.value)
+        assert not isinstance(excinfo.value, np.linalg.LinAlgError)
+        assert "NaN for 5/100 posterior draws" in message
+        assert "on_undefined='nan'" in message
+        assert "on_undefined='raise'" in message
+
+    def test_nan_free_identification_is_unaffected(self, identified_2v):
+        cf = identified_2v.counterfactual(shocks=[ShockPath(shock="y1", values=0.0)])
+        assert np.isfinite(cf.idata.posterior_predictive["counterfactual"].values).all()
+
+
 class TestDisplaySlice:
     def test_start_end_slice_matches_full(self, identified_2v, var_data_2v):
         idx = var_data_2v.index[1:]

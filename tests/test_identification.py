@@ -769,13 +769,43 @@ class TestLongRunRestriction:
             )
 
     def test_from_zero_restrictions_names_the_offending_variable(self):
-        """Counts are a valid permutation, but the restricted shocks are the wrong ones."""
+        """Counts are a valid permutation, but the restriction sets do not nest."""
         with pytest.raises(ValueError, match="'b'"):
             LongRunRestriction.from_zero_restrictions(
-                restrictions={"a": ["s2", "s3"], "b": ["s2"]},
+                restrictions={"a": ["s2", "s3"], "b": ["s1"]},
                 var_names=["a", "b", "c"],
                 shock_names=["s1", "s2", "s3"],
             )
+
+    def test_from_zero_restrictions_infers_the_shock_order(self, permanent_transitory_2v):
+        """#188: an unsorted `shock_names` is recoverable from the counts, not an error."""
+        fx = permanent_transitory_2v
+        unsorted = LongRunRestriction.from_zero_restrictions(
+            restrictions={"y1": ["transitory"]},
+            var_names=["y1", "y2"],
+            shock_names=["transitory", "permanent"],
+        )
+        sorted_call = LongRunRestriction.from_zero_restrictions(
+            restrictions={"y1": ["transitory"]},
+            var_names=["y1", "y2"],
+            shock_names=["permanent", "transitory"],
+        )
+        assert unsorted.ordering == ["y1", "y2"]
+        assert unsorted.shock_names == ["permanent", "transitory"]
+        np.testing.assert_array_equal(self._identify(unsorted, fx), self._identify(sorted_call, fx))
+
+    def test_from_zero_restrictions_infers_a_three_variable_shock_order(self):
+        """Shock position = the number of restriction lists it appears in."""
+        restrictions = {"a": ["s2", "s3"], "b": ["s2"]}
+        schemes = [
+            LongRunRestriction.from_zero_restrictions(
+                restrictions=restrictions, var_names=["a", "b", "c"], shock_names=names
+            )
+            for names in (["s1", "s2", "s3"], ["s3", "s2", "s1"], ["s2", "s3", "s1"])
+        ]
+        for scheme in schemes:
+            assert scheme.ordering == ["a", "b", "c"]
+            assert scheme.shock_names == ["s1", "s3", "s2"]
 
     def test_from_zero_restrictions_rejects_unknown_names(self):
         with pytest.raises(ValueError, match="var_names"):

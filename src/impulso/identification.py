@@ -559,27 +559,29 @@ class LongRunRestriction(ImpulsoModel):
 
         Each entry maps a variable to the shocks that must have *no*
         long-run effect on it. The pattern must be triangular under some
-        ordering of the variables — that is what a recursive long-run
-        scheme means — and this constructor recovers that ordering.
+        ordering of the variables *and* some ordering of the shocks — that
+        is what a recursive long-run scheme means — and this constructor
+        recovers both from the restriction counts. Neither `var_names` nor
+        `shock_names` need be given in that order; the names are labels,
+        the pattern decides the positions.
 
         Args:
             restrictions: Variable name -> list of shock names with zero
                 long-run effect on it. Variables with no zeros may be
                 omitted.
-            var_names: All endogenous variable names.
-            shock_names: All shock names, ordered most long-run-restricted
-                first (the shock that is zero-restricted nowhere comes
-                first, and so on).
+            var_names: All endogenous variable names, in any order.
+            shock_names: All shock names, in any order. Their order in the
+                returned scheme is inferred from the pattern.
             **kwargs: Forwarded to the constructor (`on_undefined`,
                 `max_condition`).
 
         Returns:
-            A `LongRunRestriction` whose `ordering` reproduces the named
-            pattern.
+            A `LongRunRestriction` whose `ordering` and `shock_names`
+            reproduce the named pattern.
 
         Raises:
             ValueError: If a name is unknown, or the pattern is not
-                triangular under any ordering.
+                triangular under any pair of orderings.
         """
         n = len(var_names)
         if len(shock_names) != n:
@@ -592,7 +594,8 @@ class LongRunRestriction(ImpulsoModel):
         if unknown_shocks:
             raise ValueError(f"restrictions name shocks absent from shock_names: {unknown_shocks}")
 
-        counts = {v: len(set(restrictions.get(v, []))) for v in var_names}
+        zeros = {v: set(restrictions.get(v, [])) for v in var_names}
+        counts = {v: len(zeros[v]) for v in var_names}
         if sorted(counts.values()) != list(range(n)):
             raise ValueError(
                 f"A recursive long-run structure needs one variable restricted by each of "
@@ -600,9 +603,18 @@ class LongRunRestriction(ImpulsoModel):
                 f"(non-recursive) long-run zero patterns are not supported — see {_NONRECURSIVE_ISSUE}."
             )
         ordering = sorted(var_names, key=lambda v: -counts[v])
+        # The shock order is the same count, read down the other axis. In a
+        # triangular pattern the variable at position i is restricted by the
+        # shocks at positions i+1..n-1, so the shock at position k is
+        # restricted out of exactly the k variables at positions 0..k-1: a
+        # shock's position is the number of restriction lists it appears in.
+        # Ties mean no ordering makes the pattern triangular; they sort
+        # stably and are rejected by the exact per-position check below.
+        appearances = {s: sum(s in zeros[v] for v in var_names) for s in shock_names}
+        shock_order = sorted(shock_names, key=lambda s: appearances[s])
         for i, variable in enumerate(ordering):
-            expected = set(shock_names[i + 1 :])
-            got = set(restrictions.get(variable, []))
+            expected = set(shock_order[i + 1 :])
+            got = zeros[variable]
             if got != expected:
                 raise ValueError(
                     f"Variable {variable!r} is restricted by {sorted(got)}, but its restriction "
@@ -610,7 +622,7 @@ class LongRunRestriction(ImpulsoModel):
                     f"requires exactly {sorted(expected)}. Only recursive (triangular) long-run "
                     f"patterns are supported — see {_NONRECURSIVE_ISSUE}."
                 )
-        return cls(ordering=ordering, shock_names=list(shock_names), **kwargs)
+        return cls(ordering=ordering, shock_names=shock_order, **kwargs)
 
     def identify(
         self,
