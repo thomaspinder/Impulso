@@ -11,6 +11,8 @@
    ForecastResult
    ConditionalForecastResult
    ScenarioResult
+   TiltedForecastResult
+   ReverseStressResult
    DynamicMultiplierResult
    IRFResult
    FEVDResult

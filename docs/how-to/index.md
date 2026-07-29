@@ -13,4 +13,5 @@ climate-pitfalls
 sign-restrictions
 long-run-restrictions
 heavy-tailed-errors
+probabilistic-conditioning
 ```

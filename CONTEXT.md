@@ -74,6 +74,22 @@ _Avoid_: "scenario" for an all-shocks-adjust conditional forecast — scenarios 
 A conditional forecast with structural attribution (Antolín-Díaz, Petrella & Rubio-Ramírez 2021): pinned variable paths must be absorbed by a named `adjusting` set of shocks (non-adjusting shocks keep their unconditional draws), and/or future shock paths are prescribed directly. Computed by `IdentifiedVAR.structural_scenario()`.
 _Avoid_: "conditional forecast" when an adjusting set is named — the restriction is the point.
 
+**Entropic tilting**:
+Imposing a distributional statement on a forecast by *reweighting the draws it already produced* — never re-solving, never re-simulating. The weights are the ones closest to uniform in relative entropy subject to the requested moments (Robertson, Tallman & Whiteman 2005), so the tilt moves the forecast as little as the target allows. Entry points are `ForecastResult.tilt()` and `ConditionalForecastResult.tilt()` (inherited by `ScenarioResult`), returning a `TiltedForecastResult` that holds the parent draws by reference. Hard and soft conditioning *chain* (`conditional_forecast(...).tilt(...)`) rather than mixing in one call: hard pins hold pathwise on every draw and reweighting never moves a draw, so preservation is a theorem, not a code path.
+_Avoid_: "importance weights" / "importance sampling" — there is no proposal distribution here; the draws come from the posterior predictive itself. "Reweighting" and "tilting weights" are the terms.
+
+**Probability target (`ProbabilityTarget`), moment target (`MomentTarget`)**:
+The soft counterparts of the condition vocabulary — statements about the forecast *distribution* rather than about every draw. `ProbabilityTarget(variable, horizon, threshold, probability, direction)` requires an event to carry a given probability after tilting (`probability=1.0` is exact conditioning on it); `MomentTarget(variable, horizon, mean)` fixes a tilted mean. `horizon` is 1-based, matching `VariablePath`. A target no draw satisfies is refused with the draw counts — reweighting cannot move mass where there is none.
+_Avoid_: "soft condition" as an API term — the objects are targets; "soft conditioning" stays prose.
+
+**Effective sample size (ESS)**:
+The Kish quantity `1 / Σ wᵢ²` reported on every tilted result: how many draws the tilt is effectively using. Equals the draw count under uniform weights, `1` when all mass sits on one draw. `ess_fraction` is its share of the sample, and a tilt below 10% of the sample warns — tilted summaries are honest posterior quantities only to the extent that enough draws carry weight.
+_Avoid_: confusing this with the MCMC effective sample size in `arviz.ess` — that measures chain autocorrelation, this measures weight concentration.
+
+**Reverse stress**:
+Scenario analysis run backwards: name the outcome, get the shocks. `IdentifiedVAR.reverse_stress(variable, threshold, steps, ...)` draws an unconditional forecast together with the structural shocks behind it, tilts onto the stress event, and reports the **shock cocktail** — the tilted-weighted mean of the retained shocks, in one-standard-deviation units. Because it averages realised draws rather than solving a projection, the cocktail inherits the model's own shock correlations and needs no norm choice. Its magnitude `q = ‖E_w[ε]‖²` is in the same units as the plausibility statistic.
+_Avoid_: describing the cocktail as "the cause" of the outcome — it is a conditional mean, an association under the estimated model; other configurations in the retained set may look nothing like it.
+
 **Condition vocabulary (`ShockPath`, `VariablePath`)**:
 Frozen spec objects expressing scenario content. `ShockPath(shock, values, start, end)` sets a structural shock's path — values in one-standard-deviation units, scalar broadcast (`0.0` = "switch the shock off") or explicit array; `start`/`end` timestamps window it in-sample (counterfactual), while on the forecast axis values run from step 1 with `NaN` marking free entries. `VariablePath(variable, values)` pins a future endogenous path the same NaN-masked way. A scalar stays scalar until *application* time, where it broadcasts to the full resolved window — deliberately not the same as a length-1 array, which pins exactly one period. Each method accepts only the condition types legal for it — illegal combinations are unrepresentable rather than validated away.
 _Avoid_: "Conditions object" / "Scenario object" for these primitives — a bundling `Scenario` container may arrive later for connector round-trips; the primitives are paths.
@@ -84,7 +100,7 @@ _Avoid_: "driving" / "offsetting" shocks in API surface (fine in prose, where AD
 
 **Plausibility statistic (q)**:
 Per-draw squared Mahalanobis distance of a scenario's binding restriction values from their unconditional law, `q = c̄′(C C′)⁻¹ c̄ = ‖μ*‖²`, plus `‖v_S‖²` for prescribed shock paths — distributed `χ²_r` under the model when all shocks adjust (`r` = number of binding restrictions), reported with `r` and the tail probability `P(χ²_r ≥ q)`. The Leeper–Zha "modest interventions" check in the ADPRR lineage: large `q` (tiny tail probability) means the scenario demands incredible shocks and the model's answer should not be trusted. Stored per draw as a `plausibility` variable on `ConditionalForecastResult` and `ScenarioResult`, alongside the ADPRR-calibrated companion `q_cal ∈ [0.5, 1]` (`plausibility_calibrated`; McCulloch binomial matching with `z = q/2`) — finite only under the unconditional-variance mode, pegged at its ceiling of 1 under hard pins, floored at 0.5 with no conditions.
-_Avoid_: calling it a Kullback–Leibler divergence under hard conditions — the conditional law is singular there and that KL is infinite; the KL form applies only to future *soft* conditioning. "Modesty statistic" stays prose-only.
+_Avoid_: calling it a Kullback–Leibler divergence under hard conditions — the conditional law is singular there and that KL is infinite. The KL form belongs to soft conditioning, where it is real: a tilted result reports `kl_divergence` alongside its ESS, and `reverse_stress` calibrates *that* divergence into its `q_cal`. Name which one you mean. "Modesty statistic" stays prose-only.
 
 **at**:
 The time-index parameter on time-varying queries (`impulse_response(at=...)`, `fevd(at=...)`). Accepts an integer `t`, the literal `"last"` (most recent), `"all"` (full T-axis returned in the result), or `None` (default; resolves to `"last"` for stochastic volatility, ignored for constant volatility).
@@ -134,6 +150,8 @@ _Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "coin
 - A **FittedVAR** computes **conditional forecasts** on its own — all shocks adjust, so no identification scheme is involved (the dynamic-multiplier placement logic).
 - An **IdentifiedVAR** computes **historical counterfactuals** and **structural scenarios** through the four-layer scenario engine (back out → constrain → solve → propagate); the propagate layer is shared with `forecast()` and the **historical decomposition**.
 - The **condition vocabulary** is consumed by all three scenario methods; each method accepts only the condition types legal for it.
+- A **forecast result** (plain, conditional, or scenario) is **entropically tilted** onto **targets** by `.tilt()`, producing a `TiltedForecastResult`. Tilting is a layer *on top of* the scenario engine, not a stage inside it: it consumes draws and returns weights.
+- An **IdentifiedVAR** runs **reverse stress** by drawing forecast paths together with their structural shocks and tilting onto the stress event; the **shock cocktail** is the weighted mean of the shocks that survive.
 - A **VAR** is estimated by NUTS; a **ConjugateVAR** is estimated analytically with a Metropolis step on hyperparameters. Both produce a **FittedVAR**.
 - A **stationarity pretest** consumes `VARData` (endogenous block only), a DataFrame, or a Series, and produces a result object — never a modified dataset and never a specification. It sits *beside* the pipeline, not in it: nothing downstream of `VAR.fit()` reads its output.
 - **Integration order** feeds **cointegration rank**: the Johansen test is only meaningful for series that are individually integrated, and it is conditioned on a lag order (`k_ar_diff = p - 1`) that `select_lag_order` supplies.
@@ -161,6 +179,11 @@ _Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "coin
 >
 > **User:** "2020Q2 is wrecking my estimates. Can I stop dummying it out?"
 > **Library:** `VAR(lags=4, error_dist="student_t").fit(VARData(...))`. The t likelihood downweights the observation automatically; the degrees of freedom come back in the posterior as `nu`. Pass `StudentT(nu=5.0)` to fix them instead — the robust choice on short samples.
+> **User:** "I don't have a path — I just want a 40% chance of recession next year."
+> **Library:** `fitted.forecast(steps=8).tilt([ProbabilityTarget(variable="gdp", horizon=4, threshold=0.0, probability=0.4)])`. The draws are reweighted, not re-solved; check `result.summary()["ess_fraction"]` before reading the tilted bands.
+>
+> **User:** "What shocks would push inflation below target by 2027?"
+> **Library:** `identified.reverse_stress(variable="inflation", threshold=1.0, steps=12, horizon=8)`. `result.shock_cocktail()` is the average structural configuration among the draws that got there.
 
 ## Conventions
 
