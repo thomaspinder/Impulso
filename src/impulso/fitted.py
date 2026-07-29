@@ -93,6 +93,105 @@ class FittedVAR(ImpulsoBaseModel):
         L = self.volatility.cholesky_at(self.idata.posterior, t=None)
         return sigma_from_cholesky(L)
 
+    def posterior_predictive(
+        self,
+        *,
+        simulate_innovations: bool = True,
+        seed: int | np.random.Generator | None = None,
+    ) -> az.InferenceData:
+        """Replicate the estimation sample from the posterior.
+
+        For every posterior draw and every in-sample date `t`,
+
+            y_rep[t] = intercept + B x_t^obs (+ B_exog z_t) + L_t eps_t,
+            eps_t ~ N(0, I)
+
+        where `x_t^obs` stacks the **observed** lags. The replicates are
+        therefore *one-step-ahead conditioned on the observed history*, the
+        same object `pymc.sample_posterior_predictive` returns on the fitted
+        graph and the one `arviz.plot_ppc` expects — not an iterated
+        simulated path from initial conditions, which is `forecast`'s job.
+
+        `L_t` comes from the volatility seam
+        (`volatility.cholesky_path(posterior, T=T)`), so the innovations use
+        the *model's own* Σ: a single Σ under constant volatility, and a
+        genuinely per-draw, per-`t` Σ_t under stochastic volatility (an
+        empirical residual covariance would flatten exactly the
+        heteroscedasticity an SV fit exists to capture).
+
+        With `simulate_innovations=False` the conditional means come back
+        unperturbed — the in-sample fit under parameter uncertainty, useful
+        for residual diagnostics (`observed - mean` is exactly the
+        reduced-form residual). Mean mode consumes no randomness at all, so
+        `seed` is irrelevant there.
+
+        Computed in NumPy rather than on a PyMC graph, so it works for
+        `ConjugateVAR`-derived posteriors too (no graph exists there); see
+        ADR-0011.
+
+        Note:
+            `self.idata` is never mutated — a fresh `InferenceData` comes
+            back. To attach the result to the fit, extend it yourself:
+
+                ppc = fitted.posterior_predictive(seed=0)
+                fitted.idata.extend(ppc)
+
+        Note:
+            The replicate array is dense: `chains * draws * T * n_vars`
+            float64 values, roughly 19 MB at 4 chains, 1000 draws, 200
+            dates and 3 variables. Thin the posterior before calling if
+            that is too large.
+
+        Args:
+            simulate_innovations: If `True` (default), add shock
+                innovations drawn from the volatility process's in-sample
+                Cholesky path — a true posterior-predictive density. If
+                `False`, return the conditional mean only.
+            seed: RNG seed (int) or Generator for reproducible replicates.
+                Ignored when `simulate_innovations=False`.
+
+        Returns:
+            ArviZ InferenceData with a `posterior_predictive` group holding
+            `obs` with dims `(chain, draw, time, var)` and an
+            `observed_data` group holding the realised `obs` with dims
+            `(time, var)`. Both are time-aligned with
+            `data.index[n_lags:]`.
+
+        Raises:
+            ValueError: If the data carries exogenous regressors the
+                estimator never consumed (no `B_exog` in the posterior).
+        """
+        import xarray as xr
+
+        from impulso._residuals import fitted_values
+
+        posterior = self.idata.posterior
+        if self.data.exog is not None and "B_exog" not in posterior:
+            raise ValueError(
+                "This FittedVAR's data carries exogenous regressors the estimator "
+                "never consumed (no B_exog in the posterior); refit with an "
+                "estimator that supports them before replicating the sample."
+            )
+
+        mu = fitted_values(posterior, self.data, self.n_lags)  # (C, D, T, n)
+        y_rep = mu
+        if simulate_innovations:
+            rng = np.random.default_rng(seed) if not isinstance(seed, np.random.Generator) else seed
+            L_path = self.volatility.cholesky_path(posterior, T=mu.shape[2])  # (C, D, T, n, n)
+            eps = rng.standard_normal(mu.shape)
+            y_rep = mu + np.einsum("cdtij,cdtj->cdti", L_path, eps)
+
+        time = self.data.index[self.n_lags :]
+        coords = {"time": time, "var": self.var_names}
+        return az.InferenceData(
+            posterior_predictive=xr.Dataset({
+                "obs": xr.DataArray(y_rep, dims=["chain", "draw", "time", "var"], coords=coords, name="obs")
+            }),
+            observed_data=xr.Dataset({
+                "obs": xr.DataArray(self.data.endog[self.n_lags :], dims=["time", "var"], coords=coords, name="obs")
+            }),
+        )
+
     def forecast(
         self,
         steps: int,

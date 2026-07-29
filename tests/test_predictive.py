@@ -10,6 +10,9 @@ matplotlib.use("Agg")
 
 from impulso import VAR, VARData
 from impulso._lag_selection import select_lag_order
+from impulso._residuals import fitted_values, reduced_form_residuals
+from impulso.fitted import FittedVAR
+from impulso.volatility import Constant
 
 
 @pytest.fixture
@@ -23,6 +26,40 @@ def var_data_2v_exog(var_data_2v):
         exog=exog,
         exog_names=["x1"],
         index=var_data_2v.index,
+    )
+
+
+@pytest.fixture
+def var_data_2v_correlated():
+    """VAR(1) DGP whose reduced-form shocks are strongly cross-correlated.
+
+    `var_data_2v`'s shocks are independent, so `L` and `L.T` imply almost
+    the same covariance and a Cholesky-orientation bug would slip through
+    the drift fence. Here `corr(u1, u2) ~ 0.83`.
+    """
+    rng = np.random.default_rng(11)
+    T, n = 200, 2
+    A = np.array([[0.5, 0.1], [0.0, 0.4]])
+    L_true = np.array([[0.20, 0.0], [0.15, 0.10]])
+    y = np.zeros((T, n))
+    for t in range(1, T):
+        y[t] = A @ y[t - 1] + L_true @ rng.standard_normal(n)
+    return VARData(
+        endog=y,
+        endog_names=["y1", "y2"],
+        index=pd.date_range("2000-01-01", periods=T, freq="QS"),
+    )
+
+
+@pytest.fixture
+def fitted_2v(synthetic_idata_2v, var_data_2v):
+    """FittedVAR over the synthetic 2-var posterior — no MCMC."""
+    return FittedVAR(
+        idata=synthetic_idata_2v,
+        n_lags=1,
+        data=var_data_2v,
+        var_names=["y1", "y2"],
+        volatility=Constant(),
     )
 
 
@@ -99,3 +136,227 @@ class TestPriorPredictive:
 
         axes = az.plot_ppc(idata, group="prior", num_pp_samples=5)
         assert axes is not None
+
+
+class TestPosteriorPredictive:
+    """`FittedVAR.posterior_predictive` replicates the estimation sample."""
+
+    def test_shape_dims_and_observed_data(self, fitted_2v, var_data_2v):
+        ppc = fitted_2v.posterior_predictive(seed=0)
+
+        obs = ppc.posterior_predictive["obs"]
+        assert obs.shape == (2, 50, 199, 2)
+        assert obs.dims == ("chain", "draw", "time", "var")
+        assert list(obs.coords["var"].values) == ["y1", "y2"]
+        assert np.array_equal(pd.to_datetime(obs.coords["time"].values), var_data_2v.index[1:])
+        assert ppc.observed_data["obs"].dims == ("time", "var")
+        assert np.array_equal(ppc.observed_data["obs"].values, var_data_2v.endog[1:])
+
+    def test_mean_mode_ties_the_residual_helpers(self, fitted_2v, var_data_2v):
+        """Mean mode IS the conditional mean, so observed - mean IS the residual."""
+        ppc = fitted_2v.posterior_predictive(simulate_innovations=False)
+
+        posterior = fitted_2v.idata.posterior
+        mu = fitted_values(posterior, var_data_2v, 1)
+        assert np.array_equal(ppc.posterior_predictive["obs"].values, mu)
+
+        implied = ppc.observed_data["obs"].values - ppc.posterior_predictive["obs"].values
+        assert np.array_equal(implied, reduced_form_residuals(posterior, var_data_2v, 1))
+
+    def test_mean_mode_consumes_no_randomness(self, fitted_2v):
+        """Two unseeded mean-mode calls must agree exactly."""
+        a = fitted_2v.posterior_predictive(simulate_innovations=False)
+        b = fitted_2v.posterior_predictive(simulate_innovations=False)
+
+        assert np.array_equal(
+            a.posterior_predictive["obs"].values,
+            b.posterior_predictive["obs"].values,
+        )
+
+    def test_seed_is_reproducible_and_accepts_a_generator(self, fitted_2v):
+        a = fitted_2v.posterior_predictive(seed=0)
+        b = fitted_2v.posterior_predictive(seed=0)
+        c = fitted_2v.posterior_predictive(seed=1)
+        g = fitted_2v.posterior_predictive(seed=np.random.default_rng(0))
+
+        assert np.array_equal(a.posterior_predictive["obs"].values, b.posterior_predictive["obs"].values)
+        assert not np.array_equal(a.posterior_predictive["obs"].values, c.posterior_predictive["obs"].values)
+        assert np.array_equal(a.posterior_predictive["obs"].values, g.posterior_predictive["obs"].values)
+
+    def test_innovations_carry_the_models_sigma(self, fitted_2v, var_data_2v):
+        """Standardising by each draw's own L must leave white noise.
+
+        This is the assertion that pins the deviation from the issue text:
+        Sigma comes from the volatility seam (the model's own Sigma), not
+        from an empirical residual covariance.
+        """
+        ppc = fitted_2v.posterior_predictive(seed=0)
+
+        posterior = fitted_2v.idata.posterior
+        mu = fitted_values(posterior, var_data_2v, 1)
+        innovations = ppc.posterior_predictive["obs"].values - mu  # (C, D, T, n)
+        L = posterior["L"].values  # (C, D, n, n)
+
+        # eps = L^-1 @ innovation, solved per draw against the whole time block.
+        eps = np.linalg.solve(
+            L[:, :, np.newaxis, :, :],
+            innovations[..., np.newaxis],
+        )[..., 0]
+        pooled = eps.reshape(-1, eps.shape[-1])  # (C*D*T, n)
+
+        assert pooled.shape[0] == 2 * 50 * 199
+        assert np.abs(pooled.mean(axis=0)).max() < 0.05
+        assert np.allclose(np.cov(pooled, rowvar=False), np.eye(2), atol=0.06)
+
+    def test_does_not_mutate_the_fit(self, fitted_2v):
+        before = set(fitted_2v.idata.groups())
+        ppc = fitted_2v.posterior_predictive(seed=0)
+
+        assert set(fitted_2v.idata.groups()) == before
+        assert "posterior_predictive" not in before
+
+        # The documented recipe for attaching it must work.
+        fitted_2v.idata.extend(ppc)
+        assert "posterior_predictive" in set(fitted_2v.idata.groups())
+
+    def test_exog_without_b_exog_raises(self, synthetic_idata_2v, var_data_2v_exog):
+        fitted = FittedVAR(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v_exog,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+        )
+
+        with pytest.raises(ValueError, match="B_exog"):
+            fitted.posterior_predictive(seed=0)
+
+    def test_conjugate_var_posterior_predictive(self, var_data_2v):
+        """ConjugateVAR builds no PyMC graph, so NumPy parity is the point."""
+        from impulso.conjugate import ConjugateVAR
+        from impulso.priors import NIWPrior
+
+        fitted = ConjugateVAR(lags=1, prior=NIWPrior(), draws=40, tune=40, seed=0).fit(var_data_2v)
+        assert fitted.pymc_model is None
+
+        ppc = fitted.posterior_predictive(seed=0)
+        assert ppc.posterior_predictive["obs"].shape == (1, 40, 199, 2)
+        assert np.isfinite(ppc.posterior_predictive["obs"].values).all()
+
+    def test_plot_ppc_smoke(self, fitted_2v):
+        ppc = fitted_2v.posterior_predictive(seed=0)
+
+        axes = az.plot_ppc(ppc, num_pp_samples=5)
+        assert axes is not None
+
+
+class TestPredictiveAgainstPyMC:
+    """The drift fence for ADR-0011: NumPy replicates must match the graph."""
+
+    @pytest.mark.slow
+    def test_matches_sample_posterior_predictive(self, var_data_2v_correlated):
+        """Moment agreement with `pm.sample_posterior_predictive` on a real fit.
+
+        Both routes reuse the same posterior draws, so the conditional
+        means are identical by construction and only the innovation law
+        can differ. The comparison is therefore stated on the innovations:
+        per-(time, var) means in Monte Carlo standard-error units (a
+        fixed atol would depend on the DGP's scale) plus the pooled
+        innovation covariance, which a transposed or mis-scaled Cholesky
+        breaks immediately.
+
+        The fixture's shocks are strongly cross-correlated on purpose: with
+        a near-diagonal Sigma, `L` and `L.T` produce nearly the same
+        covariance, so the fence would not bite.
+        """
+        import pymc as pm
+
+        from impulso.samplers import NUTSSampler
+
+        data = var_data_2v_correlated
+        draws = 400
+        sampler = NUTSSampler(draws=draws, tune=400, chains=1, cores=1, random_seed=3, progressbar=False)
+        fitted = VAR(lags=1).fit(data, sampler=sampler)
+
+        ours = fitted.posterior_predictive(seed=0).posterior_predictive["obs"].values
+        with fitted.pymc_model:
+            theirs = (
+                pm
+                .sample_posterior_predictive(
+                    fitted.idata,
+                    random_seed=1,
+                    progressbar=False,
+                )
+                .posterior_predictive["obs"]
+                .values
+            )
+
+        assert ours.shape == theirs.shape
+
+        mu = fitted_values(fitted.idata.posterior, data, 1)
+        ours_innov = (ours - mu).reshape(-1, 2)
+        theirs_innov = (theirs - mu).reshape(-1, 2)
+
+        # Per-(time, var) means, normalised by the Monte Carlo standard
+        # error of the difference (sigma * sqrt(2 / draws)). 398 cells, so
+        # 5 sigma is a ~2e-4 false-failure budget.
+        se = theirs_innov.std(axis=0) * np.sqrt(2.0 / draws)
+        z = np.abs(ours.mean(axis=(0, 1)) - theirs.mean(axis=(0, 1))) / se
+        assert z.max() < 5.0
+
+        assert np.allclose(ours_innov.std(axis=0), theirs_innov.std(axis=0), rtol=0.05)
+        theirs_cov = np.cov(theirs_innov, rowvar=False)
+        assert np.allclose(
+            np.cov(ours_innov, rowvar=False),
+            theirs_cov,
+            atol=0.05 * np.abs(theirs_cov).max(),
+        )
+
+    @pytest.mark.slow
+    def test_observed_falls_within_the_posterior_band(self, var_data_2v):
+        from impulso.samplers import NUTSSampler
+
+        sampler = NUTSSampler(draws=200, tune=200, chains=1, cores=1, random_seed=3, progressbar=False)
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+
+        draws = fitted.posterior_predictive(seed=0).posterior_predictive["obs"].values
+        flat = draws.reshape(-1, *draws.shape[2:])  # (chain*draw, time, var)
+        lower, upper = np.quantile(flat, [0.025, 0.975], axis=0)
+        observed = var_data_2v.endog[1:]
+        covered = (observed >= lower) & (observed <= upper)
+        assert covered.mean() >= 0.85
+
+    @pytest.mark.slow
+    def test_stochastic_volatility_innovations_vary_with_t(self, var_data_2v):
+        """Under SV the replicate spread must track the model's own Sigma_t.
+
+        This is the assertion behind the volatility-seam deviation: the
+        innovations come from `cholesky_path` (per-t), so their spread
+        follows Sigma_t. A single pooled residual covariance — or
+        `cholesky_at` — would give a flat spread across t.
+        """
+        from impulso.samplers import NUTSSampler
+        from impulso.sv.spec import StochasticVolatility
+
+        sampler = NUTSSampler(
+            draws=30, tune=30, chains=1, cores=1, random_seed=0, progressbar=False, nuts_sampler="pymc"
+        )
+        fitted = VAR(lags=1, volatility=StochasticVolatility()).fit(var_data_2v, sampler=sampler)
+
+        ppc = fitted.posterior_predictive(seed=0).posterior_predictive["obs"].values
+        assert np.isfinite(ppc).all()
+
+        posterior = fitted.idata.posterior
+        T = var_data_2v.endog.shape[0] - 1
+        mu = fitted_values(posterior, var_data_2v, 1)
+        empirical_sd = (ppc - mu).std(axis=(0, 1))  # (T, n)
+
+        L_path = fitted.volatility.cholesky_path(posterior, T=T)  # (C, D, T, n, n)
+        model_sd = np.sqrt((L_path**2).sum(axis=-1)).mean(axis=(0, 1))  # (T, n)
+
+        # Not flat across t ...
+        assert empirical_sd.max() / empirical_sd.min() > 1.5
+        # ... and varying in step with the model's own per-t scale.
+        for i in range(2):
+            corr = np.corrcoef(empirical_sd[:, i], model_sd[:, i])[0, 1]
+            assert corr > 0.4

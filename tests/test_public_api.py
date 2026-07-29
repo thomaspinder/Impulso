@@ -98,6 +98,13 @@ class TestPublicAPI:
 
         assert callable(enable_runtime_checks)
 
+    def test_predictive_methods_are_public(self):
+        """The predictive checks are methods on the pipeline objects (#56)."""
+        import impulso
+
+        assert callable(impulso.VAR.prior_predictive)
+        assert callable(impulso.FittedVAR.posterior_predictive)
+
 
 class TestRuntimeChecks:
     def test_enable_runtime_checks_drives_pipeline(self):
