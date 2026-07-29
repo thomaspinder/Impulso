@@ -453,6 +453,40 @@ class TestExogPriorWiredIntoModel:
         # Same column with lags=1 keeps the switch, so it is estimable.
         self._capture(data, VAR(lags=1))
 
+    def test_prior_predictive_graph_carries_the_same_scaled_sigma(self, rng):
+        """The graph `prior_predictive` draws from is the graph `fit` samples (#56, #192).
+
+        `VAR.prior_predictive` builds its graph through `_build_pymc_model`,
+        the same seam `fit` uses. If the scale-adaptive exog prior lived in
+        `fit` instead, a prior-predictive check would silently describe a
+        unit-scale model that was never fitted.
+        """
+        endog = rng.standard_normal((150, 2))
+        exog = rng.standard_normal((150, 2)) * np.array([0.01, 250.0])
+        data = _exog_data(endog, exog, ["tiny", "huge"])
+        spec = VAR(lags=1)
+
+        prior_predictive_model, _ = spec._build_pymc_model(data)
+        got = _captured_sigma(prior_predictive_model, "B_exog")
+
+        np.testing.assert_allclose(got, _exog_prior_sigma(endog, exog[1:], 100.0))
+        assert not np.allclose(got, 1.0)
+        # Belt and braces: identical to what the fit path builds, so the two
+        # cannot drift apart.
+        np.testing.assert_allclose(got, _captured_sigma(self._capture(data, spec), "B_exog"))
+
+    def test_prior_predictive_graph_honours_the_knob(self, rng):
+        endog = rng.standard_normal((150, 2))
+        exog = rng.standard_normal((150, 1)) * 0.01
+        data = _exog_data(endog, exog, ["tiny"])
+
+        model, _ = VAR(lags=1, exog_prior_scale=5.0)._build_pymc_model(data)
+
+        np.testing.assert_allclose(
+            _captured_sigma(model, "B_exog"),
+            _exog_prior_sigma(endog, exog[1:], 5.0),
+        )
+
 
 def _capture_model(var_data, **var_kwargs):
     """Build the production PyMC graph via VAR.fit, aborting before MCMC."""

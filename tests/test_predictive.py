@@ -15,6 +15,7 @@ from impulso import VAR, VARData
 from impulso._lag_selection import select_lag_order
 from impulso._residuals import fitted_values, reduced_form_residuals
 from impulso.fitted import FittedVAR
+from impulso.spec import _exog_prior_sigma
 from impulso.volatility import Constant
 
 # Driven in a fresh interpreter: enable_runtime_checks() beartype-wraps the
@@ -155,6 +156,27 @@ class TestPriorPredictive:
 
         assert "B_exog" in idata.prior
         assert idata.prior["B_exog"].shape == (1, 10, 2, 1)
+
+    def test_b_exog_draws_use_the_scale_adaptive_prior(self, var_data_2v_exog):
+        """The simulated `B_exog` spreads at `_exog_prior_sigma`, not at 1 (#192).
+
+        `_build_pymc_model` owns the scaled exog prior, so the graph this
+        method draws from is the graph `fit` samples. Were the scaling to
+        live in `fit`, these draws would come out at unit scale and the
+        check would describe a model nobody fitted.
+        """
+        idata = VAR(lags=1).prior_predictive(var_data_2v_exog, draws=4000, random_seed=0)
+
+        expected = _exog_prior_sigma(
+            var_data_2v_exog.endog,
+            var_data_2v_exog.exog[1:],
+            100.0,
+        )
+        got = idata.prior["B_exog"].values[0].std(axis=0, ddof=1)
+
+        np.testing.assert_allclose(got, expected, rtol=0.1)
+        # The old unit-scale prior is orders of magnitude away from this.
+        assert np.all(expected > 10.0)
 
     def test_observed_series_falls_within_the_prior_band(self, var_data_2v):
         """Issue AC: the observed series must sit inside the 95% prior band.

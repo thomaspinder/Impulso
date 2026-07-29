@@ -132,6 +132,9 @@ class VAR(ImpulsoBaseModel):
             degrees of freedom; pass `StudentT(nu=5.0)` to fix them. Heavy-
             tailed errors are rejected in combination with time-varying
             volatility.
+            Governs the exogenous block only; `prior` governs the lag
+            coefficients. Both `VAR.fit` and `VAR.prior_predictive` build the
+            same graph, so it applies to either.
     """
 
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
@@ -279,12 +282,15 @@ class VAR(ImpulsoBaseModel):
 
         Resolves the lag order (running `select_lag_order` when `lags` is a
         criterion string), assembles the design matrices, and registers the
-        intercept, coefficient, volatility and likelihood nodes. The design
-        matrices are baked into the graph as constants, so the returned model
-        is tied to `data`.
+        intercept, coefficient, exogenous, volatility and likelihood nodes.
+        The design matrices are baked into the graph as constants, so the
+        returned model is tied to `data`.
 
         Shared by `fit` (which samples the graph) and `prior_predictive`
-        (which draws from it without conditioning on the observations).
+        (which draws from it without conditioning on the observations). Every
+        prior lives here, including the scale-adaptive `B_exog` prior
+        (`_exog_prior_sigma`), so a prior-predictive check cannot describe a
+        different model from the one `fit` estimates.
 
         Args:
             data: VARData instance.
