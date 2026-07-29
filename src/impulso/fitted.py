@@ -152,6 +152,7 @@ class FittedVAR(ImpulsoBaseModel):
         inflation = np.asarray(inflation)
         extra_dims = sigma.ndim - inflation.ndim
         return sigma * inflation.reshape(inflation.shape + (1,) * extra_dims)
+
     def posterior_predictive(
         self,
         *,

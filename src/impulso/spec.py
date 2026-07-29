@@ -221,6 +221,7 @@ class VAR(ImpulsoBaseModel):
             data=data,
             var_names=data.endog_names,
             volatility=self.resolved_volatility,
+            error_dist=self.resolved_error_dist,
             pymc_model=model,
         )
 
@@ -396,16 +397,4 @@ class VAR(ImpulsoBaseModel):
             error_dist = self.resolved_error_dist
             error_dist.build_likelihood("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
 
-        # Sample
-        idata = sampler.sample(model)
-
-        return FittedVAR.model_construct(
-            idata=idata,
-            n_lags=n_lags,
-            data=data,
-            var_names=data.endog_names,
-            volatility=self.resolved_volatility,
-            error_dist=error_dist,
-            pymc_model=model,
-        )
         return model, n_lags
