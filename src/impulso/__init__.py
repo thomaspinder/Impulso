@@ -17,8 +17,9 @@ if TYPE_CHECKING:
     from impulso.fitted import FittedVAR
     from impulso.identification import Cholesky, ProxySVAR, SignRestriction
     from impulso.identified import IdentifiedVAR
+    from impulso.observation import Gaussian, StudentT
     from impulso.priors import MinnesotaPrior, NIWPrior
-    from impulso.protocols import VolatilityProcess
+    from impulso.protocols import ErrorDistribution, VolatilityProcess
     from impulso.results import (
         ConditionalForecastResult,
         CounterfactualResult,
@@ -50,11 +51,13 @@ __all__ = [
     "Constant",
     "CounterfactualResult",
     "DynamicMultiplierResult",
+    "ErrorDistribution",
     "EvidenceComparison",
     "FEVDResult",
     "FittedSV",
     "FittedVAR",
     "ForecastResult",
+    "Gaussian",
     "HDIResult",
     "HistoricalDecompositionResult",
     "IRFResult",
@@ -73,6 +76,7 @@ __all__ = [
     "ShockPath",
     "SignRestriction",
     "StochasticVolatility",
+    "StudentT",
     "VARData",
     "VariablePath",
     "VolatilityProcess",
@@ -119,6 +123,9 @@ _LAZY_IMPORTS: dict[str, str] = {
     "VolatilityResult": "impulso.results",
     "SVForecastResult": "impulso.results",
     "Constant": "impulso.volatility",
+    "Gaussian": "impulso.observation",
+    "StudentT": "impulso.observation",
+    "ErrorDistribution": "impulso.protocols",
     "VolatilityProcess": "impulso.protocols",
     "compute_ma_phi": "impulso._ma",
     "lag_matrices": "impulso._linalg",

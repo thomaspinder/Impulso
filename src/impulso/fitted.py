@@ -11,7 +11,8 @@ from impulso._linalg import lag_matrices, sigma_from_cholesky
 from impulso._ma import compute_ma_phi
 from impulso.data import VARData
 from impulso.evidence import ModelEvidence
-from impulso.protocols import IdentificationScheme, VolatilityProcess
+from impulso.observation import Gaussian
+from impulso.protocols import ErrorDistribution, IdentificationScheme, VolatilityProcess
 
 if TYPE_CHECKING:
     from impulso.identified import IdentifiedVAR
@@ -30,6 +31,13 @@ class FittedVAR(ImpulsoBaseModel):
         volatility: Volatility process used at fit time. Required;
             populated by VAR.fit from VAR.volatility (default at the
             spec level is "constant", which resolves to Constant()).
+        error_dist: Observation error distribution used at fit time.
+            Defaults to `Gaussian()`, which is what every estimator that
+            predates the seam (notably `ConjugateVAR`) produces. `VAR.fit`
+            populates it from `VAR.error_dist`. It drives the forecast
+            innovation law and `innovation_covariance`, so a Student-t fit
+            whose `error_dist` was lost would silently forecast Gaussian
+            tails.
         pymc_model: The `pymc.Model` built during estimation, or None when
             the estimator never constructs one (`ConjugateVAR` draws in
             closed form and builds no PyMC graph). `VAR.fit` populates it so
@@ -52,6 +60,12 @@ class FittedVAR(ImpulsoBaseModel):
     data: VARData
     var_names: list[str]
     volatility: VolatilityProcess
+    # The suppression below is a ty limitation, not a design smell: concrete
+    # adapters declare `name: Literal["gaussian"]` per the discriminator
+    # convention, and ty treats the Protocol's `name: str` as invariant, so
+    # no adapter is assignable to its own Protocol. The same holds for
+    # `Constant` vs `VolatilityProcess`; runtime `isinstance` succeeds.
+    error_dist: ErrorDistribution = Field(default_factory=Gaussian)  # ty: ignore[invalid-assignment]
     pymc_model: Any = Field(default=None, repr=False)
     evidence: ModelEvidence | None = Field(default=None, repr=False)
 
@@ -71,7 +85,14 @@ class FittedVAR(ImpulsoBaseModel):
         return self.idata.posterior["intercept"].values
 
     def sigma(self) -> np.ndarray:
-        """Posterior draws of the structural-shock covariance Σ.
+        """Posterior draws of the structural-shock scale matrix Σ.
+
+        Σ = L Lᵀ, straight from the volatility process. Under the default
+        Gaussian errors this is the innovation covariance. Under Student-t
+        errors it is the **scale** matrix only — the covariance is
+        `nu/(nu-2)·Σ`, available from `innovation_covariance`. Identification
+        factorises the scale matrix in both cases, which is why IRFs and
+        FEVD keep reading `sigma()` (see ADR-0007).
 
         Dispatches to the configured volatility adapter so the returned
         shape depends on whether Σ is time-invariant or time-varying:
@@ -100,6 +121,38 @@ class FittedVAR(ImpulsoBaseModel):
         L = self.volatility.cholesky_at(self.idata.posterior, t=None)
         return sigma_from_cholesky(L)
 
+    def innovation_covariance(self) -> np.ndarray:
+        """Posterior draws of the reduced-form innovation covariance.
+
+        The second moment of the observation error, as opposed to `sigma()`,
+        which returns the scale matrix Σ = L Lᵀ the volatility process
+        builds. The two differ only under heavy-tailed errors:
+
+        * Gaussian — returns `sigma()` unchanged.
+        * Student-t — returns `nu/(nu-2)·Σ`, finite because nu > 2 is enforced
+          at both the fixed and the inferred parameterisation. nu is read per
+          posterior draw, so the inflation varies draw by draw when the
+          degrees of freedom are inferred.
+
+        Reach for this when the number has to be a variance: reporting
+        innovation standard deviations, comparing against an OLS residual
+        covariance, or sizing a shock in unconditional-standard-deviation
+        units. Reach for `sigma()` when the number feeds identification.
+
+        Returns:
+            Draws of shape `(chains, draws, n_vars, n_vars)` under constant
+            volatility, or `(chains, draws, T, n_vars, n_vars)` under
+            stochastic volatility — the shape of `sigma()`, unchanged.
+        """
+        sigma = self.sigma()
+        inflation = self.error_dist.variance_inflation(self.idata.posterior)
+        if np.isscalar(inflation):
+            return sigma * inflation
+        # (C, D) -> broadcast over the trailing matrix (and time) axes.
+        inflation = np.asarray(inflation)
+        extra_dims = sigma.ndim - inflation.ndim
+        return sigma * inflation.reshape(inflation.shape + (1,) * extra_dims)
+
     def forecast(
         self,
         steps: int,
@@ -124,6 +177,16 @@ class FittedVAR(ImpulsoBaseModel):
 
         Returns:
             ForecastResult with posterior forecast draws.
+
+        Note:
+            The innovation law comes from `error_dist`. Under Student-t
+            errors the per-step innovation is `L_h ξ` with
+            `ξ = z / sqrt(g/nu)`, `z ~ N(0, I)` and one `g ~ χ²_nu` **per
+            forecast draw and step** — the same shared-mixing construction
+            PyMC's own `MvStudentT` sampler uses, so the density forecast
+            matches the fitted likelihood rather than approximating it.
+            Mean mode consumes no randomness and is therefore identical
+            across error distributions.
         """
         import xarray as xr
 
@@ -164,10 +227,14 @@ class FittedVAR(ImpulsoBaseModel):
                 B_exog = self.idata.posterior["B_exog"].values
                 y_new = y_new + np.einsum("cdij,j->cdi", B_exog, exog_future[h])
 
-            # Density mode: add shock innovation eps ~ N(0, Sigma_{T+h}).
+            # Density mode: add shock innovation L_h @ eps, with eps drawn
+            # from the error-distribution seam (standardised: identity scale
+            # under Gaussian, nu/(nu-2)·I under Student-t).
             if L_path is not None:
                 L_h = L_path[:, :, h, :, :]  # (C, D, n_vars, n_vars)
-                eps = rng.standard_normal((n_chains, n_draws, n_vars))
+                eps = self.error_dist.draw_standardised_innovations(
+                    (n_chains, n_draws, n_vars), rng, self.idata.posterior
+                )
                 shock = np.einsum("cdij,cdj->cdi", L_h, eps)
                 y_new = y_new + shock
 
@@ -235,6 +302,15 @@ class FittedVAR(ImpulsoBaseModel):
             path per draw and therefore depends on `seed`; with no
             conditions, mean mode consumes no randomness at all.
 
+        Note:
+            Gaussian errors only. The Waggoner-Zha constrained draw *is*
+            the Gaussian conditional-law formula, and the plausibility
+            statistic's `chi^2_r` reference assumes Gaussian shocks;
+            neither survives a heavy-tailed error law. Under
+            `error_dist="student_t"` this method raises
+            `NotImplementedError` rather than returning a half-valid
+            answer.
+
         Args:
             steps: Number of forecast steps.
             conditions: `VariablePath` pins (may be empty or omitted).
@@ -255,6 +331,8 @@ class FittedVAR(ImpulsoBaseModel):
             conditions echoed, and the plausibility statistics.
 
         Raises:
+            NotImplementedError: If the model was fitted with a
+                heavy-tailed error distribution.
             ValueError: On unknown variables, duplicate or over-length
                 pins, an invalid `path_uncertainty`, exogenous data the
                 estimator never consumed, or a mis-shaped `exog_future`.
@@ -265,6 +343,18 @@ class FittedVAR(ImpulsoBaseModel):
         from impulso._scenario import conditional_forecast_engine
         from impulso.results import ConditionalForecastResult
 
+        if self.error_dist.is_heavy_tailed:
+            raise NotImplementedError(
+                "conditional_forecast is Gaussian-only: the Waggoner-Zha "
+                "constrained draw is the Gaussian conditional-law formula and "
+                "the plausibility statistic's chi-squared reference assumes "
+                "Gaussian shocks. Under "
+                f"{type(self.error_dist).__name__} errors the conditional law "
+                "has updated degrees of freedom and a Mahalanobis-inflated "
+                "scale, so both would be wrong. Use forecast() for "
+                "unconditional density forecasts, or refit with "
+                "error_dist='gaussian'."
+            )
         if path_uncertainty not in ("none", "unconditional"):
             raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
         posterior = self.idata.posterior
@@ -440,5 +530,6 @@ class FittedVAR(ImpulsoBaseModel):
             data=self.data,
             var_names=self.var_names,
             volatility=self.volatility,
+            error_dist=self.error_dist,
             scheme=scheme,
         )

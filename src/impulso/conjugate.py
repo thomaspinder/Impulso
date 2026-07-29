@@ -190,6 +190,12 @@ class ConjugateVAR(ImpulsoBaseModel):
             sample_digest=_response_digest(data.endog, data.endog_names, self.lags),
         )
 
+        # `error_dist` is deliberately left at its Gaussian default: the
+        # Normal-Inverse-Wishart posterior is conjugate *to a Gaussian
+        # likelihood*, so the closed form cannot host a Student-t observation
+        # law at all (the t is a scale mixture, which breaks conjugacy — it
+        # would need a per-observation latent scale and a Gibbs step). Heavy
+        # tails are a PyMC/NUTS-path feature; see ADR-0007.
         return FittedVAR.model_construct(
             idata=idata,
             n_lags=self.lags,

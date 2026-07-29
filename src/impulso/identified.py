@@ -13,7 +13,8 @@ from impulso._base import ImpulsoBaseModel
 from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
 from impulso.data import VARData
-from impulso.protocols import IdentificationScheme, VolatilityProcess
+from impulso.observation import Gaussian
+from impulso.protocols import ErrorDistribution, IdentificationScheme, VolatilityProcess
 from impulso.results import (
     CounterfactualResult,
     FEVDResult,
@@ -41,6 +42,10 @@ class IdentifiedVAR(ImpulsoBaseModel):
             Required for `at=` queries on impulse_response / fevd /
             historical_decomposition (P3), which re-call
             `volatility.cholesky_at(at)` for the requested time slice.
+        error_dist: Observation error distribution carried through from the
+            fitted VAR (defaults to `Gaussian()`). Identification itself is
+            unaffected — every scheme factorises the scale matrix — but
+            `structural_scenario` refuses to run under a heavy-tailed law.
         scheme: Identification scheme used to produce the structural shock
             matrix. Required for `at=` queries so the scheme can be
             re-applied to a different Cholesky factor on demand.
@@ -51,6 +56,10 @@ class IdentifiedVAR(ImpulsoBaseModel):
     data: VARData
     var_names: list[str]
     volatility: VolatilityProcess  # P3: needed for at= queries
+    # Suppression as on FittedVAR.error_dist: the Literal discriminator
+    # convention makes no adapter assignable to its own Protocol under ty's
+    # invariant attribute rule.
+    error_dist: ErrorDistribution = Field(default_factory=Gaussian)  # ty: ignore[invalid-assignment]
     scheme: IdentificationScheme  # P3: needed for at= queries
 
     @property
@@ -204,6 +213,18 @@ class IdentifiedVAR(ImpulsoBaseModel):
     def impulse_response(self, horizon: int = 20, at: AtParam = None) -> IRFResult:
         """Compute structural impulse response functions.
 
+        Note:
+            **Shock size under heavy-tailed errors.** A "unit shock" is one
+            column of the structural matrix `P`, which factorises the
+            *scale* matrix Ω. Under Gaussian errors that is one
+            unconditional standard deviation. Under Student-t errors it is
+            one *scale* unit, which is `sqrt((nu-2)/nu)` unconditional
+            standard deviations — about 0.82 sd at nu = 6. Responses are
+            therefore smaller by that constant factor than the
+            one-standard-deviation convention; multiply by
+            `sqrt(nu/(nu-2))` to restore it. Relative shapes, ratios between
+            responses, and FEVD shares are unaffected. See ADR-0007.
+
         Args:
             horizon: Number of periods.
             at: Time index for the structural shock matrix
@@ -292,6 +313,15 @@ class IdentifiedVAR(ImpulsoBaseModel):
         Under partial identification (any shock column labelled
         ``unidentified_*``), the shares of the unidentified columns are
         masked to NaN — see :meth:`_fevd_guard`.
+
+        Note:
+            FEVD is **exactly invariant** to the scale-vs-covariance
+            convention, so nothing here needs a Student-t correction: the
+            shares are built from `Theta = Phi @ P`, and rescaling
+            `P -> cP` multiplies numerator and denominator by `c^2`, which
+            cancels. Do not "fix" this by inflating `P` by
+            `sqrt(nu/(nu-2))` — it would change nothing except the
+            rounding. See ADR-0007.
 
         Args:
             horizon: Number of periods.
@@ -507,6 +537,16 @@ class IdentifiedVAR(ImpulsoBaseModel):
             intervention. Policy-rule replacement is a different object
             and out of scope.
 
+        Note:
+            Valid under every error distribution, and *exactly* invariant
+            to the scale-vs-covariance convention for zero edits: shocks are
+            backed out as `eps = P⁻¹u` and re-propagated as `P eps`, so
+            rescaling `P -> cP` leaves `P eps` untouched. Non-zero
+            `ShockPath` values are the exception — they are stated in units
+            of one column of `P`, which under Student-t errors is one
+            *scale* unit rather than one unconditional standard deviation
+            (multiply by `sqrt(nu/(nu-2))` for the sd convention).
+
         Args:
             shocks: `ShockPath` edits to impose (may be empty).
             start: Optional start of the *returned* window. The simulation
@@ -597,6 +637,14 @@ class IdentifiedVAR(ImpulsoBaseModel):
             `counterfactual` and the historical decomposition on this
             instance.
 
+        Note:
+            Gaussian errors only. The ADPRR three-way partition solves a
+            Gaussian conditioning problem for the adjusting block, and the
+            plausibility statistic's `chi^2_r` reference assumes Gaussian
+            shocks. Under `error_dist="student_t"` this method raises
+            `NotImplementedError` rather than returning a half-valid
+            answer.
+
         Args:
             steps: Number of forecast steps.
             conditions: `VariablePath` pins to be absorbed by the
@@ -619,6 +667,8 @@ class IdentifiedVAR(ImpulsoBaseModel):
             echoed, and the plausibility statistics.
 
         Raises:
+            NotImplementedError: If the model was fitted with a
+                heavy-tailed error distribution.
             ValueError: On unknown shocks/variables, `unidentified_*`
                 references, in-sample windows on prescriptions, duplicate
                 pins or prescriptions, over-determination, per-draw rank
@@ -630,6 +680,19 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         from impulso._scenario import structural_scenario_engine
 
+        if self.error_dist.is_heavy_tailed:
+            raise NotImplementedError(
+                "structural_scenario is Gaussian-only: the ADPRR three-way "
+                "partition draws the adjusting block from its Gaussian "
+                "conditional law and the plausibility statistic's chi-squared "
+                "reference assumes Gaussian shocks. Under "
+                f"{type(self.error_dist).__name__} errors the conditional law "
+                "has updated degrees of freedom and a Mahalanobis-inflated "
+                "scale, and the plausibility reference becomes an F / "
+                "Hotelling statistic, so both would be wrong. Use "
+                "counterfactual() for in-sample shock edits (exactly valid "
+                "under any error law), or refit with error_dist='gaussian'."
+            )
         if path_uncertainty not in ("none", "unconditional"):
             raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
         posterior = self.idata.posterior
