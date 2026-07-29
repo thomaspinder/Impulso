@@ -1,6 +1,7 @@
 """Tests for identification schemes."""
 
 import gc
+import warnings
 import weakref
 
 import numpy as np
@@ -8,7 +9,7 @@ import pytest
 import xarray as xr
 from pydantic import ValidationError
 
-from impulso.identification import _CACHE_MISS, Cholesky, SignRestriction, _PosteriorCache
+from impulso.identification import _CACHE_MISS, Cholesky, LongRunRestriction, SignRestriction, _PosteriorCache
 from impulso.protocols import IdentificationScheme
 
 
@@ -474,3 +475,242 @@ class TestPosteriorCache:
         cache.set(owner, (1,), "value")
         cache.clear()
         assert cache.get(owner, (1,)) is _CACHE_MISS
+
+
+class TestLongRunRestriction:
+    """Blanchard-Quah style long-run (cumulative) zero restrictions."""
+
+    @staticmethod
+    def _scheme(**kwargs) -> LongRunRestriction:
+        kwargs.setdefault("ordering", ["y1", "y2"])
+        kwargs.setdefault("shock_names", ["permanent", "transitory"])
+        return LongRunRestriction(**kwargs)
+
+    @staticmethod
+    def _identify(scheme: LongRunRestriction, fx: dict, var_names=("y1", "y2")) -> np.ndarray:
+        return scheme.identify(fx["L"], list(var_names), posterior=fx["idata"].posterior, n_lags=1)
+
+    # --- 1. exact recovery -------------------------------------------------
+
+    def test_identify_recovers_the_true_impact_matrix(self, permanent_transitory_2v):
+        """P is built backwards from a known G, so identify must return it exactly."""
+        P = self._identify(self._scheme(), permanent_transitory_2v)
+        assert P.shape == (2, 50, 2, 2)
+        np.testing.assert_allclose(P, np.broadcast_to(permanent_transitory_2v["P_true"], P.shape), atol=1e-12)
+
+    # --- 2. the restriction actually binds ---------------------------------
+
+    def test_cumulative_impact_is_lower_triangular_with_positive_diagonal(self, permanent_transitory_2v):
+        fx = permanent_transitory_2v
+        P = self._identify(self._scheme(), fx)
+        theta1 = fx["C1"] @ P
+        assert np.abs(np.triu(theta1, 1)).max() < 1e-10
+        assert (np.diagonal(theta1, axis1=-2, axis2=-1) > 0).all()
+        np.testing.assert_allclose(theta1, np.broadcast_to(fx["G"], theta1.shape), atol=1e-12)
+
+    # --- 3. covariance is reproduced exactly -------------------------------
+
+    def test_p_reproduces_sigma(self, permanent_transitory_2v):
+        fx = permanent_transitory_2v
+        P = self._identify(self._scheme(), fx)
+        np.testing.assert_allclose(P @ np.swapaxes(P, -1, -2), np.broadcast_to(fx["Sigma"], P.shape), atol=1e-12)
+
+    # --- 4. reversed ordering keeps rows in data order ---------------------
+
+    def test_reversed_ordering_returns_rows_in_data_order(self, permanent_transitory_2v):
+        """Rows of the returned P follow the data, not `ordering` — so P @ P.T is Sigma."""
+        fx = permanent_transitory_2v
+        scheme = self._scheme(ordering=["y2", "y1"], shock_names=["permanent", "transitory"])
+        P = self._identify(scheme, fx)
+        np.testing.assert_allclose(P @ np.swapaxes(P, -1, -2), np.broadcast_to(fx["Sigma"], P.shape), atol=1e-12)
+        # Triangularity holds in the *ordering* row coordinates.
+        perm = [1, 0]
+        theta1 = (fx["C1"] @ P)[..., perm, :]
+        assert np.abs(np.triu(theta1, 1)).max() < 1e-10
+        assert (np.diagonal(theta1, axis1=-2, axis2=-1) > 0).all()
+
+    # --- 5. agrees with the textbook construction --------------------------
+
+    def test_agrees_with_textbook_cholesky_route(self, permanent_transitory_2v):
+        """QR route must match M @ chol(C1 Sigma C1')."""
+        fx = permanent_transitory_2v
+        P = self._identify(self._scheme(), fx)
+        omega = fx["C1"] @ fx["Sigma"] @ fx["C1"].T
+        P_textbook = fx["M"] @ np.linalg.cholesky(omega)
+        np.testing.assert_allclose(P[0, 0], P_textbook, atol=1e-10)
+
+    # --- 6. it is not Cholesky ---------------------------------------------
+
+    def test_differs_from_cholesky(self, permanent_transitory_2v):
+        fx = permanent_transitory_2v
+        P = self._identify(self._scheme(), fx)
+        chol = np.linalg.cholesky(fx["Sigma"])
+        assert np.abs(P[0, 0] - chol).max() > 1e-3
+
+    # --- 7. determinism ----------------------------------------------------
+
+    def test_identify_is_deterministic(self, permanent_transitory_2v):
+        scheme = self._scheme()
+        first = self._identify(scheme, permanent_transitory_2v)
+        second = self._identify(scheme, permanent_transitory_2v)
+        assert np.array_equal(first, second)
+
+    # --- 8. shock labels ---------------------------------------------------
+
+    def test_shock_coords_uses_shock_names_when_given(self):
+        scheme = self._scheme()
+        assert scheme.shock_coords(n_vars=2) == ["permanent", "transitory"]
+
+    def test_shock_coords_falls_back_to_ordering(self):
+        scheme = LongRunRestriction(ordering=["y1", "y2"])
+        assert scheme.shock_coords(n_vars=2) == ["y1", "y2"]
+
+    # --- 9. protocol + immutability ----------------------------------------
+
+    def test_satisfies_protocol(self):
+        assert isinstance(self._scheme(), IdentificationScheme)
+
+    def test_frozen(self):
+        scheme = self._scheme()
+        with pytest.raises(ValidationError):
+            scheme.ordering = ["y2", "y1"]
+
+    # --- 10. posterior is mandatory ----------------------------------------
+
+    def test_identify_without_posterior_raises(self, permanent_transitory_2v):
+        with pytest.raises(ValueError, match="LongRunRestriction"):
+            self._scheme().identify(permanent_transitory_2v["L"], ["y1", "y2"], posterior=None)
+
+    def test_identify_without_b_raises(self, permanent_transitory_2v):
+        import xarray as xr
+
+        posterior = xr.Dataset({"intercept": permanent_transitory_2v["idata"].posterior["intercept"]})
+        with pytest.raises(ValueError, match="LongRunRestriction"):
+            self._scheme().identify(permanent_transitory_2v["L"], ["y1", "y2"], posterior=posterior)
+
+    # --- 11. unknown ordering entry ----------------------------------------
+
+    def test_unknown_ordering_variable_raises(self, permanent_transitory_2v):
+        scheme = self._scheme(ordering=["y1", "nope"])
+        with pytest.raises(ValueError, match="nope"):
+            self._identify(scheme, permanent_transitory_2v)
+
+    # --- 12. construction-time validation ----------------------------------
+
+    def test_duplicate_ordering_rejected(self):
+        with pytest.raises(ValidationError, match="duplicate"):
+            LongRunRestriction(ordering=["y1", "y1"])
+
+    def test_empty_ordering_rejected(self):
+        with pytest.raises(ValidationError):
+            LongRunRestriction(ordering=[])
+
+    def test_shock_names_length_mismatch_rejected(self):
+        with pytest.raises(ValidationError, match="same length"):
+            LongRunRestriction(ordering=["y1", "y2"], shock_names=["only_one"])
+
+    def test_duplicate_shock_names_rejected(self):
+        with pytest.raises(ValidationError, match="duplicate"):
+            LongRunRestriction(ordering=["y1", "y2"], shock_names=["s", "s"])
+
+    def test_reserved_shock_name_prefix_rejected(self):
+        with pytest.raises(ValidationError, match="unidentified_"):
+            LongRunRestriction(ordering=["y1", "y2"], shock_names=["unidentified_1", "transitory"])
+
+    # --- 13. numerically singular draws ------------------------------------
+
+    @staticmethod
+    def _posterior_with(fx: dict, A_by_draw) -> "object":
+        """Copy the fixture posterior with `A_by_draw(c, d)` substituted for B."""
+        posterior = fx["idata"].posterior.copy(deep=True)
+        B = posterior["B"].values.copy()
+        for c in range(B.shape[0]):
+            for d in range(B.shape[1]):
+                replacement = A_by_draw(c, d)
+                if replacement is not None:
+                    B[c, d] = replacement
+        posterior["B"] = (("chain", "draw", "var", "coeff"), B)
+        return posterior
+
+    def test_singular_draws_are_nan_and_counted(self, permanent_transitory_2v):
+        """M = I - A_1 = 0 for the doctored draws: those alone come back NaN."""
+        fx = permanent_transitory_2v
+        posterior = self._posterior_with(fx, lambda c, d: np.eye(2) if (c == 0 and d < 5) else None)
+        scheme = self._scheme()
+        with pytest.warns(UserWarning, match="long-run multiplier"):
+            P = scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+
+        assert np.isnan(P[0, :5]).all()
+        assert not np.isnan(P[0, 5:]).any()
+        assert not np.isnan(P[1]).any()
+        np.testing.assert_allclose(P[0, 5:], np.broadcast_to(fx["P_true"], P[0, 5:].shape), atol=1e-12)
+        assert scheme._last_diagnostics["long_run_singular_draws"] == 5.0
+        assert scheme._last_diagnostics["long_run_singular_fraction"] == pytest.approx(0.05)
+
+    def test_singular_draws_raise_when_asked(self, permanent_transitory_2v):
+        fx = permanent_transitory_2v
+        posterior = self._posterior_with(fx, lambda c, d: np.eye(2) if (c == 0 and d < 5) else None)
+        scheme = self._scheme(on_undefined="raise")
+        with pytest.raises(ValueError, match="5"):
+            scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+
+    # --- 14. the max_condition threshold is consulted ----------------------
+
+    def test_near_singular_draws_respect_max_condition(self, permanent_transitory_2v):
+        """A_1 = diag(1 - 1e-9, 0) gives cond(M) ~ 1e9 — caught at 1e8, allowed at 1e20."""
+        fx = permanent_transitory_2v
+        doctored = np.diag([1.0 - 1e-9, 0.0])
+        posterior = self._posterior_with(fx, lambda c, d: doctored if (c == 0 and d < 3) else None)
+
+        strict = self._scheme()
+        with pytest.warns(UserWarning, match="long-run multiplier"):
+            P_strict = strict.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+        assert np.isnan(P_strict[0, :3]).all()
+        assert strict._last_diagnostics["long_run_singular_draws"] == 3.0
+
+        lenient = self._scheme(max_condition=1e20)
+        P_lenient = lenient.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+        assert not np.isnan(P_lenient).any()
+        assert lenient._last_diagnostics["long_run_singular_draws"] == 0.0
+
+    # --- 15. explosive is not singular -------------------------------------
+
+    def test_explosive_draws_warn_but_stay_finite(self, permanent_transitory_2v):
+        """A_1 = 1.5 I: M = -0.5 I is perfectly conditioned, but the MA sum diverges."""
+        fx = permanent_transitory_2v
+        posterior = self._posterior_with(fx, lambda c, d: 1.5 * np.eye(2) if (c == 1 and d < 4) else None)
+        scheme = self._scheme()
+        with pytest.warns(UserWarning, match="explosive"):
+            P = scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+
+        assert np.isfinite(P).all()
+        assert scheme._last_diagnostics["long_run_explosive_draws"] == 4.0
+        assert scheme._last_diagnostics["long_run_singular_draws"] == 0.0
+        assert scheme._last_diagnostics["long_run_spectral_radius_max"] == pytest.approx(1.5)
+
+    # --- 16. the diagnostics query -----------------------------------------
+
+    def test_long_run_diagnostics(self, permanent_transitory_2v):
+        fx = permanent_transitory_2v
+        diagnostics = self._scheme().long_run_diagnostics(fx["idata"].posterior, n_lags=1)
+        assert diagnostics["condition"].shape == (2, 50)
+        assert diagnostics["spectral_radius"].shape == (2, 50)
+        np.testing.assert_allclose(diagnostics["spectral_radius"], 0.6, atol=1e-10)
+        np.testing.assert_allclose(diagnostics["condition"], np.linalg.cond(fx["M"]), rtol=1e-10)
+
+    def test_long_run_diagnostics_infers_n_lags(self, permanent_transitory_2v):
+        diagnostics = self._scheme().long_run_diagnostics(permanent_transitory_2v["idata"].posterior)
+        assert diagnostics["condition"].shape == (2, 50)
+
+    # --- screen memoisation ------------------------------------------------
+
+    def test_screen_is_memoised_per_posterior(self, permanent_transitory_2v):
+        """The per-t (SV) path calls identify repeatedly; the screen must not re-warn."""
+        fx = permanent_transitory_2v
+        posterior = self._posterior_with(fx, lambda c, d: np.eye(2) if (c == 0 and d < 5) else None)
+        scheme = self._scheme()
+        with pytest.warns(UserWarning, match="long-run multiplier"):
+            scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)

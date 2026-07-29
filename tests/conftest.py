@@ -132,6 +132,67 @@ def synthetic_idata_2v_t(synthetic_idata_2v):
     return az.InferenceData(posterior=posterior)
 
 
+@pytest.fixture
+def permanent_transitory_2v():
+    """Exact-arithmetic 2-var VAR(1) with a known long-run structure.
+
+    Built backwards from the answer so the long-run identification has a
+    closed form to be checked against:
+
+        A_1 = [[0.5, 0.1], [0.2, 0.4]]   (eigenvalues 0.6, 0.3 — stable)
+        M   = I - A_1                    (det 0.28)
+        C1  = M^-1                       (long-run multiplier)
+        G   = [[1.0, 0.0], [0.5, 0.8]]   (imposed cumulative impact, G[0, 1] = 0)
+        P   = M @ G = [[0.45, -0.08], [0.10, 0.48]]
+        Sigma = P @ P.T
+
+    `P` is deliberately not lower-triangular, so it is distinguishable
+    from the Cholesky factor of Sigma.
+
+    Returns:
+        Dict with keys `A1`, `M`, `C1`, `G`, `P_true`, `Sigma`, `L`
+        (Cholesky factor of Sigma) and `idata` — an InferenceData with 2
+        chains x 50 draws whose draws all equal the truth, laid out like
+        `synthetic_idata_2v`.
+    """
+    n_chains, n_draws, n_vars = 2, 50, 2
+
+    A1 = np.array([[0.5, 0.1], [0.2, 0.4]])
+    M = np.eye(n_vars) - A1
+    C1 = np.linalg.inv(M)
+    G = np.array([[1.0, 0.0], [0.5, 0.8]])
+    P_true = M @ G
+    Sigma = P_true @ P_true.T
+    L = np.linalg.cholesky(Sigma)
+
+    shape = (n_chains, n_draws, n_vars, n_vars)
+    B = np.broadcast_to(A1, shape).copy()
+    intercept = np.zeros((n_chains, n_draws, n_vars))
+    sigma_draws = np.broadcast_to(Sigma, shape).copy()
+    L_draws = np.broadcast_to(L, shape).copy()
+
+    posterior = xr.Dataset({
+        "B": xr.DataArray(B, dims=["chain", "draw", "var", "coeff"]),
+        "intercept": xr.DataArray(intercept, dims=["chain", "draw", "var"]),
+        "Sigma": xr.DataArray(
+            sigma_draws,
+            dims=["chain", "draw", "var1", "var2"],
+            coords={"var1": ["y1", "y2"], "var2": ["y1", "y2"]},
+        ),
+        "L": xr.DataArray(L_draws, dims=["chain", "draw", "var1", "var2"]),
+    })
+    return {
+        "A1": A1,
+        "M": M,
+        "C1": C1,
+        "G": G,
+        "P_true": P_true,
+        "Sigma": Sigma,
+        "L": L_draws,
+        "idata": az.InferenceData(posterior=posterior),
+    }
+
+
 # --------------- SV fixtures ---------------
 
 
