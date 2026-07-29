@@ -98,6 +98,87 @@ class TestVARDataValidation:
             )
 
 
+class TestVARDataNameUniqueness:
+    def test_rejects_duplicate_endog_names(self, sample_endog, sample_index):
+        with pytest.raises(ValueError, match=r"endog_names must be unique, got duplicates: 'gdp'"):
+            VARData(
+                endog=sample_endog,
+                endog_names=["gdp", "gdp", "rate"],
+                index=sample_index,
+            )
+
+    def test_duplicate_endog_message_lists_every_duplicate(self, sample_index, rng):
+        endog = rng.standard_normal((100, 4))
+        with pytest.raises(ValueError, match=r"duplicates: 'gdp', 'rate'"):
+            VARData(
+                endog=endog,
+                endog_names=["gdp", "rate", "gdp", "rate"],
+                index=sample_index,
+            )
+
+    def test_rejects_duplicate_exog_names(self, sample_endog, sample_index, endog_names, rng):
+        with pytest.raises(ValueError, match=r"exog_names must be unique, got duplicates: 'oil'"):
+            VARData(
+                endog=sample_endog,
+                endog_names=endog_names,
+                exog=rng.standard_normal((100, 2)),
+                exog_names=["oil", "oil"],
+                index=sample_index,
+            )
+
+    def test_rejects_endog_exog_overlap(self, sample_endog, sample_index, endog_names, rng):
+        with pytest.raises(ValueError, match=r"endog_names and exog_names must not overlap, got shared names: 'gdp'"):
+            VARData(
+                endog=sample_endog,
+                endog_names=endog_names,
+                exog=rng.standard_normal((100, 1)),
+                exog_names=[endog_names[0]],
+                index=sample_index,
+            )
+
+    def test_accepts_unique_names(self, sample_endog, sample_index, endog_names, rng):
+        data = VARData(
+            endog=sample_endog,
+            endog_names=endog_names,
+            exog=rng.standard_normal((100, 2)),
+            exog_names=["oil", "fx"],
+            index=sample_index,
+        )
+        assert data.endog_names == endog_names
+        assert data.exog_names == ["oil", "fx"]
+
+
+class TestVARDataFromDFNameUniqueness:
+    @staticmethod
+    def _frame(columns: list[str], rng) -> pd.DataFrame:
+        index = pd.date_range("2000-01-01", periods=100, freq="QS")
+        return pd.DataFrame(
+            rng.standard_normal((100, len(columns))),
+            columns=columns,
+            index=index,
+        )
+
+    def test_from_df_rejects_duplicated_endog_selection(self, rng):
+        df = self._frame(["gdp", "inflation", "rate"], rng)
+        with pytest.raises(ValueError, match=r"endog_names must be unique, got duplicates: 'gdp'"):
+            VARData.from_df(df, endog=["gdp", "gdp", "rate"])
+
+    def test_from_df_rejects_endog_exog_overlap(self, rng):
+        df = self._frame(["gdp", "inflation", "rate"], rng)
+        with pytest.raises(ValueError, match=r"must not overlap, got shared names: 'rate'"):
+            VARData.from_df(df, endog=["gdp", "inflation", "rate"], exog=["rate"])
+
+    def test_from_df_rejects_duplicate_dataframe_labels(self, rng):
+        df = self._frame(["gdp", "gdp", "rate"], rng)
+        with pytest.raises(ValueError, match=r"duplicate column labels for selected variables: 'gdp'"):
+            VARData.from_df(df, endog=["gdp", "rate"])
+
+    def test_from_df_ignores_duplicate_labels_outside_selection(self, rng):
+        df = self._frame(["gdp", "inflation", "rate", "rate"], rng)
+        data = VARData.from_df(df, endog=["gdp", "inflation"])
+        assert data.endog.shape == (100, 2)
+
+
 class TestVARDataFromDF:
     def test_from_df_endog_only(self):
         rng = np.random.default_rng(42)
