@@ -307,6 +307,21 @@ class IdentifiedVAR(ImpulsoBaseModel):
             )
         return fevd_arr
 
+    @staticmethod
+    def _shares(mse_cum: np.ndarray, total: np.ndarray) -> np.ndarray:
+        """Normalise cumulative MSE contributions into variance shares.
+
+        The zero-total guard exists for the degenerate horizon-0 case; it
+        must not swallow *undefined* draws. `NaN > 0` is `False`, so a
+        plain `np.where(total > 0, ...)` would report a NaN draw as a
+        clean 0.0 share — indistinguishable from "this shock explains
+        nothing". Schemes can legitimately return NaN draws
+        (`LongRunRestriction` blanks draws whose long-run multiplier is
+        numerically undefined), so NaN is re-imposed after the guard.
+        """
+        shares = np.where(total > 0, mse_cum / total, 0.0)
+        return np.where(np.isnan(total), np.nan, shares)
+
     def fevd(self, horizon: int = 20, at: AtParam = None) -> FEVDResult:
         """Compute forecast error variance decomposition.
 
@@ -339,7 +354,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             Theta = Phi_arr[:, :, np.newaxis, :, :, :] @ P.values[:, :, :, np.newaxis, :, :]
             mse_cum = np.cumsum(Theta**2, axis=3)
             total = mse_cum.sum(axis=-1, keepdims=True)
-            fevd_arr = np.where(total > 0, mse_cum / total, 0.0)
+            fevd_arr = self._shares(mse_cum, total)
             fevd_arr = self._fevd_guard(fevd_arr)
             fevd_da = xr.DataArray(
                 fevd_arr,
@@ -356,7 +371,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             Theta = Phi_arr @ P.values[:, :, np.newaxis, :, :]
             mse_cum = np.cumsum(Theta**2, axis=2)
             total = mse_cum.sum(axis=-1, keepdims=True)
-            fevd_arr = np.where(total > 0, mse_cum / total, 0.0)
+            fevd_arr = self._shares(mse_cum, total)
             fevd_arr = self._fevd_guard(fevd_arr)
             fevd_da = xr.DataArray(
                 fevd_arr,
