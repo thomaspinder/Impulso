@@ -8,5 +8,6 @@ Practical recipes for solving specific problems with Impulso.
 data-preparation
 custom-priors
 lag-selection
+predictive-checks
 sign-restrictions
 ```

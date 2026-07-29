@@ -47,6 +47,10 @@ _Avoid_: presenting the contemporaneous split of the one-step forecast error (`u
 The in-sample "what if": back out the realised structural shocks per posterior draw (`ε_t = P_t⁻¹ u_t`), overwrite a chosen shock's path over a window, and re-propagate the system to get the path history would have followed. Computed by `IdentifiedVAR.counterfactual(shocks=[ShockPath(...)])`. Realised shocks are edited, never re-drawn, so the posterior spread of a counterfactual reflects parameter and identification uncertainty only. `actual − counterfactual` for a shock zeroed over the full sample equals that shock's HD contribution.
 _Avoid_: bare "counterfactual" for forecast-side operations (those are conditional forecasts or structural scenarios); "policy counterfactual" (rule replacement is a different, out-of-scope object — and the Lucas-critique caveat documented on the method applies even to fixed-path edits).
 
+**Predictive check (prior / posterior)**:
+Data simulated from the model on the *estimation window*, to be compared against the data itself. `VAR.prior_predictive(data)` draws from the PyMC graph before conditioning on the likelihood; `FittedVAR.posterior_predictive()` replicates the sample from the posterior. Both are **one step ahead given the observed lags** — `y_t = c + B x_t^obs + L_t ε_t` — so they sit on the data's own time axis and feed `az.plot_ppc` directly. The posterior-predictive innovations come from the volatility seam's `L_t`, so their spread is time-varying under SV (ADR-0011).
+_Avoid_: "forecast" for either — a forecast leaves the sample and iterates its own predictions; a predictive check never does.
+
 **Conditional forecast**:
 An h-step forecast constrained so chosen endogenous variables follow pinned future paths, with *all* structural shocks free to adjust (Waggoner–Zha 1999). Identification-free: the observable-space answer is invariant to the identification scheme, so it lives on `FittedVAR.conditional_forecast()` — the same placement logic as the dynamic multiplier. Hard (point) conditions are the v1 default — pins hold pathwise on every draw; a second v1 mode, `path_uncertainty="unconditional"` (ADPRR's Ω_f = DD′), restricts the forecast *mean* only while bands keep their unconditional width. `NaN` entries in a pinned path mean "unconstrained at that step".
 _Avoid_: "scenario" for an all-shocks-adjust conditional forecast — scenarios restrict *who* adjusts.
@@ -98,6 +102,7 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 - A **FittedVAR** computes **conditional forecasts** on its own — all shocks adjust, so no identification scheme is involved (the dynamic-multiplier placement logic).
 - An **IdentifiedVAR** computes **historical counterfactuals** and **structural scenarios** through the four-layer scenario engine (back out → constrain → solve → propagate); the propagate layer is shared with `forecast()` and the **historical decomposition**.
 - The **condition vocabulary** is consumed by all three scenario methods; each method accepts only the condition types legal for it.
+- A **VAR** simulates its own **prior predictive** from the graph it would fit; a **FittedVAR** replicates the estimation sample as a **posterior predictive**, computed in NumPy from the posterior and the volatility seam so the conjugate estimator gets it for free (ADR-0011).
 - A **VAR** is estimated by NUTS; a **ConjugateVAR** is estimated analytically with a Metropolis step on hyperparameters. Both produce a **FittedVAR**.
 - A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.
 
@@ -105,6 +110,9 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 
 > **User:** "Fit a 4-variable VAR with stochastic volatility, AR(1) log-vol."
 > **Library:** `VAR(lags=4, volatility=StochasticVolatility(dynamics="ar1")).fit(VARData(...))`. The `volatility` parameter accepts a string shorthand (`"constant"`, `"sv"`) or any `VolatilityProcess` instance.
+>
+> **User:** "Is my prior sane before I spend an hour on NUTS?"
+> **Library:** `VAR(lags=4).prior_predictive(data, draws=500)` then `az.plot_ppc(idata, group="prior")`. After fitting, `fitted.posterior_predictive()` returns the same-shaped in-sample replicates for the other end of the check.
 >
 > **User:** "Show me the IRF for shocks hitting in 2008Q3."
 > **Library:** `identified.impulse_response(horizon=20, at=t_2008Q3)`. The pipeline queries `volatility.cholesky_at(t_2008Q3)` for `L`, the identification scheme rotates it into `B`, and the IRF is computed from `A_1..A_p` and `B`.
