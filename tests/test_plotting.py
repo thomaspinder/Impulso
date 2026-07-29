@@ -172,20 +172,32 @@ def test_plot_volatility_returns_figure(synthetic_sv_idata):
     assert isinstance(fig, Figure)
 
 
-def test_plot_sv_forecast_returns_figure():
-    import arviz as az
-    import numpy as np
-    import xarray as xr
-    from matplotlib.figure import Figure
-
+def _make_sv_forecast_result(steps=12, index=None):
     from impulso.results import SVForecastResult
 
     rng = np.random.default_rng(0)
-    steps = 12
     forecast = rng.standard_normal((2, 50, steps))
     idata = az.InferenceData(
         posterior_predictive=xr.Dataset({"forecast": xr.DataArray(forecast, dims=["chain", "draw", "step"])})
     )
-    result = SVForecastResult(idata=idata, series_name="sim", steps=steps)
+    return SVForecastResult(idata=idata, series_name="sim", steps=steps, index=index)
+
+
+def test_plot_sv_forecast_returns_figure():
+    result = _make_sv_forecast_result()
     fig = result.plot()
     assert isinstance(fig, Figure)
+    ax = fig.axes[0]
+    assert ax.get_xlabel() == "Step ahead"
+    np.testing.assert_array_equal(ax.get_lines()[0].get_xdata(), np.arange(12))
+
+
+def test_plot_sv_forecast_uses_calendar_axis():
+    import matplotlib.dates as mdates
+    import pandas as pd
+
+    idx = pd.date_range("2008-05-01", periods=12, freq="MS")
+    fig = _make_sv_forecast_result(index=idx).plot()
+    ax = fig.axes[0]
+    assert ax.get_xlabel() == "Date"
+    np.testing.assert_allclose(ax.get_lines()[0].get_xdata(orig=False), mdates.date2num(idx))

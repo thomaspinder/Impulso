@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from matplotlib.figure import Figure
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from impulso._base import ImpulsoBaseModel
 from impulso.scenario import ShockPath, VariablePath
@@ -668,22 +668,39 @@ class SVForecastResult(VARResultBase):
         idata: InferenceData with 'forecast' in posterior_predictive.
         series_name: Name of the forecast series.
         steps: Number of forecast steps.
+        index: Forecast axis, normally supplied by `FittedSV.forecast` — a
+            `DatetimeIndex` continuing the observed calendar when the data's
+            frequency is detectable. `None` (the default) falls back to a
+            step-numbered `RangeIndex`.
     """
 
     series_name: str
     steps: int
+    index: pd.Index | None = Field(default=None, repr=False)
+
+    @model_validator(mode="after")
+    def _check_index_length(self) -> "SVForecastResult":
+        """Reject an index that does not match the number of forecast steps."""
+        if self.index is not None and len(self.index) != self.steps:
+            raise ValueError(f"index length {len(self.index)} != steps {self.steps}")
+        return self
+
+    def _axis(self) -> pd.Index:
+        """Forecast axis, falling back to a step-numbered RangeIndex."""
+        from impulso._time import forecast_index
+
+        return self.index if self.index is not None else forecast_index(None, self.steps)
 
     def median(self) -> pd.DataFrame:
         """Posterior median of the density forecast.
 
         Returns:
-            DataFrame of median forecasts indexed by step.
+            DataFrame of median forecasts indexed by the forecast axis —
+            calendar dates when available, otherwise step number.
         """
         forecast = self.idata.posterior_predictive["forecast"]
         med = forecast.median(dim=("chain", "draw")).values
-        df = pd.DataFrame({self.series_name: med})
-        df.index.name = "step"
-        return df
+        return pd.DataFrame({self.series_name: med}, index=self._axis())
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """Highest-density interval for the density forecast.
@@ -692,18 +709,20 @@ class SVForecastResult(VARResultBase):
             prob: Probability mass for the HDI. Default 0.89.
 
         Returns:
-            HDIResult with lower/upper DataFrames for each forecast step.
+            HDIResult with lower/upper DataFrames sharing the index of
+            `median()`.
         """
         hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["forecast"]
-        lower = pd.DataFrame({self.series_name: hdi_data.sel(hdi="lower").values})
-        upper = pd.DataFrame({self.series_name: hdi_data.sel(hdi="higher").values})
+        axis = self._axis()
+        lower = pd.DataFrame({self.series_name: hdi_data.sel(hdi="lower").values}, index=axis)
+        upper = pd.DataFrame({self.series_name: hdi_data.sel(hdi="higher").values}, index=axis)
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
         """Density forecast posterior median as a DataFrame.
 
         Returns:
-            DataFrame of median forecasts indexed by step.
+            DataFrame of median forecasts indexed by the forecast axis.
         """
         return self.median()
 
