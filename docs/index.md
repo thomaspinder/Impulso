@@ -41,6 +41,7 @@ irf.plot()
 - **PyMC backend** — full Bayesian estimation with NUTS sampling
 - **Probabilistic forecasts** — posterior median, HDI credible intervals, tidy DataFrames
 - **Structural identification** — Cholesky and sign restriction schemes
+- **Predictive pooling** — weight competing models by held-out log score, via stacking or pseudo-BMA
 - **Built-in plotting** — IRF, FEVD, forecast, and historical decomposition plots
 
 ## Installation
