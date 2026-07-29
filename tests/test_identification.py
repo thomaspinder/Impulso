@@ -617,6 +617,11 @@ class TestLongRunRestriction:
         with pytest.raises(ValidationError, match="unidentified_"):
             LongRunRestriction(ordering=["y1", "y2"], shock_names=["unidentified_1", "transitory"])
 
+    def test_reserved_prefix_rejected_through_ordering_fallback(self):
+        """With shock_names=None the ordering becomes the shock labels, so the guard must fire there too."""
+        with pytest.raises(ValidationError, match="unidentified_"):
+            LongRunRestriction(ordering=["unidentified_x", "y2"])
+
     # --- 13. numerically singular draws ------------------------------------
 
     @staticmethod

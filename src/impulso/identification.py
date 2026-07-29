@@ -528,16 +528,18 @@ class LongRunRestriction(ImpulsoModel):
             raise ValueError("ordering must name at least one variable")
         if len(set(self.ordering)) != len(self.ordering):
             raise ValueError(f"ordering contains duplicate variable names: {self.ordering}")
-        if self.shock_names is None:
-            return self
-        if len(self.shock_names) != len(self.ordering):
-            raise ValueError(
-                f"shock_names and ordering must have the same length; got "
-                f"{len(self.shock_names)} shock names for {len(self.ordering)} variables."
-            )
-        if len(set(self.shock_names)) != len(self.shock_names):
-            raise ValueError(f"shock_names contains duplicate names: {self.shock_names}")
-        reserved = [s for s in self.shock_names if s.startswith("unidentified_")]
+        if self.shock_names is not None:
+            if len(self.shock_names) != len(self.ordering):
+                raise ValueError(
+                    f"shock_names and ordering must have the same length; got "
+                    f"{len(self.shock_names)} shock names for {len(self.ordering)} variables."
+                )
+            if len(set(self.shock_names)) != len(self.shock_names):
+                raise ValueError(f"shock_names contains duplicate names: {self.shock_names}")
+        # Check the EFFECTIVE labels: with shock_names=None, shock_coords falls
+        # back to the ordering, so a variable named unidentified_* would leak
+        # the reserved prefix into the shock labels through that path too.
+        reserved = [s for s in (self.shock_names or self.ordering) if s.startswith("unidentified_")]
         if reserved:
             raise ValueError(
                 f"Shock names may not start with the reserved prefix 'unidentified_' (got {reserved}). "
