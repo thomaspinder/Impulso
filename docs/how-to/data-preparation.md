@@ -26,6 +26,19 @@ data = VARData.from_df(
 )
 ```
 
+Trends, seasonal cycles and dated breaks do not need to come from a file —
+build them from the index itself with a
+[deterministic design](deterministic-regressors.md), which also produces the
+matching future block for forecasting:
+
+```python
+from impulso import DeterministicDesign, Fourier, Trend
+
+design = DeterministicDesign(terms=[Trend(degree=1, scale=120.0), Fourier(period=12, order=2)])
+frame = pd.concat([df, design.build(df.index)], axis=1)
+data = VARData.from_df(frame, endog=["gdp", "inflation", "rate"], exog=design.column_names)
+```
+
 ## From NumPy arrays
 
 If you already have arrays, pass them directly:

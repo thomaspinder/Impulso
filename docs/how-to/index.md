@@ -6,6 +6,7 @@ Practical recipes for solving specific problems with Impulso.
 :maxdepth: 1
 
 data-preparation
+deterministic-regressors
 custom-priors
 lag-selection
 stationarity-testing

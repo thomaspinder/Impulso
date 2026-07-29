@@ -12,4 +12,5 @@
    IdentificationScheme
    VolatilityProcess
    ErrorDistribution
+   DeterministicTerm
 ```
