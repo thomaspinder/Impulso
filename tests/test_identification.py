@@ -222,7 +222,15 @@ class TestCholeskyNewIdentify:
         # With identity ordering, identify is a no-op — result equals L.
         np.testing.assert_array_equal(result, L)
 
-    def test_identify_reorders_when_ordering_differs(self, synthetic_idata_2v):
+    def test_reversed_ordering_returns_rows_in_data_order(self, synthetic_idata_2v):
+        """The returned matrix is row-indexed by `var_names`, not by `ordering`.
+
+        Downstream (`IdentifiedVAR.shock_matrix`) labels the row axis with
+        `var_names` and left-multiplies by MA coefficients built in data
+        order, so `identify` must return rows in **data** order while the
+        columns follow the causal `ordering`. Triangularity therefore holds
+        only after permuting rows into ordering coordinates.
+        """
         from impulso.identification import Cholesky
 
         sigma = synthetic_idata_2v.posterior["Sigma"].values
@@ -230,20 +238,23 @@ class TestCholeskyNewIdentify:
         var_names = ["v0", "v1"]
 
         scheme = Cholesky(ordering=["v1", "v0"])  # reverse ordering
-        result = scheme.identify(L, var_names)
+        P = scheme.identify(L, var_names)
 
-        # When ordering reverses, the scheme should re-decompose the
-        # row-permuted Sigma — the result is NOT just a row swap of L.
-        assert result.shape == L.shape
-        # Reconstruct: result @ result.T should equal P @ Sigma @ P.T
-        # where P is the permutation matrix.
+        assert P.shape == L.shape
+
+        # (1) P @ P.T reproduces Sigma in DATA coordinates.
+        np.testing.assert_allclose(np.einsum("cdij,cdkj->cdik", P, P), sigma, atol=1e-12)
+
+        # (2) Permuting rows into ordering coordinates gives an exactly
+        #     lower-triangular factor with a positive diagonal.
         perm = np.array([1, 0])
-        sigma_perm = sigma[:, :, np.ix_(perm, perm)[0], np.ix_(perm, perm)[1]]
-        np.testing.assert_allclose(
-            np.einsum("cdij,cdkj->cdik", result, result),
-            sigma_perm,
-            rtol=1e-6,
-        )
+        P_ord = P[..., perm, :]
+        assert np.triu(P_ord, 1).max() == 0.0
+        assert np.triu(P_ord, 1).min() == 0.0
+        assert np.diagonal(P_ord, axis1=-2, axis2=-1).min() > 0.0
+
+        # (3) It is a genuine re-decomposition, not a relabelled row swap of L.
+        assert np.abs(P - L[..., perm, :]).max() > 1e-6
 
 
 class TestSignRestrictionNewIdentify:
