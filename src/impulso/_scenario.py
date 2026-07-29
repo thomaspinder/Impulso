@@ -808,3 +808,66 @@ def _calibrate_scenario_q(
     if path_uncertainty == "unconditional" and n_prescribed == 0:
         return (1.0 + np.sqrt(1.0 - np.exp(-q / d_total))) / 2.0
     return np.ones_like(q)
+
+
+# --- reverse stress (structural forecast draws; ADR-0009) ---
+
+
+def structural_forecast_draws(
+    identified: IdentifiedVAR,
+    steps: int,
+    seed: int | np.random.Generator | None = None,
+    exog_future: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Unconditional forecast draws *and* the structural shocks behind them.
+
+    Reverse stress testing needs the shocks that generated each forecast
+    draw, and neither `forecast()` nor the scenario engines return them.
+    This reproduces `structural_scenario_engine`'s no-ingredient branch
+    (no conditions, no prescriptions, every shock adjusting) exactly —
+    same deterministic path, same scheme-identified forecast factors, and
+    the same RNG stream contract: one generator, `_forecast_shock_matrices`
+    first (which consumes randomness only under time-varying volatility),
+    then per-step `standard_normal((C, D, n))` draws in `forecast()`'s
+    order. Under a shared seed the paths match `structural_scenario(steps,
+    seed=...)` draw for draw.
+
+    Memory note: the returned shocks are forecast-sized `(C, D, steps, n)`
+    — the same footprint as the paths themselves.
+
+    Args:
+        identified: The identified VAR.
+        steps: Forecast horizon.
+        seed: RNG seed or Generator.
+        exog_future: Future exogenous values, validated by the caller.
+
+    Returns:
+        Tuple `(paths, eps)`: forecast paths `(C, D, steps, n)` and the
+        structural shocks `(C, D, steps, n)` in one-standard-deviation
+        units, aligned with `identified.shock_names` on the last axis.
+    """
+    from impulso._linalg import lag_matrices
+    from impulso._propagate import propagate
+
+    posterior = identified.idata.posterior
+    B_draws = posterior["B"].values
+    n_lags = identified.n_lags
+    n_chains, n_draws, n_vars, _ = B_draws.shape
+
+    intercept = posterior["intercept"].values
+    forcing = np.broadcast_to(intercept[:, :, np.newaxis, :], (n_chains, n_draws, steps, n_vars)).copy()
+    if exog_future is not None:
+        forcing += np.einsum("cdij,hj->cdhi", posterior["B_exog"].values, exog_future)
+    A_lags = lag_matrices(B_draws, n_lags)
+    b_path = propagate(A_lags, forcing, identified.data.endog[-n_lags:])
+
+    rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+    P_path = _forecast_shock_matrices(identified, steps, rng)
+
+    eps = np.empty((n_chains, n_draws, steps, n_vars))
+    for h in range(steps):  # per-step draws, forecast()'s stream order
+        eps[:, :, h, :] = rng.standard_normal((n_chains, n_draws, n_vars))
+
+    u = np.einsum("cdhij,cdhj->cdhi", P_path, eps)
+    deviation = propagate(A_lags, u, np.zeros((n_lags, n_vars)))
+    return b_path + deviation, eps
