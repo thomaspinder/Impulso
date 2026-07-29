@@ -83,7 +83,7 @@ def _fitted(
     y[0] = 1.0
     for t in range(1, n_obs):
         y[t] = intercept + coefs @ y[t - 1]
-    exog_arr = np.ones((n_obs, 1)) if exog else None
+    exog_arr = np.arange(n_obs, dtype=float).reshape(-1, 1) if exog else None
     data = VARData(
         endog=y,
         endog_names=list(var_names),
@@ -118,7 +118,7 @@ def _holdout(fit: FittedVAR, values: np.ndarray, *, exog: bool = False) -> VARDa
     return VARData(
         endog=np.asarray(values, dtype=float),
         endog_names=list(fit.var_names),
-        exog=np.ones((steps, 1)) if exog else None,
+        exog=np.arange(steps, dtype=float).reshape(-1, 1) if exog else None,
         exog_names=["x"] if exog else None,
         index=index,
     )
@@ -679,7 +679,7 @@ class TestValidation:
         holdout = VARData(
             endog=_mean_path(fit_a, steps),
             endog_names=["y1", "y2"],
-            exog=np.ones((steps, 1)),
+            exog=np.arange(steps, dtype=float).reshape(-1, 1),
             exog_names=["other"],
             index=index,
         )
