@@ -800,9 +800,9 @@ class GrangerCausalityResult(ImpulsoBaseModel):
     both before and after seeing the data, so no dataset can raise it — a
     genuine posterior probability of exact non-causality needs a prior that
     puts point mass on the null (spike-and-slab / edge inclusion), which
-    Impulso does not fit. What `p_rope` does say is that the tested
-    coefficients are jointly *practically* negligible at the magnitude you
-    declared negligible. Choosing `rope` is the analyst's job and there is
+    Impulso does not fit. What `p_rope` quantifies is the posterior
+    probability that the tested coefficients are jointly *practically*
+    negligible at the magnitude you declared. Choosing `rope` is the analyst's job and there is
     no default, because there is no data-free notion of "small enough";
     that the choice is explicit and recorded is the honesty of the
     statement. With `rope=None` the result reports the distribution only
