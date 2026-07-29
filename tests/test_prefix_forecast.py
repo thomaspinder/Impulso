@@ -191,3 +191,80 @@ class TestForecastCholeskyPathUsesPrefix:
             "forecast_cholesky_path still builds a fake xr.Dataset — "
             "it should call dynamics.forecast_log_vol with name_prefix instead"
         )
+
+
+class TestForecastLevelComposition:
+    """The forecast must reproduce `build_pymc_latent`'s composition (#241).
+
+    In sample, random-walk dynamics registers `h[..., i] = v{i}_h + v{i}_mu`
+    — the level lives *outside* the extrapolated path. A forecast that reads
+    only `v{i}_h` therefore sits at `exp(-mu_i / 2)` times the right scale,
+    silently, with the in-sample fit looking perfect.
+    """
+
+    @staticmethod
+    def _zeroed_innovations(posterior, n_vars=2):
+        """Copy with `sigma_eta = 0`, making the RW a flat continuation."""
+        out = posterior.copy(deep=True)
+        for i in range(n_vars):
+            out[f"v{i}_sigma_eta"] = out[f"v{i}_sigma_eta"] * 0.0
+        return out
+
+    def test_zero_innovation_forecast_continues_the_in_sample_level(self, synthetic_sv_idata_2v):
+        """With no innovation the forecast is pinned to the last in-sample h.
+
+        `L_t = diag(exp(h_t / 2)) @ R_chol` and `R_chol` has a unit
+        diagonal, so `diag(L_t) == exp(h_t / 2)` exactly. Under the #241
+        bug this reads `exp(v_h[-1] / 2)` and the assertion fails by a
+        factor of `exp(mu_i / 2)`.
+        """
+        from impulso.sv.spec import StochasticVolatility
+
+        steps = 4
+        posterior = self._zeroed_innovations(synthetic_sv_idata_2v.posterior)
+        path = StochasticVolatility().forecast_cholesky_path(posterior, steps=steps, rng=np.random.default_rng(0))
+
+        expected = np.exp(posterior["h"].values[:, :, -1, :] / 2)  # (C, D, n_vars)
+        got = np.diagonal(path, axis1=-2, axis2=-1)  # (C, D, steps, n_vars)
+        for s in range(steps):
+            np.testing.assert_allclose(got[:, :, s, :], expected, rtol=1e-12)
+
+    def test_level_is_not_double_counted(self, synthetic_sv_idata_2v):
+        """The level is added exactly once, not twice.
+
+        A fix that added `v{i}_mu` on top of an already-levelled path would
+        pass the continuity test above only if `mu` were zero. Pin it against
+        the independently composed expectation.
+        """
+        from impulso.sv.spec import StochasticVolatility
+
+        posterior = self._zeroed_innovations(synthetic_sv_idata_2v.posterior)
+        path = StochasticVolatility().forecast_cholesky_path(posterior, steps=1, rng=np.random.default_rng(0))
+
+        got = np.diagonal(path, axis1=-2, axis2=-1)[:, :, 0, :]
+        for i in range(2):
+            manual = np.exp((posterior[f"v{i}_h"].values[:, :, -1] + posterior[f"v{i}_mu"].values) / 2)
+            np.testing.assert_allclose(got[:, :, i], manual, rtol=1e-12)
+
+    def test_ar1_needs_no_outer_level(self, synthetic_sv_idata_2v):
+        """AR(1) carries the level in `alpha`, so no `v{i}_mu` may be read.
+
+        `build_pymc_latent` registers no outer `mu_i` when
+        `has_explicit_level` is True, so a posterior from an AR(1) fit has
+        no `v{i}_mu` at all — reading one would raise.
+        """
+        from impulso.sv.dynamics import AR1
+        from impulso.sv.spec import StochasticVolatility
+
+        base = synthetic_sv_idata_2v.posterior
+        n_chains, n_draws, _, n_vars = base["h"].shape
+        posterior = base.drop_vars([f"v{i}_mu" for i in range(n_vars)])
+        for i in range(n_vars):
+            posterior[f"v{i}_phi"] = (("chain", "draw"), np.full((n_chains, n_draws), 0.95))
+            posterior[f"v{i}_alpha"] = (("chain", "draw"), np.full((n_chains, n_draws), -0.05))
+
+        sv = StochasticVolatility(dynamics=AR1())
+        assert sv.resolved_dynamics.has_explicit_level
+        path = sv.forecast_cholesky_path(posterior, steps=3, rng=np.random.default_rng(0))
+        assert path.shape == (n_chains, n_draws, 3, n_vars, n_vars)
+        assert np.all(np.isfinite(path))
