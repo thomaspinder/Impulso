@@ -91,6 +91,18 @@ _Avoid_: "log ML" in the API surface (spell out marginal likelihood); "model pro
 A volatility process whose per-period scale `s_t` follows a deterministic, hyperparameter-driven path with a known break date — not a stochastic process. Used only by `ConjugateVAR`: the scale enters as data rescaling `ỹ_t = y_t / s_t` with a Jacobian in the marginal likelihood, and its hyperparameters are estimated jointly with λ. `PandemicBreak` (three outbreak scales + geometric decay from March 2020) is the concrete case reproducing Lenza & Primiceri (2020).
 _Avoid_: "stochastic volatility" — the break is deterministic given its hyperparameters.
 
+**Stationarity pretest**:
+A classical frequentist test run *before* a VAR is specified, to decide levels versus differences. `adf_test` (Augmented Dickey-Fuller; null = unit root) and `kpss_test` (Kwiatkowski-Phillips-Schmidt-Shin; null = stationarity) have opposite nulls, so both are reported and their `conclusion` columns are oriented per test. Lives behind the optional `impulso[diagnostics]` extra (statsmodels). The pretests report and never decide: no mechanical "difference it" rule is applied, because unit-root tests have low power against persistent alternatives and are sensitive to deterministic terms and breaks.
+_Avoid_: "stationarity check" / "unit-root check" — "pretest" carries the sequencing (it precedes specification) and the pretesting-bias caveat.
+
+**Integration order (`d`, `d_max`)**:
+The number of differences a series needs before ADF rejects a unit root, per variable in `IntegrationOrderResult.order`. `d_max = max(order.values())` is the system-wide maximum and is the augmentation term a Toda-Yamamoto procedure consumes — **the names `order` and `d_max` are the frozen contract for that consumer**. ADF drives the stopping rule; KPSS is recorded at every level as a `joint_status` 2×2 (`stationary` / `unit_root` / `conflicting` / `inconclusive`). Variables that are still integrated at `max_order`, or whose tests conflict where the search stopped, are listed in `inconclusive` — human judgement, not a silent verdict.
+_Avoid_: "order of differencing" for `d_max` — `d_max` is the maximum across the system, not any one series' `d`.
+
+**Cointegration rank**:
+The number of independent long-run relationships among integrated series, from the Johansen procedure (`johansen_test`). Both sequential tests are reported — `rank_trace` and `rank_max_eigen` — and `rank` is `rank_trace` by documented convention. Decisions rest on **critical values, not p-values** (Osterwald-Lenum tables), which is why `alpha` is restricted to 0.10 / 0.05 / 0.01. Rank ≥ 1 means differencing every series discards the long-run relationship. A vector error correction model (VECM) is **out of scope**; the recommended response is a VAR in levels (the Sims–Stock–Watson stance; the Minnesota prior already shrinks toward random walks).
+_Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "cointegration test" without saying which statistic, since trace and max-eigen can disagree.
+
 ## Relationships
 
 - A **VAR** carries one **prior** and one **volatility process**.
@@ -103,6 +115,8 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 - An **IdentifiedVAR** computes **historical counterfactuals** and **structural scenarios** through the four-layer scenario engine (back out → constrain → solve → propagate); the propagate layer is shared with `forecast()` and the **historical decomposition**.
 - The **condition vocabulary** is consumed by all three scenario methods; each method accepts only the condition types legal for it.
 - A **VAR** is estimated by NUTS; a **ConjugateVAR** is estimated analytically with a Metropolis step on hyperparameters. Both produce a **FittedVAR**.
+- A **stationarity pretest** consumes `VARData` (endogenous block only), a DataFrame, or a Series, and produces a result object — never a modified dataset and never a specification. It sits *beside* the pipeline, not in it: nothing downstream of `VAR.fit()` reads its output.
+- **Integration order** feeds **cointegration rank**: the Johansen test is only meaningful for series that are individually integrated, and it is conditioned on a lag order (`k_ar_diff = p - 1`) that `select_lag_order` supplies.
 - A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.
 
 ## Example dialogue
