@@ -924,21 +924,39 @@ def _stable_draw():
     )
 
 
-def _reference_band_form(A1: np.ndarray, L: np.ndarray, target: int, band: tuple[float, float]) -> np.ndarray:
+def _multi_lag_draw():
+    """One stable 3-variable VAR(2) draw with a correlated Sigma.
+
+    The lag structure is the point: `A_2` is not proportional to `A_1`,
+    so mis-indexing the lag exponent in `sum_j A_j e^{-i w j}` changes the
+    transfer function and the band share along with it.
+    """
+    A1 = np.array([[0.4, 0.15, 0.0], [0.05, 0.3, 0.1], [0.0, 0.1, 0.2]])
+    A2 = np.array([[0.1, 0.0, 0.05], [0.0, -0.15, 0.0], [0.02, 0.0, 0.1]])
+    Sigma = np.array([[1.0, 0.3, 0.1], [0.3, 0.7, 0.05], [0.1, 0.05, 0.5]])
+    L = np.linalg.cholesky(Sigma)
+    B = np.concatenate([A1, A2], axis=-1)[np.newaxis, np.newaxis]  # (1, 1, 3, 6)
+    return [A1, A2], Sigma, _posterior_with_B(B), L[np.newaxis, np.newaxis]
+
+
+def _reference_band_form(A: list, L: np.ndarray, target: int, band: tuple[float, float], n_grid: int = 4097):
     """Independent, unvectorised build of `Re(M)` by trapezoid quadrature.
 
-    Deliberately shares no code with the implementation: it inverts
-    `F(w)` explicitly, takes the target row, and integrates on a dense
-    uniform grid. Used to check the eigen solution really is the
-    band-variance maximiser.
+    Deliberately shares no code with the implementation: it builds the lag
+    sum term by term with an explicit `e^{-i w j}` per lag `j = 1..p`,
+    inverts `F(w)` outright rather than solving, takes the target row, and
+    integrates on a dense uniform grid. Used to check the eigen solution
+    really is the band-variance maximiser, and to pin the lag indexing.
     """
     omega_lo = 0.0 if np.isinf(band[1]) else 2.0 * np.pi / band[1]
     omega_hi = 2.0 * np.pi / band[0]
-    omegas = np.linspace(omega_lo, omega_hi, 4097)
+    omegas = np.linspace(omega_lo, omega_hi, n_grid)
     integrand = []
     for omega in omegas:
-        C = np.linalg.inv(np.eye(A1.shape[0]) - A1 * np.exp(-1j * omega))
-        row = C[target] @ L
+        F = np.eye(A[0].shape[0], dtype=complex)
+        for j, A_j in enumerate(A, start=1):
+            F -= A_j * np.exp(-1j * omega * j)
+        row = np.linalg.inv(F)[target] @ L
         integrand.append(np.conj(row)[:, np.newaxis] * row[np.newaxis, :])
     return np.trapezoid(np.array(integrand), omegas, axis=0).real
 
@@ -1117,7 +1135,7 @@ class TestMaxShareOptimality:
         scheme = MaxShare(target="y1", band=band)
         P = scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=1)
 
-        M = _reference_band_form(A1, L[0, 0], target=0, band=band)
+        M = _reference_band_form([A1], L[0, 0], target=0, band=band)
         q = np.linalg.solve(L[0, 0], P[0, 0, :, 0])
         q = q / np.linalg.norm(q)
         achieved = q @ M @ q / np.trace(M)
@@ -1135,7 +1153,7 @@ class TestMaxShareOptimality:
         scheme = MaxShare(target="y1", band=band)
         P = scheme.identify(L, ["y1", "y2"], posterior=posterior, n_lags=1)
 
-        M = _reference_band_form(A1, L[0, 0], target=0, band=band)
+        M = _reference_band_form([A1], L[0, 0], target=0, band=band)
         q = np.linalg.solve(L[0, 0], P[0, 0, :, 0])
         q = q / np.linalg.norm(q)
         assert scheme._last_diagnostics["max_share_share_median"] == pytest.approx(q @ M @ q / np.trace(M), abs=1e-5)
@@ -1156,6 +1174,80 @@ class TestMaxShareParseval:
         Theta = Phi @ P[0, 0]
         time_domain = (Theta[:, 0, 0] ** 2).sum() / (Theta[:, 0, :] ** 2).sum()
         assert scheme._last_diagnostics["max_share_share_median"] == pytest.approx(time_domain, abs=1e-6)
+
+
+class TestMaxShareMultiLag:
+    """The lag sum `sum_j A_j e^{-i w j}` on a VAR(2), against an independent reference.
+
+    Every other MaxShare test is VAR(1), where every lag exponent
+    collapses to `e^{-i w}` and a mis-indexed lag would go unnoticed.
+    Here `A_2` carries its own `e^{-2 i w}`, so the reference disagrees
+    with the implementation under any off-by-one.
+    """
+
+    def test_var2_share_matches_independent_reference(self):
+        from impulso.identification import MaxShare
+
+        A, _, posterior, L = _multi_lag_draw()
+        band = (6.0, 32.0)
+        scheme = MaxShare(target="v1", band=band)
+        P = scheme.identify(L, ["v1", "v2", "v3"], posterior=posterior, n_lags=2)
+
+        M = _reference_band_form(A, L[0, 0], target=0, band=band, n_grid=8193)
+        q = np.linalg.solve(L[0, 0], P[0, 0, :, 0])
+        q = q / np.linalg.norm(q)
+        achieved = q @ M @ q / np.trace(M)
+        assert scheme._last_diagnostics["max_share_share_median"] == pytest.approx(achieved, abs=1e-5)
+
+    def test_var2_beats_a_dense_sweep_of_the_sphere(self):
+        from impulso.identification import MaxShare
+
+        A, _, posterior, L = _multi_lag_draw()
+        band = (6.0, 32.0)
+        scheme = MaxShare(target="v1", band=band)
+        P = scheme.identify(L, ["v1", "v2", "v3"], posterior=posterior, n_lags=2)
+
+        M = _reference_band_form(A, L[0, 0], target=0, band=band, n_grid=8193)
+        q = np.linalg.solve(L[0, 0], P[0, 0, :, 0])
+        q = q / np.linalg.norm(q)
+        achieved = q @ M @ q / np.trace(M)
+
+        candidates = np.random.default_rng(7).standard_normal((200_000, 3))
+        candidates /= np.linalg.norm(candidates, axis=-1, keepdims=True)
+        best = (np.einsum("ki,ij,kj->k", candidates, M, candidates) / np.trace(M)).max()
+        assert achieved >= best - 1e-6
+
+    def test_var2_reproduces_sigma_and_signs_the_target(self):
+        from impulso.identification import MaxShare
+
+        _, Sigma, posterior, L = _multi_lag_draw()
+        P = MaxShare(target="v1", band=(6, 32)).identify(L, ["v1", "v2", "v3"], posterior=posterior, n_lags=2)
+
+        np.testing.assert_allclose(P[0, 0] @ P[0, 0].T, Sigma, atol=1e-12)
+        assert P[0, 0, 0, 0] > 0
+
+    def test_var2_full_band_share_equals_time_domain_share(self):
+        """Parseval again, but with two lags in the moving-average recursion."""
+        from impulso._ma import compute_ma_phi
+        from impulso.identification import MaxShare
+
+        A, _, posterior, L = _multi_lag_draw()
+        scheme = MaxShare(target="v1", band=(2.0, float("inf")))
+        P = scheme.identify(L, ["v1", "v2", "v3"], posterior=posterior, n_lags=2)
+
+        Phi = compute_ma_phi([A_j[np.newaxis, np.newaxis] for A_j in A], 600)[0, 0]
+        Theta = Phi @ P[0, 0]
+        time_domain = (Theta[:, 0, 0] ** 2).sum() / (Theta[:, 0, :] ** 2).sum()
+        assert scheme._last_diagnostics["max_share_share_median"] == pytest.approx(time_domain, abs=1e-6)
+
+    def test_var2_n_lags_inferred_from_B(self):
+        """`B` is (n, 2n) here, so a wrong inference would change the answer."""
+        from impulso.identification import MaxShare
+
+        _, _, posterior, L = _multi_lag_draw()
+        explicit = MaxShare(target="v1", band=(6, 32)).identify(L, ["v1", "v2", "v3"], posterior=posterior, n_lags=2)
+        inferred = MaxShare(target="v1", band=(6, 32)).identify(L, ["v1", "v2", "v3"], posterior=posterior)
+        np.testing.assert_array_equal(explicit, inferred)
 
 
 class TestMaxShareScreensAndDiagnostics:

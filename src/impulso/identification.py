@@ -1204,6 +1204,17 @@ class MaxShare(ImpulsoModel):
             is numerically undefined inside the band are NaN when
             `on_undefined="nan"`.
 
+        Note:
+            Under time-varying volatility the pipeline calls this once per
+            time slice, and `_last_diagnostics` is overwritten each call.
+            The diagnostics attached to `shock_matrix(at="all")` therefore
+            describe the *last* time slice only. The share and eigenvalue
+            ratio are the L-dependent ones and so genuinely differ across
+            slices; the singular, explosive and spectral-radius counts do
+            not, since they are properties of the posterior alone. Use
+            `max_share_diagnostics` with an explicit `L` for a specific
+            period.
+
         Raises:
             ValueError: If `posterior` is missing or carries no `B`, if
                 `target` is not an endogenous variable, or if
