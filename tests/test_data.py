@@ -98,6 +98,79 @@ class TestVARDataValidation:
             )
 
 
+class TestVARDataExogVariation:
+    """Exactly-constant exog columns are collinear with the intercept (#192)."""
+
+    @pytest.mark.parametrize("fill", [1.0, 0.0, -3.5])
+    def test_rejects_constant_exog_column(self, sample_endog, sample_index, endog_names, fill):
+        with pytest.raises(ValueError, match=r"constant columns: 'level'"):
+            VARData(
+                endog=sample_endog,
+                endog_names=endog_names,
+                exog=np.full((100, 1), fill),
+                exog_names=["level"],
+                index=sample_index,
+            )
+
+    def test_error_names_every_constant_column_and_points_at_the_fix(
+        self, sample_endog, sample_index, endog_names, rng
+    ):
+        exog = np.column_stack([np.ones(100), rng.standard_normal(100), np.zeros(100)])
+        with pytest.raises(ValueError, match=r"constant columns: 'ones', 'zeros'") as exc:
+            VARData(
+                endog=sample_endog,
+                endog_names=endog_names,
+                exog=exog,
+                exog_names=["ones", "oil", "zeros"],
+                index=sample_index,
+            )
+        assert "collinear with the intercept" in str(exc.value)
+
+    def test_accepts_column_that_varies_only_once(self, sample_endog, sample_index, endog_names):
+        """A step dummy varies within the sample, so it is identified."""
+        dummy = np.zeros(100)
+        dummy[75:] = 1.0
+        data = VARData(
+            endog=sample_endog,
+            endog_names=endog_names,
+            exog=dummy[:, None],
+            exog_names=["break"],
+            index=sample_index,
+        )
+        assert data.exog is not None
+        assert data.exog.shape == (100, 1)
+
+    def test_accepts_near_constant_column(self, sample_endog, sample_index, endog_names, rng):
+        """Only exactly-constant columns are rejected; tiny variation is legal."""
+        col = 1.0 + 1e-13 * rng.standard_normal(100)
+        data = VARData(
+            endog=sample_endog,
+            endog_names=endog_names,
+            exog=col[:, None],
+            exog_names=["almost_flat"],
+            index=sample_index,
+        )
+        assert data.exog is not None
+
+    def test_nonfinite_exog_still_reports_nan_not_constant(self, sample_endog, sample_index, endog_names):
+        bad = np.full((100, 1), np.nan)
+        with pytest.raises(ValueError, match="NaN or Inf"):
+            VARData(
+                endog=sample_endog,
+                endog_names=endog_names,
+                exog=bad,
+                exog_names=["broken"],
+                index=sample_index,
+            )
+
+    def test_from_df_rejects_constant_exog_column(self, rng):
+        index = pd.date_range("2000-01-01", periods=100, freq="QS")
+        df = pd.DataFrame(rng.standard_normal((100, 3)), columns=["gdp", "inflation", "rate"], index=index)
+        df["const"] = 1.0
+        with pytest.raises(ValueError, match=r"constant columns: 'const'"):
+            VARData.from_df(df, endog=["gdp", "inflation", "rate"], exog=["const"])
+
+
 class TestVARDataNameUniqueness:
     def test_rejects_duplicate_endog_names(self, sample_endog, sample_index):
         with pytest.raises(ValueError, match=r"endog_names must be unique, got duplicates: 'gdp'"):
