@@ -63,19 +63,20 @@ def _exog_prior_sigma(
             trimmed to the rows the likelihood sees.
         scale: Multiplier in units of "residual standard deviations of the
             dependent variable per standard deviation of the regressor".
-        exog_names: Optional column names, used only to make the all-zero
-            error message readable.
+        exog_names: Optional column names, used only to make the
+            constant-column error message readable.
 
     Returns:
         Array of shape `(n_vars, n_exog)` of prior standard deviations.
 
     Raises:
-        ValueError: If a column of `x_exog` is identically zero. `VARData`
+        ValueError: If a column of `x_exog` is exactly constant. `VARData`
             rejects columns that are constant over the whole sample, but
-            trimming the first `n_lags` rows can still leave nothing behind
-            (a pulse dummy at the very start of the sample, say). Such a
-            regressor never enters the likelihood, so there is no scale to
-            key the prior off and the posterior would be the prior.
+            trimming the first `n_lags` rows can flatten a column that did
+            vary — a dummy that only switches inside the initial conditions,
+            say. What the likelihood then sees is collinear with the
+            intercept, so the coefficient is not identified; the floor below
+            would happily hand it a wide prior and hide that.
     """
     # Lazy: `_conjugate` imports scipy at module level, and `spec` is on the
     # package import path.
@@ -83,16 +84,19 @@ def _exog_prior_sigma(
 
     sigma = ar1_residual_sd(endog)
     s = x_exog.std(axis=0, ddof=1)
-    peak = np.abs(x_exog).max(axis=0)
-    s_eff = np.maximum(s, _EXOG_SD_FLOOR_FRACTION * peak)
-    degenerate = np.flatnonzero(s_eff <= 0.0)
+    # Checked before the floor is applied: the floor exists to tame columns with
+    # tiny-but-real variation, not to manufacture a scale for columns with none.
+    degenerate = np.flatnonzero(s <= 0.0)
     if degenerate.size:
         labels = [exog_names[j] if exog_names is not None else f"column {j}" for j in degenerate]
         raise ValueError(
-            f"exog columns are identically zero over the estimation sample: {_format_names(labels)}. "
-            "Only the first n_lags rows carry any signal, and those are consumed as initial conditions, "
-            "so the coefficient never enters the likelihood. Drop the column or extend the sample."
+            f"exog columns are constant over the estimation sample: {_format_names(labels)}. "
+            "The first n_lags rows are consumed as initial conditions, and what remains of these columns "
+            "does not vary, so their coefficients are collinear with the intercept and not identified. "
+            "Drop the columns, or reduce `lags` so the rows that do vary enter the estimation sample."
         )
+    peak = np.abs(x_exog).max(axis=0)
+    s_eff = np.maximum(s, _EXOG_SD_FLOOR_FRACTION * peak)
     return scale * np.outer(sigma, 1.0 / s_eff)
 
 

@@ -354,10 +354,26 @@ class TestExogPriorSigma:
         endog = rng.standard_normal((120, 2))
         pulse = np.zeros((120, 1))
 
-        with pytest.raises(ValueError, match=r"identically zero over the estimation sample: 'pulse'"):
+        with pytest.raises(ValueError, match=r"constant over the estimation sample: 'pulse'"):
             _exog_prior_sigma(endog, pulse, 100.0, ["pulse"])
 
-    def test_all_zero_error_falls_back_to_column_index(self, rng):
+    def test_rejects_column_that_is_constant_nonzero_after_lag_trimming(self, rng):
+        """The floor must not rescue a column that is flat at a non-zero level.
+
+        A 0/1 dummy that switches inside the initial conditions passes VARData's
+        whole-sample check, then arrives here as a column of ones — collinear
+        with the intercept. Keying the floor off its level would hand it a wide
+        prior on an unidentified coefficient, which is the failure this guard
+        exists to stop.
+        """
+        endog = rng.standard_normal((120, 2))
+        flat = np.ones((120, 1))
+
+        with pytest.raises(ValueError, match=r"constant over the estimation sample: 'early_break'") as exc:
+            _exog_prior_sigma(endog, flat, 100.0, ["early_break"])
+        assert "reduce `lags`" in str(exc.value)
+
+    def test_constant_column_error_falls_back_to_column_index(self, rng):
         endog = rng.standard_normal((120, 2))
         with pytest.raises(ValueError, match=r"'column 0'"):
             _exog_prior_sigma(endog, np.zeros((120, 1)), 100.0)
@@ -423,6 +439,19 @@ class TestExogPriorWiredIntoModel:
     def test_no_b_exog_without_exog(self, var_data_2v):
         model = self._capture(var_data_2v, VAR(lags=1))
         assert "B_exog" not in {v.name for v in model.unobserved_RVs}
+
+    def test_fit_rejects_a_dummy_that_only_switches_inside_the_initial_conditions(self, rng):
+        """VARData sees variation; the estimation sample does not (#192)."""
+        endog = rng.standard_normal((150, 2))
+        dummy = np.ones((150, 1))
+        dummy[:2] = 0.0  # switches at t=2, but lags=4 trims rows 0-3 away
+        data = _exog_data(endog, dummy, ["early_break"])
+
+        with pytest.raises(ValueError, match=r"constant over the estimation sample: 'early_break'"):
+            VAR(lags=4).fit(data)
+
+        # Same column with lags=1 keeps the switch, so it is estimable.
+        self._capture(data, VAR(lags=1))
 
 
 class TestVolatilityShorthandSV:
