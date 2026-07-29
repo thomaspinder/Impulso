@@ -660,7 +660,7 @@ class TestValidation:
             endog_names=["y1", "y2"],
             index=pd.DatetimeIndex(["2000-05-09", "2000-06-30", "2000-09-01"]),
         )
-        with pytest.warns(UserWarning, match="line up positionally"):
+        with pytest.warns(UserWarning, match="estimation samples or the holdout"):
             pool = pool_forecasts(fits, holdout, seed=0)
         assert np.isclose(pool.weights.sum(), 1.0)
 
@@ -706,6 +706,48 @@ class TestValidation:
         with pytest.raises(ValueError, match="seed must be"):
             pool_forecasts(fits, holdout, seed="tomorrow")
 
+    @pytest.mark.parametrize("order", [("quarterly", "monthly"), ("monthly", "quarterly")])
+    def test_mixed_frequency_fits_rejected_in_either_order(self, order):
+        """Two models can share a sample end at different frequencies.
+
+        The check must not depend on which one the mapping happens to yield
+        first: previously only the first fit's index was inspected, so a
+        quarterly-first mapping pooled a monthly model silently.
+        """
+        candidates = {
+            "quarterly": _fitted(sd=[0.5, 0.5], n_obs=60, start="2000-01-01", freq="QS"),
+            "monthly": _fitted(sd=[0.6, 0.6], n_obs=60, start="2009-11-01", freq="MS"),
+        }
+        assert candidates["quarterly"].data.index[-1] == candidates["monthly"].data.index[-1]
+        fits = {label: candidates[label] for label in order}
+        holdout = _holdout(candidates["quarterly"], np.zeros((6, 2)))
+        with pytest.raises(ValueError, match="different frequencies"):
+            pool_forecasts(fits, holdout, seed=0)
+
+    def test_one_unknown_frequency_among_regular_fits_warns(self):
+        """A model whose index has no inferable frequency is flagged, not ignored."""
+        regular = _fitted(sd=[0.5, 0.5], n_obs=60, start="2000-01-01", freq="QS")
+        irregular_index = pd.DatetimeIndex([
+            *pd.date_range("2000-01-01", periods=58, freq="QS"),
+            "2014-08-13",
+            "2014-10-01",
+        ])
+        irregular = FittedVAR(
+            idata=regular.idata,
+            n_lags=regular.n_lags,
+            data=VARData(
+                endog=np.asarray(regular.data.endog),
+                endog_names=regular.var_names,
+                index=irregular_index,
+            ),
+            var_names=regular.var_names,
+            volatility=regular.volatility,
+        )
+        holdout = _holdout(regular, _mean_path(regular, 6))
+        with pytest.warns(UserWarning, match=r"Could not infer a frequency for \['odd'\]"):
+            pool = pool_forecasts({"regular": regular, "odd": irregular}, holdout, seed=0)
+        assert np.isclose(pool.weights.sum(), 1.0)
+
     def test_non_spawnable_generator_is_reported_as_a_seed_problem(self):
         with pytest.raises(ValueError, match="supports spawning"):
             _spawn(np.random.RandomState(0), 3)
@@ -715,6 +757,22 @@ class TestValidation:
         assert regular.freq is None
         assert _index_freq(regular) is not None
         assert _index_freq(pd.DatetimeIndex(["2000-01-01", "2000-01-05"])) is None
+
+    def test_reserved_pooled_label_rejected(self, mirrored_pool):
+        """'pooled' would overwrite that model's column in to_dataframe()."""
+        fits, holdout = mirrored_pool
+        renamed = dict(zip(["pooled", "other"], fits.values(), strict=True))
+        with pytest.raises(ValueError, match="reserved model label"):
+            pool_forecasts(renamed, holdout, seed=0)
+
+    def test_reserved_pooled_label_rejected_on_direct_construction(self, mirrored_pool):
+        fits, holdout = mirrored_pool
+        pool = pool_forecasts(fits, holdout, seed=0)
+        broken = dict(pool)
+        broken["weights"] = pd.Series(pool.weights.to_numpy(), index=["pooled", "other"])
+        broken["log_scores"] = pool.log_scores.set_axis(["pooled", "other"], axis=1)
+        with pytest.raises(ValidationError, match="reserved model label"):
+            PredictivePool(**broken)
 
     def test_empty_holdout_rejected(self, mirrored_pool):
         fits, _ = mirrored_pool
