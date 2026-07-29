@@ -1,10 +1,14 @@
 """Tests for identification schemes."""
 
+import gc
+import weakref
+
 import numpy as np
 import pytest
+import xarray as xr
 from pydantic import ValidationError
 
-from impulso.identification import Cholesky, SignRestriction
+from impulso.identification import _CACHE_MISS, Cholesky, SignRestriction, _PosteriorCache
 from impulso.protocols import IdentificationScheme
 
 
@@ -365,3 +369,108 @@ class TestSignRestrictionNewIdentify:
         # synthetic_idata_2v has B in posterior; should run without raising.
         P = scheme.identify(L, var_names, posterior=synthetic_idata_2v.posterior)
         assert P.shape == L.shape
+
+
+class TestPosteriorCache:
+    """Weakref-validated identity cache shared by the identification schemes (#203)."""
+
+    def test_xr_dataset_supports_weak_references(self):
+        """The whole design rests on this — assert it rather than assume it."""
+        ds = xr.Dataset()
+        assert weakref.ref(ds)() is ds
+
+    def test_empty_cache_misses(self):
+        cache = _PosteriorCache()
+        assert cache.get(xr.Dataset(), (1,)) is _CACHE_MISS
+
+    def test_hit_on_the_same_owner(self):
+        cache = _PosteriorCache()
+        owner = xr.Dataset()
+        sentinel = object()
+        cache.set(owner, (2,), sentinel)
+        assert cache.get(owner, (2,)) is sentinel
+
+    def test_none_is_a_storable_value(self):
+        cache = _PosteriorCache()
+        owner = xr.Dataset()
+        cache.set(owner, (), None)
+        assert cache.get(owner, ()) is None
+
+    def test_live_owner_with_different_identity_misses(self):
+        """Two live, equal-looking owners must not share an entry."""
+        cache = _PosteriorCache()
+        first, second = xr.Dataset(), xr.Dataset()
+        cache.set(first, (1,), "value")
+        assert cache.get(second, (1,)) is _CACHE_MISS
+        assert cache.get(first, (1,)) == "value"
+
+    def test_key_tail_mismatch_misses(self):
+        cache = _PosteriorCache()
+        owner = xr.Dataset()
+        cache.set(owner, (1, "gdp"), "value")
+        assert cache.get(owner, (2, "gdp")) is _CACHE_MISS
+        assert cache.get(owner, (1, "inflation")) is _CACHE_MISS
+        assert cache.get(owner, (1, "gdp")) == "value"
+
+    def test_dead_referent_misses(self):
+        """The defect this cache exists to close: a collected owner's
+        address may be recycled, so a dead referent must read as a miss."""
+        cache = _PosteriorCache()
+        owner = xr.Dataset()
+        cache.set(owner, (1,), "stale")
+        ref = weakref.ref(owner)
+
+        del owner
+        gc.collect()
+        assert ref() is None
+
+        assert cache.get(xr.Dataset(), (1,)) is _CACHE_MISS
+
+    def test_multiple_owners_all_must_match(self):
+        cache = _PosteriorCache()
+        a, b, other = xr.Dataset(), xr.Dataset(), xr.Dataset()
+        cache.set((a, b), (1,), "value")
+        assert cache.get((a, b), (1,)) == "value"
+        assert cache.get((a, other), (1,)) is _CACHE_MISS
+        assert cache.get((other, b), (1,)) is _CACHE_MISS
+
+    def test_owner_arity_mismatch_misses(self):
+        cache = _PosteriorCache()
+        a, b = xr.Dataset(), xr.Dataset()
+        cache.set((a, b), (1,), "value")
+        assert cache.get(a, (1,)) is _CACHE_MISS
+
+    def test_single_owner_and_one_tuple_are_equivalent(self):
+        cache = _PosteriorCache()
+        owner = xr.Dataset()
+        cache.set(owner, (1,), "value")
+        assert cache.get((owner,), (1,)) == "value"
+
+    def test_non_weakrefable_owner_declines_to_cache(self):
+        """No validity token means no cache — never an unsafe fallback key."""
+        cache = _PosteriorCache()
+        owner = xr.Dataset()
+        cache.set((owner, 3), (1,), "value")
+        assert cache.get((owner, 3), (1,)) is _CACHE_MISS
+
+    def test_non_weakrefable_owner_evicts_a_previous_entry(self):
+        cache = _PosteriorCache()
+        a, b = xr.Dataset(), xr.Dataset()
+        cache.set(a, (1,), "value")
+        cache.set((b, "not-weakrefable"), (1,), "other")
+        assert cache.get(a, (1,)) is _CACHE_MISS
+
+    def test_set_overwrites_the_single_slot(self):
+        cache = _PosteriorCache()
+        a, b = xr.Dataset(), xr.Dataset()
+        cache.set(a, (1,), "first")
+        cache.set(b, (1,), "second")
+        assert cache.get(b, (1,)) == "second"
+        assert cache.get(a, (1,)) is _CACHE_MISS
+
+    def test_clear(self):
+        cache = _PosteriorCache()
+        owner = xr.Dataset()
+        cache.set(owner, (1,), "value")
+        cache.clear()
+        assert cache.get(owner, (1,)) is _CACHE_MISS
