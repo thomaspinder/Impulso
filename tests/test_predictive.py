@@ -1,5 +1,8 @@
 """Tests for the prior- and posterior-predictive APIs (issue #56)."""
 
+import subprocess
+import sys
+
 import arviz as az
 import matplotlib
 import numpy as np
@@ -13,6 +16,43 @@ from impulso._lag_selection import select_lag_order
 from impulso._residuals import fitted_values, reduced_form_residuals
 from impulso.fitted import FittedVAR
 from impulso.volatility import Constant
+
+# Driven in a fresh interpreter: enable_runtime_checks() beartype-wraps the
+# library's classes in place, so the wrapping must not leak into the rest of
+# the suite. Beartype resolves return annotations on call, and it cannot
+# resolve a DOTTED forward reference whose module is TYPE_CHECKING-only
+# (`"pm.Model"` blows up with BeartypeCallHintForwardRefException). This
+# script is the regression fence for that.
+_RUNTIME_CHECKS_SCRIPT = """
+import numpy as np
+import pandas as pd
+
+import impulso
+
+impulso.enable_runtime_checks()
+
+from beartype.roar import BeartypeCallHintViolation
+from impulso import VAR, VARData
+
+rng = np.random.default_rng(0)
+index = pd.date_range("2000-01-01", periods=40, freq="QS")
+data = VARData(endog=rng.standard_normal((40, 2)) * 0.1, endog_names=["y1", "y2"], index=index)
+
+spec = VAR(lags=1)
+prior = spec.prior_predictive(data, draws=5, random_seed=0)
+assert prior.prior_predictive["obs"].shape == (1, 5, 39, 2)
+
+fitted = spec.fit(data, sampler=impulso.NUTSSampler(draws=5, tune=5, chains=1, cores=1, progressbar=False))
+assert fitted.posterior_predictive(seed=0).posterior_predictive["obs"].shape == (1, 5, 39, 2)
+print("PREDICTIVE_OK")
+
+try:
+    spec.prior_predictive(data, draws="five")
+except BeartypeCallHintViolation:
+    print("VIOLATION_CAUGHT")
+else:
+    raise AssertionError("beartype did not flag draws='five'")
+"""
 
 
 @pytest.fixture
@@ -248,6 +288,23 @@ class TestPosteriorPredictive:
 
         axes = az.plot_ppc(ppc, num_pp_samples=5)
         assert axes is not None
+
+
+class TestPredictiveRuntimeChecks:
+    """Both methods must survive `impulso.enable_runtime_checks()`."""
+
+    @pytest.mark.slow
+    def test_beartype_resolves_the_predictive_annotations(self):
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", _RUNTIME_CHECKS_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        assert "PREDICTIVE_OK" in result.stdout, result.stdout
+        assert "VIOLATION_CAUGHT" in result.stdout, result.stdout
 
 
 class TestPredictiveAgainstPyMC:

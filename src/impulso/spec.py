@@ -1,8 +1,9 @@
 """VAR model specification."""
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
+import arviz as az
 import numpy as np
 from pydantic import Field, model_validator
 
@@ -15,9 +16,6 @@ from impulso.sv.spec import StochasticVolatility
 from impulso.volatility import Constant
 
 if TYPE_CHECKING:
-    import arviz as az
-    import pymc as pm
-
     from impulso.fitted import FittedVAR
 
 _PRIOR_REGISTRY: dict[str, type] = {
@@ -229,7 +227,7 @@ class VAR(ImpulsoBaseModel):
         *,
         draws: int = 500,
         random_seed: int | np.random.Generator | None = None,
-    ) -> "az.InferenceData":
+    ) -> az.InferenceData:
         """Simulate data from the prior, before seeing the likelihood.
 
         Builds the same PyMC graph `fit` builds and calls
@@ -276,7 +274,7 @@ class VAR(ImpulsoBaseModel):
         with model:
             return pm.sample_prior_predictive(draws=draws, random_seed=random_seed)
 
-    def _build_pymc_model(self, data: VARData) -> tuple["pm.Model", int]:
+    def _build_pymc_model(self, data: VARData) -> tuple[Any, int]:
         """Build the PyMC model graph for this specification.
 
         Resolves the lag order (running `select_lag_order` when `lags` is a
@@ -292,7 +290,9 @@ class VAR(ImpulsoBaseModel):
             data: VARData instance.
 
         Returns:
-            Tuple of the built `pymc.Model` and the resolved lag order.
+            Tuple of the built `pymc.Model` and the resolved lag order. The
+            model is typed `Any` so that importing `impulso.spec` does not
+            pull in PyMC — the same reason `FittedVAR.pymc_model` is.
         """
         import pymc as pm
 
