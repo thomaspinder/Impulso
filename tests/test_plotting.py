@@ -3,13 +3,24 @@
 import arviz as az
 import matplotlib
 import numpy as np
+import pytest
 import xarray as xr
 from matplotlib.figure import Figure
 
 matplotlib.use("Agg")
 
-from impulso.plotting import plot_fevd, plot_forecast, plot_historical_decomposition, plot_irf
+from impulso.plotting import plot_fevd, plot_forecast, plot_historical_decomposition, plot_irf, plot_stability
+from impulso.plotting._stability import UNIT_CIRCLE_LABEL, UNIT_ROOT_LABEL
 from impulso.results import FEVDResult, ForecastResult, HistoricalDecompositionResult, IRFResult
+
+
+@pytest.fixture(autouse=True)
+def _close_figures():
+    """Plot functions return an open pyplot figure; drop it after each test."""
+    yield
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
 
 
 def _make_forecast_result(n_vars=2, steps=8) -> ForecastResult:
@@ -155,6 +166,67 @@ class TestPlotHistoricalDecomposition:
             lines = [ln for ln in fig.axes[i].get_lines() if ln.get_label() == "deviation from baseline"]
             assert len(lines) == 1
             np.testing.assert_allclose(lines[0].get_ydata(), expected.sel(response=resp).values, atol=1e-12)
+
+
+class TestPlotStability:
+    @staticmethod
+    def _summary(make_var_posterior, **kwargs):
+        from impulso.diagnostics import convergence_report
+
+        return convergence_report(make_var_posterior(**kwargs), n_lags=1).stability
+
+    @staticmethod
+    def _line(ax, label):
+        lines = [line for line in ax.get_lines() if line.get_label() == label]
+        assert len(lines) == 1
+        return lines[0]
+
+    def test_returns_two_panels(self, make_var_posterior):
+        fig = plot_stability(self._summary(make_var_posterior))
+        assert isinstance(fig, Figure)
+        assert len(fig.axes) == 2
+        assert fig._suptitle.get_text() == "Dynamic stability"
+
+    def test_histogram_bin_count_is_the_argument(self, make_var_posterior):
+        summary = self._summary(make_var_posterior)
+        assert len(plot_stability(summary).axes[0].patches) == 40
+        assert len(plot_stability(summary, bins=15).axes[0].patches) == 15
+
+    def test_histogram_covers_every_radius_draw(self, make_var_posterior):
+        summary = self._summary(make_var_posterior)
+        ax = plot_stability(summary).axes[0]
+        assert sum(patch.get_height() for patch in ax.patches) == summary.radius.size
+
+    def test_unit_root_line_sits_at_one(self, make_var_posterior):
+        ax = plot_stability(self._summary(make_var_posterior)).axes[0]
+        np.testing.assert_array_equal(self._line(ax, UNIT_ROOT_LABEL).get_xdata(), [1.0, 1.0])
+
+    def test_unit_circle_has_modulus_one(self, make_var_posterior):
+        ax = plot_stability(self._summary(make_var_posterior)).axes[1]
+        line = self._line(ax, UNIT_CIRCLE_LABEL)
+        np.testing.assert_allclose(np.hypot(line.get_xdata(), line.get_ydata()), 1.0)
+
+    def test_scatter_plots_every_retained_eigenvalue(self, make_var_posterior):
+        summary = self._summary(make_var_posterior)
+        ax = plot_stability(summary).axes[1]
+        assert len(ax.collections) == 1
+        offsets = ax.collections[0].get_offsets()
+        assert offsets.shape == (summary.eigenvalues.size, 2)
+        np.testing.assert_allclose(np.sort(offsets[:, 0]), np.sort(summary.eigenvalues.real.reshape(-1)))
+
+    def test_scatter_axes_are_equally_scaled(self, make_var_posterior):
+        ax = plot_stability(self._summary(make_var_posterior)).axes[1]
+        assert ax.get_aspect() == 1.0
+
+    def test_explosive_mass_reaches_the_histogram_title(self, make_var_posterior):
+        fig = plot_stability(self._summary(make_var_posterior, explosive_frac=0.15))
+        assert "15.0%" in fig.axes[0].get_title()
+
+    def test_summary_plot_method_delegates(self, make_var_posterior):
+        # The house entry point: `report.stability.plot()`.
+        fig = self._summary(make_var_posterior).plot()
+        assert isinstance(fig, Figure)
+        assert len(fig.axes) == 2
 
 
 def test_plot_volatility_returns_figure(synthetic_sv_idata):

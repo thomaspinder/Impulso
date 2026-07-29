@@ -17,4 +17,5 @@
    plot_counterfactual
    plot_volatility
    plot_sv_forecast
+   plot_stability
 ```

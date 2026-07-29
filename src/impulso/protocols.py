@@ -221,6 +221,12 @@ class VolatilityProcess(Protocol):
     adapter's own variables into the report's covariance or volatility
     block. Adapters that omit it lose nothing beyond block attribution:
     unrecognised variables land in the report's `other` block.
+
+    The `v{i}_` posterior-variable prefix is reserved: `assign_blocks`
+    routes any variable matching `^v\\d+_` to the volatility block on sight,
+    so an adapter that registers an unrelated variable under that spelling
+    (say `v2_gdp`) will see it misattributed. Name custom variables anything
+    else and claim them through `posterior_var_names()`.
     """
 
     name: str

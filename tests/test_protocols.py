@@ -97,6 +97,13 @@ class TestVolatilityProcess:
         assert isinstance(_ConformingVolatility(), VolatilityProcess)
         assert not isinstance(_Empty(), VolatilityProcess)
 
+    def test_docstring_reserves_the_sv_variable_prefix(self):
+        # Adapter authors read the protocol, not ADR-0008; the reserved
+        # prefix has to be visible where a custom adapter is written.
+        doc = VolatilityProcess.__doc__ or ""
+        assert "v{i}_" in doc
+        assert "posterior_var_names()" in doc
+
     def test_pymc_volatility_process_adds_builder(self):
         # Sub-protocol extends the query surface with build_pymc_latent.
         assert is_protocol(PyMCVolatilityProcess)
