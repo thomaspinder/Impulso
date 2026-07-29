@@ -11,4 +11,5 @@
    SignRestriction
    LongRunRestriction
    ProxySVAR
+   MaxShare
 ```

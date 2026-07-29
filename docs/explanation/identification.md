@@ -72,3 +72,45 @@ $C(1)$ is the long-run multiplier on the levels of the variables *as modelled*. 
 Triangularity is $n(n-1)/2$ restrictions, exactly the number needed for point identification. With two variables that is the one restriction you wanted. With three it asserts three zeros at once, which is a much stronger joint claim than it looks. Arbitrary (non-recursive) long-run zero patterns are not supported.
 
 Two things can go wrong, and Impulso reports them separately. If $I - \sum_j A_j$ is close to singular, $C(1)$ is numerically undefined and those draws are blanked (or, with `on_undefined="raise"`, refused). If a draw is explosive — companion spectral radius above one — the arithmetic is fine but $\sum_h \Phi_h$ diverges, so "long-run effect" has no meaning for it; those draws are always reported and never blanked, because posteriors near a unit root routinely contain them.
+## Max-share identification
+
+Cholesky and sign restrictions both say something about the *shape* of the impact matrix. Max-share identification says nothing about shape at all. It asks a quantitative question instead: of all the directions a single structural shock could point in, which one explains the most of one variable's variance over a stated range of frequencies?
+
+Write the reduced-form transfer function as $C(\omega) = (I - \sum_j A_j e^{-i\omega j})^{-1}$. A candidate impact column is $p = Lq$, where $LL' = \Sigma$ and $q$ is a real unit vector — the free parameter is the direction $q$, one rotation of the Cholesky factor. The target variable $i$'s variance over a band $B$ attributable to that shock is then a quadratic form,
+
+$$
+q' M q, \qquad M = \int_B \bigl(C_i(\omega) L\bigr)^{*} \bigl(C_i(\omega) L\bigr)\, d\omega,
+$$ (max-share-form)
+
+with $C_i$ the target's row of $C$. The matrix $M$ is Hermitian and positive semi-definite, and for real $q$ only its real part contributes, so the maximiser of {eq}`max-share-form` is the leading eigenvector of the real symmetric matrix $\operatorname{Re}(M)$ and the share it achieves is $\lambda_{\max}/\operatorname{tr}$. Nothing is searched for and nothing is sampled: one eigendecomposition per posterior draw.
+
+```python
+from impulso.identification import MaxShare
+
+scheme = MaxShare(target="gdp", band=(6, 32))
+```
+
+### Bands are periods, not radians
+
+`band` is `(low_period, high_period)` in periods of the sampling interval, so the frequencies covered are $\omega \in [2\pi/\text{high}, 2\pi/\text{low}]$. The conventional business-cycle window is 6 to 32 quarters:
+
+| Data frequency | Business cycle | Low frequency |
+| --- | --- | --- |
+| Quarterly | `(6, 32)` | `(32, inf)` |
+| Monthly | `(18, 96)` | `(96, inf)` |
+| Annual | `(2, 8)` | `(10, inf)` |
+
+An unbounded upper period is allowed: the quadrature uses midpoints, which never land on $\omega = 0$, so `(32, inf)` picks up everything below the business-cycle band without hitting the zero frequency where the transfer function of a near-unit-root process blows up.
+
+### One shock, and only one
+
+Max-share identifies a single column. The rest of the matrix is completed orthogonally so that $PP' = \Sigma$ still holds exactly and everything downstream keeps working, but those columns are rotation-arbitrary and labelled `unidentified_*`: forecast error variance decompositions (FEVDs) mask their shares, and the historical decomposition collapses them into one remainder column. The identified column's sign is fixed so the shock raises the target variable on impact.
+
+The natural failure mode is degeneracy. If the top two eigenvalues of $\operatorname{Re}(M)$ are close, the maximiser is not a ray but a plane, and which direction in that plane comes back is up to the eigensolver rather than the data. Impulso reports $\lambda_2/\lambda_1$ as a diagnostic and warns when the posterior median exceeds 0.9.
+
+:::{admonition} Variance is not causation
+:class: warning
+A shock that explains most of output's business-cycle variance is, on the evidence, a shock that explains most of output's business-cycle variance. Calling it "the demand shock" is an interpretation the maximisation cannot supply — the scheme searches shock space, not the space of economic stories. Max-share is at its most convincing when paired with something else: sign restrictions the winner should satisfy, or an independent series it should correlate with.
+:::
+
+The scheme is due to {cite:t}`faust1998` and {cite:t}`uhlig2004`, and is most familiar today from {cite:t}`angeletosCollardDellas2020`, where the shock maximising the business-cycle variance of unemployment turns out to drive most of the rest of the cycle too.
