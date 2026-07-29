@@ -237,3 +237,73 @@ class TestFittedVarSigmaDispatch:
         # For SV: (chains, draws, T, n_vars, n_vars).
         T = var_data_2v.endog.shape[0] - 1  # n_lags=1
         assert sigma_path.shape == (1, 20, T, 2, 2)
+
+
+class TestExogCoefficientRecovery:
+    """Regression for #192: B_exog must survive a small-scale regressor.
+
+    The old prior was `Normal(0, 1)` in coefficient space regardless of the
+    data. On this DGP the true coefficient is 50 (the regressor has sd 0.01,
+    so its contribution has sd 0.5 against a shock sd of 0.1 — a strong,
+    easily-identified signal). Under the old prior the posterior mean came
+    back at 3.9 with a 94% HDI of [2.2, 5.7]: the truth excluded by an order
+    of magnitude, silently. The scale-adaptive prior recovers it.
+
+    The reference is the OLS estimate rather than the literal 50: with a
+    near-flat prior the posterior should agree with the likelihood, and the
+    likelihood's own answer on this finite sample is 49.04. Asserting "50 is
+    inside the HDI" would get *harder* to satisfy as the sample grows, which
+    is the wrong direction for a regression test.
+    """
+
+    @staticmethod
+    def _tiny_regressor_dgp():
+        T, n = 200, 2
+        rng = np.random.default_rng(20250729)
+        z = rng.normal(0.0, 0.01, T)
+        A = np.array([[0.5, 0.1], [0.0, 0.5]])
+        beta = np.array([50.0, 0.0])
+        y = np.zeros((T, n))
+        for t in range(1, T):
+            y[t] = A @ y[t - 1] + beta * z[t] + rng.standard_normal(n) * 0.1
+        index = pd.date_range("2000-01-01", periods=T, freq="QS")
+        return VARData(
+            endog=y,
+            endog_names=["y1", "y2"],
+            exog=z[:, None],
+            exog_names=["z"],
+            index=index,
+        )
+
+    @staticmethod
+    def _ols_exog_coefficients(data):
+        """Equation-by-equation OLS on [const, y_{t-1}, z_t] — the flat-prior answer."""
+        y, z = data.endog, data.exog[:, 0]
+        rhs = np.column_stack([np.ones(len(y) - 1), y[:-1], z[1:]])
+        beta, *_ = np.linalg.lstsq(rhs, y[1:], rcond=None)
+        return beta[-1]
+
+    @pytest.mark.slow
+    def test_recovers_a_large_coefficient_on_a_tiny_regressor(self):
+        import arviz as az
+
+        data = self._tiny_regressor_dgp()
+        ols = self._ols_exog_coefficients(data)
+        assert 45.0 < ols[0] < 55.0, f"fixture drifted: OLS says {ols[0]}, expected ~50"
+
+        sampler = NUTSSampler(draws=200, tune=200, chains=1, cores=1, random_seed=1234, progressbar=False)
+        fitted = VAR(lags=1).fit(data, sampler=sampler)
+
+        b = fitted.idata.posterior["B_exog"].sel(var="y1", exog="z")
+        mean = float(b.mean())
+        hdi = az.hdi(b, hdi_prob=0.94)["B_exog"].values
+
+        # The near-flat prior must let the likelihood speak.
+        assert hdi[0] <= ols[0] <= hdi[1], f"OLS estimate {ols[0]} outside 94% HDI {hdi}"
+        assert abs(mean - 50.0) < 5.0, f"posterior mean {mean} far from the true coefficient 50"
+        # The old prior's entire posterior lived in [2.2, 5.7]; nothing near it survives.
+        assert hdi[0] > 25.0, f"posterior still crushed towards zero: 94% HDI {hdi}"
+
+        # The unaffected equation is still centred on zero.
+        b2 = fitted.idata.posterior["B_exog"].sel(var="y2", exog="z")
+        assert abs(float(b2.mean())) < 5.0
