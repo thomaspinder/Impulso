@@ -7,6 +7,8 @@ from impulso.data import VARData
 from impulso.spec import VAR
 
 if TYPE_CHECKING:
+    from types import ModuleType
+
     from impulso._linalg import lag_matrices
     from impulso._ma import compute_ma_phi
     from impulso.conjugate import ConjugateVAR
@@ -144,6 +146,47 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(__all__))
 
 
+def _bind_deferred_imports(module: "ModuleType") -> None:
+    """Materialise a module's `if TYPE_CHECKING:` imports for real.
+
+    Beartype resolves stringified annotations (e.g. `-> "ForecastResult"`,
+    `posterior: "xr.Dataset"`) against the defining module's namespace when
+    the wrapped method is *called*. Names imported only under `TYPE_CHECKING`
+    are absent from that namespace, so every such call would raise
+    `BeartypeCallHintForwardRefException`. Binding them for real keeps those
+    annotations resolvable; the extra import cost is acceptable because
+    runtime checking is opt-in and intended for test suites.
+
+    Args:
+        module: Module whose deferred imports should be bound.
+    """
+    import ast
+    import contextlib
+    import importlib
+    import inspect
+
+    def _is_type_checking(test: ast.expr) -> bool:
+        return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+            isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+        )
+
+    with contextlib.suppress(OSError, TypeError, SyntaxError):
+        tree = ast.parse(inspect.getsource(module))
+        for node in tree.body:
+            if not (isinstance(node, ast.If) and _is_type_checking(node.test)):
+                continue
+            for stmt in node.body:
+                if isinstance(stmt, ast.Import):
+                    for alias in stmt.names:
+                        # `import a.b as ab` binds the submodule; `import a.b` binds `a`.
+                        imported = alias.name if alias.asname else alias.name.split(".")[0]
+                        setattr(module, alias.asname or imported, importlib.import_module(imported))
+                elif isinstance(stmt, ast.ImportFrom) and stmt.module and not stmt.level:
+                    source = importlib.import_module(stmt.module)
+                    for alias in stmt.names:
+                        setattr(module, alias.asname or alias.name, getattr(source, alias.name))
+
+
 def enable_runtime_checks() -> None:
     """Enable beartype runtime type checking on public API.
 
@@ -174,8 +217,12 @@ def enable_runtime_checks() -> None:
         impulso.sv.fitted,
         impulso.sv.priors,
     ]:
+        _bind_deferred_imports(mod)
         for name in dir(mod):
             obj = getattr(mod, name)
-            if isinstance(obj, type):
+            # Only classes *defined* here: `dir(mod)` also surfaces imported
+            # names (typing.Protocol, impulso.volatility.Constant, ...), and
+            # wrapping those would mutate classes the module does not own.
+            if isinstance(obj, type) and getattr(obj, "__module__", None) == mod.__name__:
                 with contextlib.suppress(BeartypeDecorHintPep484585Exception):
                     setattr(mod, name, beartype(obj))
