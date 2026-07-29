@@ -136,19 +136,39 @@ def _period_alias(offset: pd.offsets.BaseOffset) -> str:
 
 
 def _elapsed(index: pd.DatetimeIndex, origin: pd.Timestamp, alias: str) -> np.ndarray:
-    """Periods elapsed between `origin` and each timestamp, as float64.
+    """Sampling periods elapsed between `origin` and each timestamp, as float64.
 
     Calendar arithmetic, not row counting: a gap in the index produces a
     jump in the returned values, which is the correct behaviour for a
     trend (time really did pass) and for a harmonic (the phase really did
     advance).
+
+    The unit is one *sampling period*, not one period-ordinal tick. Those
+    differ whenever the frequency carries a multiplier: pandas stores
+    `15D` ordinals in days and `2h` ordinals in hours, so the raw
+    difference would count 15 (or 2) per observation. Dividing by the
+    multiplier is exact — the origin is subtracted first, so an on-grid
+    index yields exact integers — and it is what makes `Fourier.period`
+    mean what its docstring says at every sampling rate.
     """
-    return (index.to_period(alias).asi8 - pd.Period(origin, freq=alias).ordinal).astype(np.float64)
+    anchor = pd.Period(origin, freq=alias)
+    ticks = (index.to_period(alias).asi8 - anchor.ordinal).astype(np.float64)
+    return ticks / anchor.freq.n
 
 
 def _extend_index(index: pd.DatetimeIndex, offset: pd.offsets.BaseOffset, steps: int) -> pd.DatetimeIndex:
-    """The `steps` timestamps following the last entry of `index`."""
-    return pd.date_range(index[-1], freq=offset, periods=steps + 1)[1:]
+    """The `steps` timestamps following the last entry of `index`.
+
+    `pd.date_range` rolls a start that is not on the offset's anchor
+    forward to the next valid date, so the walk's first entry is *already*
+    a future period whenever the sample ends off-anchor — an irregular
+    index with an explicit `freq`, which this module supports. Dropping it
+    unconditionally would skip a period (a sample ending 2000-03-15 under
+    `MS` would forecast from May, silently losing April). Selecting the
+    entries strictly after the last observation is correct either way.
+    """
+    walk = pd.date_range(index[-1], freq=offset, periods=steps + 1)
+    return walk[walk > index[-1]][:steps]
 
 
 def _format_period(period: float) -> str:

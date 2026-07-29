@@ -69,8 +69,11 @@ class DeterministicTerm(Protocol):
             origin: First timestamp of the estimation index; the zero
                 point for elapsed-time counts.
             alias: pandas period alias for the sampling frequency (e.g.
-                `"M"`, `"Q-DEC"`, `"D"`), used to convert timestamps to
-                integer period ordinals.
+                `"M"`, `"Q-DEC"`, `"D"`, `"15D"`), used to convert
+                timestamps to integer period ordinals. Note that a
+                multiplied alias stores ordinals in its *base* unit, so
+                elapsed time must be divided by the multiplier to be
+                counted in sampling periods.
 
         Returns:
             Float array of shape `(len(index), len(self.column_names))`

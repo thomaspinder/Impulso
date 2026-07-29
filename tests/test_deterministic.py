@@ -437,7 +437,7 @@ class TestFrequencyResolution:
         with pytest.raises(ValueError, match=r'Business-day frequencies.*freq="D"'):
             design.build(business)
 
-    @pytest.mark.parametrize("freq", ["MS", "ME", "QS", "QE", "YS", "YE", "D", "W", "h"])
+    @pytest.mark.parametrize("freq", ["MS", "ME", "QS", "QE", "YS", "YE", "D", "W", "h", "15D", "2h", "15min"])
     def test_extend_walks_the_sampling_offset(self, freq):
         index = pd.date_range("2000-01-03", periods=60, freq=freq)
         design = DeterministicDesign(terms=[Trend(degree=1)])
@@ -449,6 +449,52 @@ class TestFrequencyResolution:
         assert design.future_index(index, 5).equals(expected_index)
         last = design.build(index)["trend"].to_numpy()[-1]
         assert_allclose(extended["trend"].to_numpy(), last + np.arange(1.0, 6.0))
+
+    @pytest.mark.parametrize("freq", ["15D", "2h", "15min"])
+    def test_multiplied_offsets_count_in_sampling_periods(self, freq):
+        # pandas stores 15D ordinals in days and 2h ordinals in hours. Elapsed
+        # time must still advance by one per observation, or `Fourier.period`
+        # would silently mean something other than "cycle length in sampling
+        # periods" — a 12-observation cycle on 2-hourly data is 24 hours.
+        index = pd.date_range("2000-01-03", periods=60, freq=freq)
+        design = DeterministicDesign(terms=[Trend(degree=1)])
+
+        assert_allclose(design.build(index)["trend"].to_numpy(), np.arange(60.0))
+
+    @pytest.mark.parametrize("freq", ["15D", "2h", "15min"])
+    @pytest.mark.parametrize("h", [1, 3, 13])
+    def test_continuation_holds_for_multiplied_offsets(self, freq, h):
+        index = pd.date_range("2000-01-03", periods=60, freq=freq)
+        design = DeterministicDesign(
+            terms=[Trend(degree=1, scale=12.0), Fourier(period=12, order=2)],
+        )
+        cut = len(index) - 13
+
+        pdt.assert_frame_equal(design.build(index[: cut + h]).iloc[cut:], design.extend(index[:cut], h))
+
+    def test_extend_does_not_skip_a_period_off_anchor(self):
+        # `pd.date_range` rolls an off-anchor start forward, so the walk's
+        # first entry is already April here. Dropping it would forecast from
+        # May and silently lose a month.
+        index = pd.DatetimeIndex(["2000-01-01", "2000-02-01", "2000-03-15"])
+        design = DeterministicDesign(terms=[Trend(degree=1)], freq="MS")
+
+        future = design.future_index(index, 3)
+
+        assert list(future.strftime("%Y-%m-%d")) == ["2000-04-01", "2000-05-01", "2000-06-01"]
+        assert design.extend(index, 3).index.equals(future)
+        # The trend keeps counting calendar months from the origin.
+        assert_allclose(design.extend(index, 3)["trend"].to_numpy(), [3.0, 4.0, 5.0])
+
+    def test_on_anchor_extend_is_unchanged(self):
+        index = pd.date_range("2000-01-01", periods=3, freq="MS")
+        design = DeterministicDesign(terms=[Trend(degree=1)])
+
+        assert list(design.future_index(index, 3).strftime("%Y-%m-%d")) == [
+            "2000-04-01",
+            "2000-05-01",
+            "2000-06-01",
+        ]
 
     def test_future_index_override_is_honoured(self, monthly_index):
         design = DeterministicDesign(terms=[Trend(degree=1)])
