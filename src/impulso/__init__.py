@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from impulso.identification import Cholesky, LongRunRestriction, ProxySVAR, SignRestriction
     from impulso.identified import IdentifiedVAR
     from impulso.observation import Gaussian, StudentT
+    from impulso.pooling import PredictivePool, pool_forecasts
     from impulso.priors import MinnesotaPrior, NIWPrior
     from impulso.protocols import ErrorDistribution, VolatilityProcess
     from impulso.results import (
@@ -75,6 +76,7 @@ __all__ = [
     "NIWPrior",
     "NUTSSampler",
     "PandemicBreak",
+    "PredictivePool",
     "ProxySVAR",
     "SVData",
     "SVDefaultPrior",
@@ -97,6 +99,7 @@ __all__ = [
     "johansen_test",
     "kpss_test",
     "lag_matrices",
+    "pool_forecasts",
     "select_lag_order",
 ]
 
@@ -145,6 +148,8 @@ _LAZY_IMPORTS: dict[str, str] = {
     "VolatilityProcess": "impulso.protocols",
     "compute_ma_phi": "impulso._ma",
     "lag_matrices": "impulso._linalg",
+    "PredictivePool": "impulso.pooling",
+    "pool_forecasts": "impulso.pooling",
 }
 """Map of lazily-exported name to the module that defines it.
 

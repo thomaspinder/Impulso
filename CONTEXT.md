@@ -106,6 +106,25 @@ _Avoid_: bare "shrinkage" (ambiguous with cross-variable shrinkage).
 The conjugate VAR's closed-form log marginal likelihood of the observed response block, `log p(y_{p+1:T} | y_{1:p}, hyperparameters, model)`, attached to `FittedVAR.evidence` by `ConjugateVAR.fit` (`None` on the NUTS path, which has no closed form). Because the value includes the volatility-rescaling Jacobian it is a density over the *observed* data, so a break model and a homoscedastic model on the same observations are directly comparable. It is conditional on the presample and on the hyperparameters it was evaluated at, so with `NIWPrior(select=True)` a ratio of two evidences is an empirical-Bayes Bayes factor. `compare_evidence(**fits)` checks comparability (same variable set, effective sample, window and response digest) and returns an `EvidenceComparison` of Bayes factors and posterior model probabilities.
 _Avoid_: "log ML" in the API surface (spell out marginal likelihood); "model probability" for a raw Bayes factor — the probability requires prior model weights.
 
+**Predictive pool (`PredictivePool`)**:
+A set of fitted models plus one weight each, together defining a single combined predictive distribution. Weights are estimated by `pool_forecasts(fits, holdout)`, which forecasts every model from their shared estimation end and scores those forecasts on the held-out window. The pool is *static*: one weight per model, fixed across horizons and across time. `PredictivePool.combine()` applies the frozen weights to new forecasts (typically from full-sample refits), keeping estimation and application separate.
+_Avoid_: "ensemble" (borrowed from ML, and suggests bagging/boosting rather than density combination); bare "model averaging" (ambiguous between BMA over a common likelihood and predictive pooling, which are different objects).
+
+**Held-out window**:
+The stretch of data, supplied as its own `VARData`, on which candidate models' predictive densities are scored. It must genuinely postdate every model's estimation sample — checked against `FittedVAR.data.index[-1]`, which also fixes the shared **forecast origin**. Its length is the number of scored horizons `H`.
+_Avoid_: "test set" (implies a train/test split of an exchangeable sample; time ordering is load-bearing here), "validation sample" (used inconsistently for in-sample tuning).
+
+**Forecast origin**:
+The last timestamp of the shared estimation sample — the point every pooled forecast is made from. All models in a pool must share it, so the scores compare forecasts made from one information set.
+
+**Log-score weights**:
+Weights proportional to `exp(total log score)`, i.e. a softmax over each model's summed held-out log predictive density (`method="log_score"`). Equivalent to pseudo-Bayesian model averaging on the held-out score, and they inherit its behaviour: the weight vector collapses onto the single best model as the held-out window lengthens, because total scores diverge linearly.
+_Avoid_: "BMA weights" unqualified — genuine BMA uses marginal likelihoods over the estimation sample, not held-out predictive scores.
+
+**Stacking weights**:
+Weights maximising the log score of the *pooled* predictive, `max_w Σ_h log Σ_i w_i p_i(y_h)` on the simplex (`method="stacking"`, the default). Unlike log-score weights they keep complementary models — two models that are each wrong in opposite directions can pool to a weight vector no single model matches — because the objective scores the mixture, not the members. Convex on the simplex, so the SLSQP optimum is global; matches `az.compare(method="stacking")`.
+_Avoid_: "optimal weights" — optimal for the held-out log score only, and only for the scored window.
+
 **Deterministic volatility break (`ConjugateVolatility`)**:
 A volatility process whose per-period scale `s_t` follows a deterministic, hyperparameter-driven path with a known break date — not a stochastic process. Used only by `ConjugateVAR`: the scale enters as data rescaling `ỹ_t = y_t / s_t` with a Jacobian in the marginal likelihood, and its hyperparameters are estimated jointly with λ. `PandemicBreak` (three outbreak scales + geometric decay from March 2020) is the concrete case reproducing Lenza & Primiceri (2020).
 _Avoid_: "stochastic volatility" — the break is deterministic given its hyperparameters.
@@ -138,6 +157,7 @@ _Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "coin
 - A **stationarity pretest** consumes `VARData` (endogenous block only), a DataFrame, or a Series, and produces a result object — never a modified dataset and never a specification. It sits *beside* the pipeline, not in it: nothing downstream of `VAR.fit()` reads its output.
 - **Integration order** feeds **cointegration rank**: the Johansen test is only meaningful for series that are individually integrated, and it is conditioned on a lag order (`k_ar_diff = p - 1`) that `select_lag_order` supplies.
 - A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.
+- Several **FittedVAR**s sharing a **forecast origin**, scored on a **held-out window**, produce a **predictive pool**; the pool's **stacking** or **log-score weights** then combine any matching set of forecasts. Estimation never refits, and the pool is indifferent to which estimator produced each `FittedVAR`.
 
 ## Example dialogue
 
@@ -161,6 +181,8 @@ _Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "coin
 >
 > **User:** "2020Q2 is wrecking my estimates. Can I stop dummying it out?"
 > **Library:** `VAR(lags=4, error_dist="student_t").fit(VARData(...))`. The t likelihood downweights the observation automatically; the degrees of freedom come back in the posterior as `nu`. Pass `StudentT(nu=5.0)` to fix them instead — the robust choice on short samples.
+> **User:** "I have three candidate VARs. Which should I forecast with?"
+> **Library:** Possibly all three. `pool_forecasts({"var2": f2, "var4": f4, "conj": fc}, holdout=held_out_data)` scores each model's density forecast on the held-out window and returns a `PredictivePool`; `pool.summary()` shows the weights and log scores. Refit on the full sample, then `pool.combine({...})` applies those weights to genuine forecasts.
 
 ## Conventions
 
