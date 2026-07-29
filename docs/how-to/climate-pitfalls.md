@@ -128,7 +128,7 @@ series removes the levels information, and the long-run relationship lives
 entirely in the levels. You would be throwing away the part of the data that
 answers the question.
 
-**Impulso does not implement a vector error correction model (VECM).** That
+**Impulso does not implement a vector error-correction model (VECM).** That
 is the textbook answer to a cointegrated system, and it is out of scope. Two
 routes remain:
 

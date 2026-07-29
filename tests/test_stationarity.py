@@ -313,11 +313,68 @@ def test_adf_constant_critical_values_match_mackinnon(stationary_series):
     assert row["crit_1pct"] < row["crit_5pct"] < row["crit_10pct"]
 
 
-def test_johansen_trace_critical_value_matches_osterwald_lenum(cointegrated_frame):
-    """Osterwald-Lenum (1992), constant case: 95% trace CV at n - r = 2 is 15.49."""
+def test_johansen_trace_critical_value_matches_mackinnon_haug_michelis(cointegrated_frame):
+    """MacKinnon-Haug-Michelis (1996), constant case: 95% trace CV at n - r = 2.
+
+    MHM gives 15.4943; the older Osterwald-Lenum (1992) table gives 15.41, so
+    the tolerance here is tight enough to tell the two apart.
+    """
     result = johansen_test(cointegrated_frame, det_order=0, alpha=0.05)
-    assert result.table.loc[0, "trace_crit"] == pytest.approx(15.49, abs=0.1)
-    assert result.table.loc[1, "trace_crit"] == pytest.approx(3.84, abs=0.1)
+    assert result.table.loc[0, "trace_crit"] == pytest.approx(15.4943, abs=0.01)
+    assert result.table.loc[1, "trace_crit"] == pytest.approx(3.8415, abs=0.01)
+
+
+def test_kpss_rejects_at_one_percent_when_the_statistic_clears_the_critical_value(i2_series):
+    """Regression: the clipped p-value made alpha=0.01 unable to ever reject.
+
+    statsmodels clips the KPSS p-value to [0.01, 0.10], so `pvalue < 0.01` is
+    false by construction. This I(2) series has a statistic far beyond the 1%
+    critical value and must be called non-stationary at every level.
+    """
+    for alpha in (0.10, 0.05, 0.025, 0.01):
+        row = kpss_test(i2_series, alpha=alpha).table.loc["i2"]
+        assert row["statistic"] > row["crit_1pct"]
+        assert bool(row["reject"]), f"failed to reject at alpha={alpha}"
+        assert row["conclusion"] == "non-stationary"
+
+
+def test_kpss_does_not_reject_white_noise_at_five_percent(stationary_series):
+    """Sanity companion: a statistic below the critical value must not reject."""
+    row = kpss_test(stationary_series, alpha=0.05).table.loc["ar1"]
+    assert row["statistic"] < row["crit_5pct"]
+    assert not bool(row["reject"])
+    assert row["conclusion"] == "stationary"
+
+
+def test_kpss_decision_tracks_the_critical_value_for_each_alpha(trend_stationary_series):
+    """Tightening alpha can only make rejection harder, never easier."""
+    rejections = [
+        bool(kpss_test(trend_stationary_series, alpha=a).table.loc["trend", "reject"])
+        for a in (0.10, 0.05, 0.025, 0.01)
+    ]
+    assert rejections == sorted(rejections, reverse=True)
+
+
+def test_kpss_reports_all_four_tabulated_critical_values(stationary_series):
+    """The 2.5% column exists because alpha=0.025 is an accepted level."""
+    row = kpss_test(stationary_series).table.loc["ar1"]
+    assert row["crit_10pct"] < row["crit_5pct"] < row["crit_2_5pct"] < row["crit_1pct"]
+    assert row["crit_2_5pct"] == pytest.approx(0.574)
+
+
+def test_kpss_rejects_untabulated_alpha(stationary_series):
+    with pytest.raises(ValueError, match="alpha must be one of"):
+        kpss_test(stationary_series, alpha=0.07)
+    with pytest.raises(ValueError, match="alpha must be one of"):
+        kpss_test(stationary_series, alpha=0.5)
+
+
+def test_integration_order_kpss_cross_check_uses_the_critical_value_rule(i2_series):
+    """The same fix must hold for the KPSS leg inside integration_order."""
+    result = integration_order(i2_series, max_order=2, alpha=0.01)
+    level = result.table.loc[("i2", 0)]
+    assert bool(level["kpss_reject"])
+    assert level["joint_status"] == "unit_root"
 
 
 def test_johansen_alpha_picks_the_matching_critical_value_column(cointegrated_frame):
@@ -415,6 +472,30 @@ def test_non_finite_input_raises_naming_the_column(mixed_frame):
         adf_test(broken)
 
 
+def test_non_finite_values_in_excluded_columns_are_ignored(mixed_frame):
+    """Validation runs after subsetting: a NaN you did not ask to test is not your problem."""
+    broken = mixed_frame.copy()
+    broken.loc[broken.index[0], "rw"] = np.nan
+
+    assert adf_test(broken, variables=["ar1"]).conclusions["ar1"] == "stationary"
+    assert list(kpss_test(broken, variables=["ar1"]).table.index) == ["ar1"]
+    assert integration_order(broken, variables=["ar1"]).order == {"ar1": 0}
+
+
+def test_non_finite_values_still_raise_when_the_column_is_selected(mixed_frame):
+    broken = mixed_frame.copy()
+    broken.loc[broken.index[0], "rw"] = np.nan
+    with pytest.raises(ValueError, match="rw"):
+        adf_test(broken, variables=["rw"])
+
+
+def test_johansen_rejects_non_finite_input(cointegrated_frame):
+    broken = cointegrated_frame.copy()
+    broken.loc[broken.index[0], "y2"] = np.inf
+    with pytest.raises(ValueError, match="y2"):
+        johansen_test(broken)
+
+
 def test_unsupported_input_type_raises():
     with pytest.raises(TypeError, match="VARData, DataFrame, or Series"):
         adf_test([1.0, 2.0, 3.0])
@@ -460,8 +541,11 @@ def test_integration_order_rejects_invalid_arguments(stationary_series):
         integration_order(stationary_series, max_order=-1)
     with pytest.raises(ValueError, match="regression must be one of"):
         integration_order(stationary_series, regression="n")
-    with pytest.raises(ValueError, match=r"alpha must lie in \(0, 1\)"):
+    # alpha is shared with the KPSS cross-check, so it must be tabulated.
+    with pytest.raises(ValueError, match="alpha must be one of"):
         integration_order(stationary_series, alpha=0.0)
+    with pytest.raises(ValueError, match="alpha must be one of"):
+        integration_order(stationary_series, alpha=0.07)
 
 
 def test_adf_honours_explicit_lag_length(unit_root_series):
@@ -500,7 +584,18 @@ def test_summary_returns_the_table(stationary_series, cointegrated_frame, mixed_
     assert stationarity.summary().index.name == "variable"
 
     kpss_summary = kpss_test(stationary_series).summary()
-    assert "pvalue_bounded" in kpss_summary.columns
+    assert list(kpss_summary.columns) == [
+        "statistic",
+        "pvalue",
+        "lags",
+        "crit_1pct",
+        "crit_2_5pct",
+        "crit_5pct",
+        "crit_10pct",
+        "pvalue_bounded",
+        "reject",
+        "conclusion",
+    ]
 
     cointegration = johansen_test(cointegrated_frame).summary()
     assert list(cointegration.columns) == [

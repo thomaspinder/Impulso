@@ -25,9 +25,9 @@ extra.
 
 ## Unit-root tests
 
-`adf_test` runs the Augmented Dickey-Fuller test on every column. Its null
-hypothesis is that the series **has a unit root**, so a small p-value argues
-for stationarity.
+`adf_test` runs the Augmented Dickey-Fuller (ADF) test on every column. Its
+null hypothesis is that the series **has a unit root**, so a small p-value
+argues for stationarity.
 
 ```python
 from impulso import adf_test
@@ -38,8 +38,8 @@ result.conclusions               # {"gdp": "non-stationary", ...}
 ```
 
 `kpss_test` runs the Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test, whose
-null is the **opposite**: that the series is stationary. A small p-value
-there argues for a unit root.
+null is the **opposite**: that the series is stationary. Rejecting there
+argues for a unit root.
 
 ```python
 from impulso import kpss_test
@@ -74,8 +74,17 @@ reverting around the trend".
 ### KPSS p-values are bounded
 
 KPSS p-values are interpolated from a published table and clipped to
-`[0.01, 0.10]`. When the clip binds, the `pvalue_bounded` column is `True`
-and the reported figure is a bound, not an estimate:
+`[0.01, 0.10]`. Two consequences:
+
+First, the KPSS decision compares the **statistic against the critical value**
+for your `alpha`, not the p-value against `alpha`. A p-value rule would never
+reject at `alpha=0.01`, however extreme the statistic. This is why `alpha`
+for `kpss_test` — and for `integration_order`, which runs KPSS internally —
+is restricted to the four tabulated levels `0.10`, `0.05`, `0.025`, `0.01`.
+`adf_test` has a genuine p-value and accepts any level in `(0, 1)`.
+
+Second, when the clip binds, the `pvalue_bounded` column is `True` and the
+reported p-value is a bound, not an estimate:
 
 ```python
 table = kpss_test(data).summary()

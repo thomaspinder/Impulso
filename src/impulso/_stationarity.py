@@ -14,8 +14,9 @@ pip install "impulso[diagnostics]"
 Nothing here decides anything on the user's behalf. Unit-root tests have low
 power against persistent alternatives and are sensitive to deterministic
 terms and structural breaks, so the results are reported in full — including
-the cases where ADF and KPSS disagree — and the modelling call is left to the
-analyst.
+the cases where the Augmented Dickey-Fuller (ADF) and
+Kwiatkowski-Phillips-Schmidt-Shin (KPSS) tests disagree — and the modelling
+call is left to the analyst.
 """
 
 import warnings
@@ -36,9 +37,14 @@ from impulso.results import (
 _ADF_REGRESSIONS = ("n", "c", "ct")
 _KPSS_REGRESSIONS = ("c", "ct")
 _LAG_SELECTIONS = ("aic", "bic", "t-stat")
-# Osterwald-Lenum (1992) tabulates the Johansen critical values at these
-# three levels only, and the test has no p-value to interpolate from.
+# MacKinnon-Haug-Michelis (1996) tabulates the Johansen critical values at
+# these three levels only, and the test has no p-value to interpolate from.
 _JOHANSEN_CRIT_COLUMN = {0.10: 0, 0.05: 1, 0.01: 2}
+# Kwiatkowski et al. (1992), Table 1 tabulates KPSS at these four levels.
+# Decisions compare the statistic against the critical value directly: the
+# reported p-value is interpolated and clipped to [0.01, 0.10], so a
+# `pvalue < alpha` rule silently fails outside that range.
+_KPSS_CRIT_KEY = {0.10: "10%", 0.05: "5%", 0.025: "2.5%", 0.01: "1%"}
 
 _ADF_NULL = "the series has a unit root (non-stationary)"
 _KPSS_NULL = "the series is stationary around a constant or trend"
@@ -83,22 +89,14 @@ def _to_frame(data: VARData | pd.DataFrame | pd.Series) -> pd.DataFrame:
 
     Raises:
         TypeError: If `data` is none of the accepted types.
-        ValueError: If any column contains NaN or Inf.
     """
     if isinstance(data, VARData):
-        frame = pd.DataFrame(data.endog, columns=data.endog_names, index=data.index)
-    elif isinstance(data, pd.Series):
-        frame = data.to_frame(name=data.name if data.name is not None else "series")
-    elif isinstance(data, pd.DataFrame):
-        frame = data
-    else:
-        raise TypeError(f"data must be VARData, DataFrame, or Series, got {type(data).__name__}")
-
-    values = frame.to_numpy(dtype=np.float64)
-    if not np.isfinite(values).all():
-        bad = [str(c) for c, ok in zip(frame.columns, np.isfinite(values).all(axis=0), strict=True) if not ok]
-        raise ValueError(f"columns contain NaN or Inf and cannot be tested: {bad}")
-    return frame
+        return pd.DataFrame(data.endog, columns=data.endog_names, index=data.index)
+    if isinstance(data, pd.Series):
+        return data.to_frame(name=data.name if data.name is not None else "series")
+    if isinstance(data, pd.DataFrame):
+        return data
+    raise TypeError(f"data must be VARData, DataFrame, or Series, got {type(data).__name__}")
 
 
 def _select(frame: pd.DataFrame, variables: Sequence[str] | None) -> pd.DataFrame:
@@ -111,10 +109,37 @@ def _select(frame: pd.DataFrame, variables: Sequence[str] | None) -> pd.DataFram
     return frame[list(variables)]
 
 
+def _check_finite(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reject non-finite values, naming the offending columns.
+
+    Runs *after* subsetting, so a NaN in a column the caller excluded is not
+    the caller's problem.
+    """
+    finite = np.isfinite(frame.to_numpy(dtype=np.float64)).all(axis=0)
+    if not finite.all():
+        bad = [str(c) for c, ok in zip(frame.columns, finite, strict=True) if not ok]
+        raise ValueError(f"columns contain NaN or Inf and cannot be tested: {bad}")
+    return frame
+
+
+def _prepare(data: VARData | pd.DataFrame | pd.Series, variables: Sequence[str] | None = None) -> pd.DataFrame:
+    """Normalise, subset, then validate — in that order."""
+    return _check_finite(_select(_to_frame(data), variables))
+
+
 def _check_alpha(alpha: float) -> None:
     """Reject significance levels outside the open unit interval."""
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must lie in (0, 1), got {alpha}")
+
+
+def _check_kpss_alpha(alpha: float) -> None:
+    """Restrict KPSS to the levels its published table covers."""
+    if alpha not in _KPSS_CRIT_KEY:
+        raise ValueError(
+            f"alpha must be one of {sorted(_KPSS_CRIT_KEY)} "
+            f"(KPSS critical values are tabulated only at these levels), got {alpha}"
+        )
 
 
 def _adf_single(
@@ -154,18 +179,27 @@ def _kpss_single(
     nlags: int | str,
     alpha: float,
 ) -> dict:
-    """Run KPSS on one series and return a flat row of results."""
+    """Run KPSS on one series and return a flat row of results.
+
+    The decision compares the statistic against the critical value for
+    `alpha`, not the p-value against `alpha`. statsmodels clips the reported
+    p-value to `[0.01, 0.10]`, so a p-value rule can never reject at
+    alpha = 0.01 and always rejects above 0.10. Comparing against the
+    critical value is the published test, and agrees with the p-value rule
+    everywhere inside that range.
+    """
     kpss, interpolation_warning = _kpss()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         stat, pvalue, used_lag, crit = kpss(x, regression=regression, nlags=nlags)
     bounded = any(issubclass(w.category, interpolation_warning) for w in caught)
-    reject = bool(pvalue < alpha)
+    reject = bool(stat > crit[_KPSS_CRIT_KEY[alpha]])
     return {
         "statistic": float(stat),
         "pvalue": float(pvalue),
         "lags": int(used_lag),
         "crit_1pct": float(crit["1%"]),
+        "crit_2_5pct": float(crit["2.5%"]),
         "crit_5pct": float(crit["5%"]),
         "crit_10pct": float(crit["10%"]),
         "pvalue_bounded": bounded,
@@ -184,7 +218,7 @@ def adf_test(
     lag_selection: Literal["aic", "bic", "t-stat"] | None = "aic",
     alpha: float = 0.05,
 ) -> StationarityTestResult:
-    """Augmented Dickey-Fuller unit-root test, one series at a time.
+    """Augmented Dickey-Fuller (ADF) unit-root test, one series at a time.
 
     The null hypothesis is that the series has a unit root. A small p-value
     therefore argues *against* a unit root, i.e. for stationarity — the
@@ -216,7 +250,7 @@ def adf_test(
         raise ValueError(f"lag_selection must be one of {_LAG_SELECTIONS} or None, got {lag_selection!r}")
     _check_alpha(alpha)
 
-    frame = _select(_to_frame(data), variables)
+    frame = _prepare(data, variables)
     rows = {
         str(name): _adf_single(
             frame[name].to_numpy(dtype=np.float64),
@@ -246,14 +280,19 @@ def kpss_test(
     nlags: int | Literal["auto"] = "auto",
     alpha: float = 0.05,
 ) -> StationarityTestResult:
-    """KPSS stationarity test, one series at a time.
+    """Kwiatkowski-Phillips-Schmidt-Shin (KPSS) stationarity test.
 
-    The null hypothesis is that the series is stationary, so a small p-value
-    argues *for* a unit root — the reverse of `adf_test`. Reported p-values
-    are interpolated from the published table of Kwiatkowski et al. (1992)
-    and are clipped to `[0.01, 0.10]`; when the clip binds, the
-    `pvalue_bounded` column of the result table is `True` and the p-value
-    should be read as a bound.
+    Runs one series at a time. The null hypothesis is that the series is
+    stationary, so rejecting argues *for* a unit root — the reverse of
+    `adf_test`.
+
+    The reject/no-reject decision compares the statistic against the critical
+    value for `alpha`, taken from Table 1 of Kwiatkowski et al. (1992). The
+    p-value is reported too, but is interpolated from that same table and
+    clipped to `[0.01, 0.10]`; when the clip binds, `pvalue_bounded` is
+    `True` and the figure should be read as a bound. Because the p-value is
+    clipped, `alpha` is restricted to the four levels the table covers —
+    comparing a clipped p-value against, say, 0.01 could never reject.
 
     Args:
         data: VARData (endogenous block only), DataFrame, or Series.
@@ -262,19 +301,21 @@ def kpss_test(
             test trend stationarity.
         nlags: Newey-West bandwidth for the long-run variance, or `"auto"`
             for the data-dependent rule.
-        alpha: Significance level for the reported conclusion.
+        alpha: Significance level. Restricted to 0.10, 0.05, 0.025, or 0.01,
+            the levels for which critical values are tabulated.
 
     Returns:
         StationarityTestResult with one row per variable.
 
     Raises:
-        ValueError: If `regression` or `alpha` is invalid.
+        ValueError: If `regression` is invalid, or `alpha` is not a tabulated
+            level.
     """
     if regression not in _KPSS_REGRESSIONS:
         raise ValueError(f"regression must be one of {_KPSS_REGRESSIONS}, got {regression!r}")
-    _check_alpha(alpha)
+    _check_kpss_alpha(alpha)
 
-    frame = _select(_to_frame(data), variables)
+    frame = _prepare(data, variables)
     rows = {
         str(name): _kpss_single(
             frame[name].to_numpy(dtype=np.float64),
@@ -335,12 +376,16 @@ def johansen_test(
     *differences*, so it is `p - 1` for a VAR(p) in levels — pick `p` with
     `select_lag_order` first, then subtract one.
 
+    Critical values are MacKinnon-Haug-Michelis (1996); there are no
+    p-values, so `alpha` is restricted to the tabulated levels.
+
     Args:
         data: VARData (endogenous block only) or DataFrame, two or more
             columns.
         det_order: Deterministic term. `-1` for none, `0` for a constant,
             `1` for a linear trend.
-        k_ar_diff: Number of lagged differences in the VECM, `p - 1`.
+        k_ar_diff: Number of lagged differences in the vector error-correction
+            model (VECM), `p - 1`.
         alpha: Significance level. Restricted to 0.10, 0.05, or 0.01, the
             levels for which critical values are tabulated.
 
@@ -361,7 +406,7 @@ def johansen_test(
     if k_ar_diff < 0:
         raise ValueError(f"k_ar_diff must be non-negative, got {k_ar_diff}")
 
-    frame = _to_frame(data)
+    frame = _prepare(data)
     if frame.shape[1] < 2:
         raise ValueError(f"johansen_test needs at least two series, got {frame.shape[1]}")
 
@@ -431,13 +476,15 @@ def integration_order(
     looking at the table.
 
     The returned `d_max` is the augmentation term a Toda-Yamamoto style
-    procedure needs.
+    procedure needs. Check `inconclusive` before using it: where a variable
+    is listed there, its order — and therefore `d_max` — is a placeholder.
 
     Args:
         data: VARData (endogenous block only), DataFrame, or Series.
         variables: Subset of column names to test. Defaults to all.
         max_order: Highest order to search.
-        alpha: Significance level for both tests.
+        alpha: Significance level for both tests. Restricted to the levels
+            KPSS tabulates: 0.10, 0.05, 0.025, or 0.01.
         regression: Deterministic terms for the *level* test only. Pass
             `"ct"` when the levels trend. Differenced series are always
             tested with a constant, since differencing removes a linear
@@ -447,16 +494,18 @@ def integration_order(
         IntegrationOrderResult with per-variable orders and the full table.
 
     Raises:
-        ValueError: If `max_order` is negative, or `regression` or `alpha` is
-            invalid.
+        ValueError: If `max_order` is negative, `regression` is invalid, or
+            `alpha` is not a level KPSS tabulates.
     """
     if max_order < 0:
         raise ValueError(f"max_order must be non-negative, got {max_order}")
     if regression not in _KPSS_REGRESSIONS:
         raise ValueError(f"regression must be one of {_KPSS_REGRESSIONS}, got {regression!r}")
-    _check_alpha(alpha)
+    # Both tests share this alpha, and the KPSS cross-check needs a tabulated
+    # level to compare its statistic against.
+    _check_kpss_alpha(alpha)
 
-    frame = _select(_to_frame(data), variables)
+    frame = _prepare(data, variables)
 
     order: dict[str, int] = {}
     inconclusive: list[str] = []

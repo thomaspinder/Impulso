@@ -611,9 +611,11 @@ class StationarityTestResult(ImpulsoBaseModel):
     """Result from a univariate stationarity or unit-root test.
 
     One row per tested variable. The meaning of a rejection depends on the
-    test, because the two tests have opposite nulls: ADF tests a unit-root
-    null, KPSS tests a stationarity null. The `conclusion` column already
-    accounts for that, so it can be read directly.
+    test, because the two tests have opposite nulls: the Augmented
+    Dickey-Fuller (ADF) test has a unit-root null, the
+    Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test has a stationarity null.
+    The `conclusion` column already accounts for that, so it can be read
+    directly.
 
     Attributes:
         test: Which test produced the table, `"adf"` or `"kpss"`.
@@ -623,10 +625,13 @@ class StationarityTestResult(ImpulsoBaseModel):
             columns.
         table: One row per variable, indexed by variable name. Columns are
             `statistic`, `pvalue`, `lags`, `crit_1pct`, `crit_5pct`,
-            `crit_10pct`, `reject`, `conclusion`. KPSS tables carry an extra
-            `pvalue_bounded` column, `True` when the reported p-value hit the
-            edge of the published lookup table and is therefore a bound
-            rather than an exact figure.
+            `crit_10pct`, `reject`, `conclusion`. KPSS tables also carry
+            `crit_2_5pct` (its table covers that level too) and
+            `pvalue_bounded`, `True` when the reported p-value hit the edge
+            of the published lookup table and is therefore a bound rather
+            than an exact figure. ADF decisions come from the p-value; KPSS
+            decisions compare the statistic against the critical value for
+            `alpha`, because its p-value is clipped to `[0.01, 0.10]`.
     """
 
     test: Literal["adf", "kpss"]
@@ -663,8 +668,8 @@ class CointegrationTestResult(ImpulsoBaseModel):
     disagree, and when they do the disagreement is information, not an error.
 
     Only critical values are available for this test, not p-values, so
-    `alpha` is restricted to the levels tabulated by Osterwald-Lenum (1992):
-    0.10, 0.05, and 0.01.
+    `alpha` is restricted to the levels tabulated by MacKinnon, Haug and
+    Michelis (1996): 0.10, 0.05, and 0.01.
 
     Attributes:
         rank_trace: Cointegration rank selected by the trace statistic.
@@ -672,8 +677,8 @@ class CointegrationTestResult(ImpulsoBaseModel):
             statistic.
         det_order: Deterministic trend order passed to the test: -1 for no
             deterministic term, 0 for a constant, 1 for a linear trend.
-        k_ar_diff: Number of lagged differences in the VECM, i.e. `p - 1` for
-            a VAR(p) in levels.
+        k_ar_diff: Number of lagged differences in the vector error-correction
+            model (VECM), i.e. `p - 1` for a VAR(p) in levels.
         alpha: Significance level whose critical-value column was used.
         n_obs: Effective number of observations after differencing and
             lagging.
@@ -757,7 +762,14 @@ class IntegrationOrderResult(ImpulsoBaseModel):
 
     @property
     def d_max(self) -> int:
-        """Highest integration order across the tested variables."""
+        """Highest integration order across the tested variables.
+
+        Consult `inconclusive` first. A variable still non-stationary at
+        `max_order` is recorded with `order = max_order`, which is a floor,
+        not a finding — so whenever `inconclusive` is non-empty `d_max` may
+        understate the true maximum. A Toda-Yamamoto consumer that augments
+        by `d_max` would then under-augment.
+        """
         return max(self.order.values(), default=0)
 
 
