@@ -11,6 +11,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import re
+
 import numpy as np
 import pytest
 
@@ -19,6 +21,7 @@ from impulso._tilting import (
     ess,
     kl_divergence,
     solve_tilt,
+    target_label,
     weighted_hdi,
     weighted_quantile,
 )
@@ -64,7 +67,7 @@ class TestClosedForm:
         # The first n_event draws sit below the threshold.
         forecast = _forecast_from_series(x)
         target = ProbabilityTarget(variable="y1", horizon=1, threshold=float(n_event) - 0.5, probability=probability)
-        G, t = build_moments(forecast, [target], ["y1"], steps=1)
+        G, t, _ = build_moments(forecast, [target], ["y1"], steps=1)
         return G, t, n_total, n_event, probability
 
     def test_weights_match_the_analytic_two_mass_solution(self):
@@ -100,7 +103,7 @@ class TestClosedForm:
     def test_direction_above_flips_the_event(self):
         x = np.arange(100.0)
         target = ProbabilityTarget(variable="y1", horizon=1, threshold=79.5, probability=0.5, direction="above")
-        G, _ = build_moments(_forecast_from_series(x), [target], ["y1"], steps=1)
+        G, *_ = build_moments(_forecast_from_series(x), [target], ["y1"], steps=1)
         assert G[:, 0].sum() == 20.0
         assert np.all(G[80:, 0] == 1.0)
 
@@ -118,7 +121,7 @@ class TestGaussianMeanTilt:
     def _solve(mean=0.5, n_total=50_000):
         x = np.random.default_rng(0).standard_normal(n_total)
         target = MomentTarget(variable="x", horizon=1, mean=mean)
-        G, t = build_moments(_forecast_from_series(x), [target], ["x"], steps=1)
+        G, t, _ = build_moments(_forecast_from_series(x), [target], ["x"], steps=1)
         w, achieved = solve_tilt(G, t)
         return x, w, achieved
 
@@ -168,7 +171,7 @@ class TestMultiTargetDual:
             MomentTarget(variable="y1", horizon=1, mean=0.3),
             ProbabilityTarget(variable="y2", horizon=2, threshold=0.0, probability=0.7),
         ]
-        G, t = build_moments(y, targets, ["y1", "y2"], steps=2)
+        G, t, _ = build_moments(y, targets, ["y1", "y2"], steps=2)
         w, achieved = solve_tilt(G, t)
         assert np.allclose(achieved, t, atol=1e-6)
 
@@ -196,7 +199,7 @@ class TestMultiTargetDual:
             ProbabilityTarget(variable="y1", horizon=1, threshold=0.0, probability=0.8),
             ProbabilityTarget(variable="y1", horizon=3, threshold=0.5, probability=0.6),
         ]
-        G, t = build_moments(y, targets, ["y1"], steps=3)
+        G, t, _ = build_moments(y, targets, ["y1"], steps=3)
         w, achieved = solve_tilt(G, t)
         assert np.allclose(achieved, t, atol=1e-8)
         assert w.min() >= 0.0
@@ -229,7 +232,7 @@ class TestInfeasibility:
             ProbabilityTarget(variable="y1", horizon=1, threshold=49.5, probability=0.7),
             ProbabilityTarget(variable="y1", horizon=1, threshold=49.5, probability=0.7, direction="above"),
         ]
-        G, t = build_moments(forecast, targets, ["y1"], steps=1)
+        G, t, _ = build_moments(forecast, targets, ["y1"], steps=1)
         with pytest.raises(ValueError, match="not jointly achievable"):
             solve_tilt(G, t)
 
@@ -259,6 +262,80 @@ class TestInfeasibility:
                 ["y1"],
                 steps=1,
             )
+
+
+class TestDuplicateTargets:
+    """Repeated targets collapse; same-quantity disagreements are rejected (issue #214)."""
+
+    @staticmethod
+    def _prob_target(probability=0.3):
+        return ProbabilityTarget(variable="y1", horizon=1, threshold=49.5, probability=probability)
+
+    def test_identical_probability_targets_collapse_to_one_column(self):
+        forecast = _forecast_from_series(np.arange(100.0))
+        target = self._prob_target()
+        G, t, targets = build_moments(forecast, [target, target], ["y1"], steps=1)
+        assert G.shape == (100, 1)
+        assert t.shape == (1,)
+        assert targets == [target]
+
+        once = build_moments(forecast, [target], ["y1"], steps=1)
+        assert np.allclose(solve_tilt(G, t)[0], solve_tilt(once[0], once[1])[0], atol=1e-15, rtol=0.0)
+
+    def test_identical_moment_targets_collapse_to_one_column(self):
+        x = np.random.default_rng(21).standard_normal(500)
+        forecast = _forecast_from_series(x)
+        target = MomentTarget(variable="y1", horizon=1, mean=0.4)
+        G, t, targets = build_moments(forecast, [target, target, target], ["y1"], steps=1)
+        assert G.shape == (500, 1)
+        assert targets == [target]
+
+        once = build_moments(forecast, [target], ["y1"], steps=1)
+        w_dup, achieved = solve_tilt(G, t)
+        assert np.allclose(w_dup, solve_tilt(once[0], once[1])[0], atol=1e-12, rtol=0.0)
+        assert achieved[0] == pytest.approx(0.4, abs=1e-8)
+
+    def test_same_event_with_two_probabilities_raises_early(self):
+        forecast = _forecast_from_series(np.arange(100.0))
+        targets = [self._prob_target(0.3), self._prob_target(0.4)]
+        with pytest.raises(ValueError) as excinfo:
+            build_moments(forecast, targets, ["y1"], steps=1)
+        message = str(excinfo.value)
+        assert re.search(
+            re.escape("Conflicting targets for P(y1[h=1] < 49.5): probability=0.3 and probability=0.4"), message
+        )
+        # The clash is caught before the solve, not left to the dual's guard.
+        assert "not jointly achievable" not in message
+
+    def test_same_mean_with_two_values_raises_early(self):
+        forecast = _forecast_from_series(np.arange(100.0))
+        targets = [
+            MomentTarget(variable="y1", horizon=1, mean=40.0),
+            MomentTarget(variable="y1", horizon=1, mean=60.0),
+        ]
+        with pytest.raises(ValueError, match=re.escape("Conflicting targets for E[y1[h=1]]: mean=40 and mean=60")):
+            build_moments(forecast, targets, ["y1"], steps=1)
+
+    def test_distinct_targets_are_untouched(self):
+        y = np.random.default_rng(22).standard_normal((1, 400, 2, 2))
+        targets = [
+            MomentTarget(variable="y1", horizon=1, mean=0.3),
+            ProbabilityTarget(variable="y2", horizon=2, threshold=0.0, probability=0.7),
+            # Same event as the target above but at a different horizon.
+            ProbabilityTarget(variable="y2", horizon=1, threshold=0.0, probability=0.7),
+        ]
+        G, t, kept = build_moments(y, targets, ["y1", "y2"], steps=2)
+        assert kept == targets
+        assert G.shape == (400, 3)
+        assert np.allclose(t, [0.3, 0.7, 0.7])
+
+    def test_a_repeat_next_to_a_distinct_target_keeps_both(self):
+        y = np.random.default_rng(23).standard_normal((1, 400, 2, 2))
+        first = MomentTarget(variable="y1", horizon=1, mean=0.3)
+        second = ProbabilityTarget(variable="y2", horizon=2, threshold=0.0, probability=0.7)
+        _, t, kept = build_moments(y, [first, second, first], ["y1", "y2"], steps=2)
+        assert kept == [first, second]
+        assert np.allclose(t, [0.3, 0.7])
 
 
 class TestWeightedSummaries:
@@ -487,6 +564,27 @@ class TestTiltedResultSurface:
         assert rows[0]["draws_in_event"] == 50
         assert rows[1]["draws_in_event"] is None
         assert tilted.targets == [prob_target, moment_target]
+
+    def test_a_repeated_target_yields_one_coordinate_row(self, fitted_2v):
+        forecast = fitted_2v.forecast(4, seed=7)
+        target = _median_target(forecast, horizon=2, probability=0.65)
+        tilted = forecast.tilt([target, target])
+        label = target_label(target)
+        pp = tilted.idata.posterior_predictive
+        assert pp["target"].values.tolist() == [label]
+        # Duplicated labels would make this select two rows instead of a scalar.
+        assert pp["achieved"].sel(target=label).shape == ()
+        assert float(pp["achieved"].sel(target=label)) == pytest.approx(0.65, abs=1e-12)
+        assert tilted.targets == [target]
+        assert len(tilted.summary()["targets"]) == 1
+        assert np.allclose(tilted.weights, forecast.tilt([target]).weights, atol=1e-15, rtol=0.0)
+
+    def test_conflicting_targets_raise_through_tilt(self, fitted_2v):
+        forecast = fitted_2v.forecast(4, seed=7)
+        target = _median_target(forecast, horizon=2, probability=0.65)
+        clash = target.model_copy(update={"probability": 0.35})
+        with pytest.raises(ValueError, match="Conflicting targets for"):
+            forecast.tilt([target, clash])
 
     def test_weights_are_chain_draw_shaped_and_normalised(self, fitted_2v):
         forecast = fitted_2v.forecast(4, seed=8)

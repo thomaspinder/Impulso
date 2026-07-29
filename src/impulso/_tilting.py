@@ -46,7 +46,22 @@ LAMBDA_GUARD = 1e6
 
 
 def target_label(target: Target) -> str:
-    """Human-readable label for a target, used as the `target` coordinate."""
+    """Human-readable label for a target, used as the `target` coordinate.
+
+    The label names the *quantity* a target constrains — variable and
+    horizon, plus threshold and direction for a `ProbabilityTarget` — but
+    not the value requested of it, so two targets share a label exactly
+    when they speak about the same event or the same mean. `build_moments`
+    keys its duplicate handling on that: identical targets collapse to one
+    column, and same-label targets asking for different values are
+    rejected as contradictory.
+
+    Args:
+        target: The target to label.
+
+    Returns:
+        The label, e.g. `P(y1[h=4] < 0)` or `E[y2[h=2]]`.
+    """
     from impulso.scenario import ProbabilityTarget
 
     if isinstance(target, ProbabilityTarget):
@@ -60,13 +75,18 @@ def build_moments(
     targets: list[Target],
     var_names: list[str],
     steps: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Build the moment matrix `G` and requested moment vector `t`.
+) -> tuple[np.ndarray, np.ndarray, list[Target]]:
+    """Build the moment matrix `G`, requested vector `t`, and target list.
 
     Column `k` holds the moment function of target `k` evaluated on every
     draw: the event indicator for a `ProbabilityTarget`, the level itself
     for a `MomentTarget`. Draws are flattened over `(chain, draw)` in C
     order, so `G[i]` lines up with `forecast.reshape(N, steps, n)[i]`.
+
+    The targets are deduplicated first (see `dedupe_targets`), so the
+    returned list — not the one passed in — is what the columns
+    correspond to and what the caller must label the `target` coordinate
+    with.
 
     Feasibility that does not depend on the solver is checked here: an
     event no draw satisfies (or, for `p < 1`, one every draw satisfies)
@@ -80,18 +100,21 @@ def build_moments(
         steps: Forecast horizon.
 
     Returns:
-        Tuple `(G, t)` with `G` of shape `(N, K)` and `t` of shape `(K,)`.
+        Tuple `(G, t, targets)` with `G` of shape `(N, K)`, `t` of shape
+        `(K,)`, and the `K` deduplicated targets in their original order.
 
     Raises:
         TypeError: If a target is neither a `ProbabilityTarget` nor a
             `MomentTarget`.
-        ValueError: On an empty target list, an unknown variable, a
+        ValueError: On an empty target list, two targets on the same
+            quantity requesting different values, an unknown variable, a
             horizon beyond the forecast, or an unachievable target.
     """
-    from impulso.scenario import MomentTarget, ProbabilityTarget
+    from impulso.scenario import ProbabilityTarget
 
     if not targets:
         raise ValueError("Tilting requires at least one target; an empty target list would leave the weights uniform.")
+    targets = dedupe_targets(targets)
     n_chains, n_draws, _, n_vars = forecast.shape
     n_total = n_chains * n_draws
     flat = forecast.reshape(n_total, steps, n_vars)
@@ -99,8 +122,6 @@ def build_moments(
     G = np.empty((n_total, len(targets)))
     t = np.empty(len(targets))
     for k, target in enumerate(targets):
-        if not isinstance(target, ProbabilityTarget | MomentTarget):
-            raise TypeError(f"tilt() accepts ProbabilityTarget or MomentTarget, got {type(target).__name__}")
         i, h = _resolve_target(target, var_names, steps)
         y = flat[:, h, i]
         if isinstance(target, ProbabilityTarget):
@@ -112,7 +133,64 @@ def build_moments(
             _check_moment_support(target, y, n_total)
             G[:, k] = y
             t[k] = target.mean
-    return G, t
+    return G, t, targets
+
+
+def dedupe_targets(targets: list[Target]) -> list[Target]:
+    """Drop repeated targets and reject same-quantity targets that disagree.
+
+    Labels key the `target` coordinate of a tilted result, so a repeated
+    label would make `.sel(target=...)` return several rows. A target
+    passed twice verbatim is harmless redundancy — one moment column
+    achieves it exactly as the two identical ones would — so the repeat
+    is dropped silently and the first occurrence kept, preserving order.
+
+    Two *different* targets sharing a label are another matter: they ask
+    the same event to carry two probabilities (or the same mean to take
+    two values), which no reweighting can do. Without this check they
+    surface late, as a joint-infeasibility failure from the dual, naming
+    neither the label nor the values that clash.
+
+    Args:
+        targets: The targets as passed by the caller.
+
+    Returns:
+        The deduplicated targets, first occurrence first.
+
+    Raises:
+        TypeError: If a target is neither a `ProbabilityTarget` nor a
+            `MomentTarget`.
+        ValueError: If two targets share a label but are not identical.
+    """
+    from impulso.scenario import MomentTarget, ProbabilityTarget
+
+    first_seen: dict[str, Target] = {}
+    unique: list[Target] = []
+    for target in targets:
+        if not isinstance(target, ProbabilityTarget | MomentTarget):
+            raise TypeError(f"tilt() accepts ProbabilityTarget or MomentTarget, got {type(target).__name__}")
+        label = target_label(target)
+        first = first_seen.get(label)
+        if first is None:
+            first_seen[label] = target
+            unique.append(target)
+        elif first != target:
+            raise ValueError(
+                f"Conflicting targets for {label}: {_requested_value(first)} and "
+                f"{_requested_value(target)}. A target label pins the quantity, not the value "
+                "asked of it, so these are two contradictory constraints on the same "
+                "quantity — keep one."
+            )
+    return unique
+
+
+def _requested_value(target: Target) -> str:
+    """The value a target asks for, for the conflicting-targets message."""
+    from impulso.scenario import ProbabilityTarget
+
+    if isinstance(target, ProbabilityTarget):
+        return f"probability={target.probability:g}"
+    return f"mean={target.mean:g}"
 
 
 def _resolve_target(target: Target, var_names: list[str], steps: int) -> tuple[int, int]:
@@ -415,7 +493,9 @@ def tilt_result(
     Args:
         result: A density-mode `ForecastResult` or
             `ConditionalForecastResult` (`ScenarioResult` included).
-        targets: `ProbabilityTarget` / `MomentTarget` list.
+        targets: `ProbabilityTarget` / `MomentTarget` list. Repeats are
+            dropped, so the result's `targets` and its `target`
+            coordinate carry one entry per distinct target.
         ess_warn_fraction: Warn when the effective sample size falls
             below this fraction of the draw count.
 
@@ -424,8 +504,9 @@ def tilt_result(
 
     Raises:
         ValueError: If the parent result is a mean forecast, if
-            `ess_warn_fraction` is outside `[0, 1]`, or if the targets
-            are unachievable.
+            `ess_warn_fraction` is outside `[0, 1]`, if two targets
+            constrain the same quantity with different values, or if the
+            targets are unachievable.
     """
     import arviz as az
     import xarray as xr
@@ -443,9 +524,10 @@ def tilt_result(
     if not 0.0 <= ess_warn_fraction <= 1.0:
         raise ValueError(f"ess_warn_fraction must lie in [0, 1], got {ess_warn_fraction}")
 
-    targets = list(targets)
     da = result.idata.posterior_predictive["forecast"]
-    G, t = build_moments(da.values, targets, result.var_names, result.steps)
+    # build_moments returns the deduplicated targets: one column, one
+    # label, one row of achieved/requested per distinct target.
+    G, t, targets = build_moments(da.values, targets, result.var_names, result.steps)
     weights, achieved = solve_tilt(G, t)
 
     n_chains, n_draws = da.shape[:2]

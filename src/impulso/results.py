@@ -171,7 +171,9 @@ class ForecastResult(VARResultBase):
         than a re-solve.
 
         Args:
-            targets: `ProbabilityTarget` / `MomentTarget` list.
+            targets: `ProbabilityTarget` / `MomentTarget` list. A target
+                repeated verbatim is kept once; two targets constraining
+                the same quantity with different values are rejected.
             ess_warn_fraction: Warn when the effective sample size falls
                 below this fraction of the draw count. Default 0.1.
 
@@ -511,7 +513,9 @@ class ConditionalForecastResult(VARResultBase):
         exactly — a theorem, not a code path.
 
         Args:
-            targets: `ProbabilityTarget` / `MomentTarget` list.
+            targets: `ProbabilityTarget` / `MomentTarget` list. A target
+                repeated verbatim is kept once; two targets constraining
+                the same quantity with different values are rejected.
             ess_warn_fraction: Warn when the effective sample size falls
                 below this fraction of the draw count. Default 0.1.
 

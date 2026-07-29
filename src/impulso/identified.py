@@ -673,7 +673,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         exog_future = self._validate_forecast_exog(steps, exog_future)
 
         paths, eps = structural_forecast_draws(self, steps, seed=seed, exog_future=exog_future)
-        G, t = build_moments(paths, [target], self.var_names, steps)
+        G, t, _ = build_moments(paths, [target], self.var_names, steps)
         weights, achieved = solve_tilt(G, t)
         diagnostics = tilt_diagnostics(weights, stacklevel=3)
 
