@@ -143,8 +143,11 @@ def assign_blocks(
 class ConvergenceThresholds(ImpulsoModel):
     """Cut-offs separating a passing report from warnings and failures.
 
-    Comparisons are strict, so a metric sitting exactly on a threshold
-    passes: `max_rhat == 1.01` does not warn.
+    R-hat and ESS comparisons are strict, so a metric sitting exactly on a
+    threshold passes: `max_rhat == 1.01` does not warn. The rate thresholds
+    trigger at the boundary: a divergence rate of exactly
+    `divergence_fail_rate` fails, and an explosive fraction of exactly
+    `explosive_warn` escalates to a warning.
 
     Attributes:
         rhat_warn: R-hat above this warns. Default 1.01, the rank-normalised

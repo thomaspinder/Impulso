@@ -25,7 +25,7 @@ The `identification` block exists but is normally empty: the structural shock ma
 | Divergence rate | any divergence | 1% | Betancourt (2017) |
 | Explosive draw fraction | 5% | *never* | — |
 
-Comparisons are strict, so a metric sitting exactly on a threshold passes. Thresholds live in a frozen `ConvergenceThresholds` model rather than as module constants so a caller can tighten them for a specific study and the report echoes back what it used.
+R-hat and ESS comparisons are strict, so a metric sitting exactly on a threshold passes; the two rate thresholds (divergence rate, explosive fraction) trigger at the boundary. Thresholds live in a frozen `ConvergenceThresholds` model rather than as module constants so a caller can tighten them for a specific study and the report echoes back what it used.
 
 ## Why explosive draws never fail
 
