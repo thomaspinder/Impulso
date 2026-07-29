@@ -15,6 +15,7 @@
    plot_fevd
    plot_historical_decomposition
    plot_counterfactual
+   plot_pool_weights
    plot_volatility
    plot_sv_forecast
 ```
