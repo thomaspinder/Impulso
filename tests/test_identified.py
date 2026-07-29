@@ -523,3 +523,55 @@ class TestCholeskyOrderingLabels:
                     atol=1e-10,
                     err_msg=f"FEVD(response={response}, shock={shock}) is order-dependent",
                 )
+
+
+class TestFEVDIsInvariantToTheErrorLaw:
+    """FEVD is exactly invariant to the scale-vs-covariance convention (#152).
+
+    Theta = Phi @ P, and P -> cP scales numerator and denominator by c^2.
+    """
+
+    @pytest.fixture
+    def identified_cholesky_t(self, synthetic_idata_2v_t, var_data_2v):
+        from impulso.observation import StudentT
+        from impulso.volatility import Constant
+
+        fitted = FittedVAR(
+            idata=synthetic_idata_2v_t,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            error_dist=StudentT(nu=5.0),
+        )
+        return fitted.set_identification_strategy(Cholesky(ordering=["y1", "y2"]))
+
+    def test_fevd_identical_to_gaussian(self, identified_cholesky, identified_cholesky_t):
+        gaussian = identified_cholesky.fevd(horizon=6)
+        student = identified_cholesky_t.fevd(horizon=6)
+        np.testing.assert_allclose(
+            student.idata.posterior_predictive["fevd"].values,
+            gaussian.idata.posterior_predictive["fevd"].values,
+            rtol=0,
+            atol=0,
+        )
+
+    def test_irf_identical_to_gaussian(self, identified_cholesky, identified_cholesky_t):
+        """IRFs are in *scale* units under t, so the raw numbers coincide.
+
+        The convention caveat is about interpretation (one scale unit is
+        sqrt((nu-2)/nu) unconditional sd), not about a different computation.
+        """
+        gaussian = identified_cholesky.impulse_response(horizon=6)
+        student = identified_cholesky_t.impulse_response(horizon=6)
+        np.testing.assert_allclose(
+            student.idata.posterior_predictive["irf"].values,
+            gaussian.idata.posterior_predictive["irf"].values,
+            rtol=0,
+            atol=0,
+        )
+
+    def test_error_dist_defaults_to_gaussian(self, identified_cholesky):
+        from impulso.observation import Gaussian
+
+        assert isinstance(identified_cholesky.error_dist, Gaussian)

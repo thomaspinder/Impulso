@@ -307,3 +307,127 @@ class TestExogCoefficientRecovery:
         # The unaffected equation is still centred on zero.
         b2 = fitted.idata.posterior["B_exog"].sel(var="y2", exog="z")
         assert abs(float(b2.mean())) < 5.0
+
+
+class TestErrorDistributionField:
+    """The `error_dist` field on FittedVAR (issue #152)."""
+
+    @pytest.fixture
+    def gaussian_fitted(self, synthetic_idata_2v, var_data_2v):
+        from impulso.volatility import Constant
+
+        return FittedVAR(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+        )
+
+    @pytest.fixture
+    def student_t_fitted(self, synthetic_idata_2v_t, var_data_2v):
+        from impulso.observation import StudentT
+        from impulso.volatility import Constant
+
+        return FittedVAR(
+            idata=synthetic_idata_2v_t,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            error_dist=StudentT(nu=5.0),
+        )
+
+    def test_default_is_gaussian(self, gaussian_fitted):
+        from impulso.observation import Gaussian
+
+        assert isinstance(gaussian_fitted.error_dist, Gaussian)
+
+    def test_default_is_gaussian_under_model_construct(self, synthetic_idata_2v, var_data_2v):
+        from impulso.observation import Gaussian
+        from impulso.volatility import Constant
+
+        fitted = FittedVAR.model_construct(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+        )
+        assert isinstance(fitted.error_dist, Gaussian)
+
+    def test_identified_var_inherits_the_adapter(self, student_t_fitted):
+        from impulso.identification import Cholesky
+
+        identified = student_t_fitted.set_identification_strategy(Cholesky(ordering=["y1", "y2"]))
+        assert identified.error_dist is student_t_fitted.error_dist
+
+
+class TestInnovationCovariance:
+    """sigma() returns the scale matrix; innovation_covariance() the covariance."""
+
+    @pytest.fixture
+    def gaussian_fitted(self, synthetic_idata_2v, var_data_2v):
+        from impulso.volatility import Constant
+
+        return FittedVAR(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+        )
+
+    @pytest.fixture
+    def student_t_fitted(self, synthetic_idata_2v_t, var_data_2v):
+        from impulso.observation import StudentT
+        from impulso.volatility import Constant
+
+        return FittedVAR(
+            idata=synthetic_idata_2v_t,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            error_dist=StudentT(nu=5.0),
+        )
+
+    def test_gaussian_covariance_equals_sigma(self, gaussian_fitted):
+        np.testing.assert_array_equal(gaussian_fitted.innovation_covariance(), gaussian_fitted.sigma())
+
+    def test_student_t_sigma_is_unchanged_by_the_error_law(self, gaussian_fitted, student_t_fitted):
+        """The scale matrix is the volatility process's business, not the t's."""
+        np.testing.assert_array_equal(student_t_fitted.sigma(), gaussian_fitted.sigma())
+
+    def test_student_t_covariance_is_nu_over_nu_minus_two_times_sigma(self, student_t_fitted):
+        expected = (5.0 / 3.0) * student_t_fitted.sigma()
+        np.testing.assert_allclose(student_t_fitted.innovation_covariance(), expected)
+
+    def test_shapes_match_sigma(self, student_t_fitted):
+        assert student_t_fitted.innovation_covariance().shape == student_t_fitted.sigma().shape
+
+    def test_per_draw_nu_broadcasts(self, synthetic_idata_2v, var_data_2v):
+        import arviz as az
+        import xarray as xr
+
+        from impulso.observation import StudentT
+        from impulso.volatility import Constant
+
+        posterior = synthetic_idata_2v.posterior.copy()
+        n_chains, n_draws = posterior.sizes["chain"], posterior.sizes["draw"]
+        nu = np.linspace(3.0, 30.0, n_chains * n_draws).reshape(n_chains, n_draws)
+        posterior["nu"] = xr.DataArray(nu, dims=["chain", "draw"])
+        fitted = FittedVAR(
+            idata=az.InferenceData(posterior=posterior),
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            error_dist=StudentT(),
+        )
+        expected = (nu / (nu - 2.0))[:, :, None, None] * fitted.sigma()
+        np.testing.assert_allclose(fitted.innovation_covariance(), expected)
+        # Heavier tails inflate more: the covariance ratio is decreasing in nu.
+        ratio = fitted.innovation_covariance()[0, 0, 0, 0] / fitted.sigma()[0, 0, 0, 0]
+        ratio_last = fitted.innovation_covariance()[-1, -1, 0, 0] / fitted.sigma()[-1, -1, 0, 0]
+        assert ratio > ratio_last

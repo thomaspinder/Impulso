@@ -113,6 +113,25 @@ def synthetic_idata_2v():
     return az.InferenceData(posterior=posterior)
 
 
+@pytest.fixture
+def synthetic_idata_2v_t(synthetic_idata_2v):
+    """`synthetic_idata_2v` plus a constant `nu` of 5.0, for Student-t tests.
+
+    A *sibling* of `synthetic_idata_2v` rather than a modification of it, so
+    Gaussian tests keep the exact posterior they have always had. `nu` is
+    constant across (chain, draw) on purpose: it makes exact distributional
+    assertions about the innovation draws possible. Draw-varying `nu` is
+    covered by the unit tests in test_error_distributions.py.
+    """
+    posterior = synthetic_idata_2v.posterior.copy()
+    n_chains, n_draws = posterior.sizes["chain"], posterior.sizes["draw"]
+    posterior["nu"] = xr.DataArray(
+        np.full((n_chains, n_draws), 5.0),
+        dims=["chain", "draw"],
+    )
+    return az.InferenceData(posterior=posterior)
+
+
 # --------------- SV fixtures ---------------
 
 

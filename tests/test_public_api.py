@@ -159,3 +159,28 @@ class TestEvidencePublicAPI:
         assert "ModelEvidence" in impulso.__all__
         assert "EvidenceComparison" in impulso.__all__
         assert "compare_evidence" in impulso.__all__
+
+
+class TestErrorDistributionPublicAPI:
+    def test_gaussian_importable_from_impulso(self):
+        from impulso import Gaussian
+        from impulso.observation import Gaussian as DirectGaussian
+
+        assert Gaussian is DirectGaussian
+
+    def test_student_t_importable_from_impulso(self):
+        from impulso import StudentT
+        from impulso.observation import StudentT as DirectStudentT
+
+        assert StudentT is DirectStudentT
+
+    def test_error_distribution_protocol_importable_from_impulso(self):
+        from impulso import ErrorDistribution
+        from impulso.protocols import ErrorDistribution as DirectErrorDistribution
+
+        assert ErrorDistribution is DirectErrorDistribution
+
+    def test_names_in_all(self):
+        import impulso
+
+        assert {"Gaussian", "StudentT", "ErrorDistribution"} <= set(impulso.__all__)

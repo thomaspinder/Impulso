@@ -58,6 +58,29 @@ def fitted_constant():
     )
 
 
+@pytest.fixture
+def fitted_constant_t(fitted_constant):
+    """`fitted_constant` re-labelled with Student-t errors, nu = 5.
+
+    Shares the *identical* posterior (plus a constant `nu`), so any
+    difference against `fitted_constant` is attributable to the error law
+    alone.
+    """
+    from impulso.observation import StudentT
+
+    posterior = fitted_constant.idata.posterior.copy()
+    n_chains, n_draws = posterior.sizes["chain"], posterior.sizes["draw"]
+    posterior["nu"] = xr.DataArray(np.full((n_chains, n_draws), 5.0), dims=["chain", "draw"])
+    return FittedVAR(
+        idata=az.InferenceData(posterior=posterior),
+        n_lags=fitted_constant.n_lags,
+        data=fitted_constant.data,
+        var_names=fitted_constant.var_names,
+        volatility=Constant(),
+        error_dist=StudentT(nu=5.0),
+    )
+
+
 class TestMeanModeRegressionPin:
     """Regression pins: mean-mode forecast values captured BEFORE any change.
 
@@ -179,3 +202,73 @@ class TestSeedReproducibility:
         rng = np.random.default_rng(42)
         result = fitted_constant.forecast(steps=5, seed=rng)
         assert result.median().shape == (5, 2)
+
+
+class TestStudentTDensityForecast:
+    """Density forecasting under Student-t observation errors (issue #152)."""
+
+    def test_shape_and_finiteness(self, fitted_constant_t):
+        result = fitted_constant_t.forecast(steps=5, seed=42)
+        draws = result.idata.posterior_predictive["forecast"].values
+        assert draws.shape == (2, 50, 5, 2)
+        assert np.isfinite(draws).all()
+        assert result.mode == "density"
+
+    def test_reproducible_under_a_matched_seed(self, fitted_constant_t):
+        r1 = fitted_constant_t.forecast(steps=5, seed=42)
+        r2 = fitted_constant_t.forecast(steps=5, seed=42)
+        np.testing.assert_array_equal(
+            r1.idata.posterior_predictive["forecast"].values,
+            r2.idata.posterior_predictive["forecast"].values,
+        )
+
+    def test_differs_across_seeds(self, fitted_constant_t):
+        r1 = fitted_constant_t.forecast(steps=5, seed=42)
+        r2 = fitted_constant_t.forecast(steps=5, seed=99)
+        assert not np.array_equal(
+            r1.idata.posterior_predictive["forecast"].values,
+            r2.idata.posterior_predictive["forecast"].values,
+        )
+
+    def test_tails_are_fatter_but_the_bulk_is_not(self, fitted_constant, fitted_constant_t):
+        """Matched posterior + seed: t widens the *tails*, not the whole band.
+
+        Checking only "wider" would pass for any change that inflates the
+        scale. The IQR ratio guards against that false positive: a heavier
+        tail leaves the interquartile range essentially alone.
+        """
+        g = fitted_constant.forecast(steps=5, seed=7).idata.posterior_predictive["forecast"].values
+        t = fitted_constant_t.forecast(steps=5, seed=7).idata.posterior_predictive["forecast"].values
+
+        g0, t0 = g[:, :, 0, :].ravel(), t[:, :, 0, :].ravel()
+        g_tail = np.quantile(g0, 0.999) - np.quantile(g0, 0.001)
+        t_tail = np.quantile(t0, 0.999) - np.quantile(t0, 0.001)
+        assert t_tail > g_tail
+
+        g_iqr = np.quantile(g0, 0.75) - np.quantile(g0, 0.25)
+        t_iqr = np.quantile(t0, 0.75) - np.quantile(t0, 0.25)
+        assert 0.8 < t_iqr / g_iqr < 1.3
+
+    def test_mean_mode_is_identical_across_error_distributions(self, fitted_constant, fitted_constant_t):
+        """Mean mode consumes no randomness, so the error law cannot matter."""
+        g = fitted_constant.forecast(steps=5, include_shock_uncertainty=False)
+        t = fitted_constant_t.forecast(steps=5, include_shock_uncertainty=False)
+        np.testing.assert_array_equal(
+            g.idata.posterior_predictive["forecast"].values,
+            t.idata.posterior_predictive["forecast"].values,
+        )
+
+    def test_missing_nu_in_posterior_is_a_clear_error(self, fitted_constant):
+        """A t-labelled FittedVAR over a Gaussian posterior fails loudly."""
+        from impulso.observation import StudentT
+
+        mislabelled = FittedVAR(
+            idata=fitted_constant.idata,
+            n_lags=fitted_constant.n_lags,
+            data=fitted_constant.data,
+            var_names=fitted_constant.var_names,
+            volatility=Constant(),
+            error_dist=StudentT(nu=5.0),
+        )
+        with pytest.raises(ValueError, match="no 'nu' variable"):
+            mislabelled.forecast(steps=3, seed=1)

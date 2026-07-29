@@ -389,3 +389,51 @@ class TestPlot:
         labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
         assert labels == ["actual", "counterfactual (median)", "89% HDI"]
         assert fig._suptitle.get_text() == "Historical Counterfactual"
+
+
+class TestHeavyTailedErrorsAreExactlyInvariant:
+    """counterfactual and historical_decomposition need no t guard (issue #152).
+
+    Both back out realised structural shocks as `eps = P^-1 u` and
+    re-propagate `P eps`, so rescaling `P -> cP` cancels exactly. The
+    scale-vs-covariance convention therefore cannot move a single number.
+    Locked in as a test rather than left as prose in ADR-0007.
+    """
+
+    @pytest.fixture
+    def identified_2v_t(self, synthetic_idata_2v_t, var_data_2v):
+        from impulso.observation import StudentT
+
+        fitted = FittedVAR(
+            idata=synthetic_idata_2v_t,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            error_dist=StudentT(nu=5.0),
+        )
+        return fitted.set_identification_strategy(Cholesky(ordering=["y1", "y2"]))
+
+    def test_counterfactual_runs_under_student_t(self, identified_2v_t):
+        result = identified_2v_t.counterfactual(shocks=[ShockPath(shock="y1", values=0.0)])
+        assert np.isfinite(result.median().values).all()
+
+    def test_counterfactual_identical_to_gaussian(self, identified_2v, identified_2v_t):
+        gaussian = identified_2v.counterfactual(shocks=[ShockPath(shock="y1", values=0.0)])
+        student = identified_2v_t.counterfactual(shocks=[ShockPath(shock="y1", values=0.0)])
+        np.testing.assert_allclose(
+            student.idata.posterior_predictive["counterfactual"].values,
+            gaussian.idata.posterior_predictive["counterfactual"].values,
+            rtol=0,
+            atol=0,
+        )
+
+    def test_historical_decomposition_identical_to_gaussian(self, identified_2v, identified_2v_t):
+        gaussian = identified_2v.historical_decomposition()
+        student = identified_2v_t.historical_decomposition()
+        np.testing.assert_allclose(
+            student.idata.posterior_predictive["hd"].values,
+            gaussian.idata.posterior_predictive["hd"].values,
+            rtol=0,
+            atol=0,
+        )

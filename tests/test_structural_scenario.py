@@ -515,3 +515,54 @@ class TestResultSurface:
         title = fig._suptitle.get_text()
         assert "Structural Scenario" in title
         assert "adjusting: y1, y2" in title
+
+
+class TestHeavyTailedErrorsRejected:
+    """structural_scenario is Gaussian-only (issue #152).
+
+    The ADPRR three-way partition draws the adjusting block from its
+    Gaussian conditional law, and the plausibility statistic's chi-squared
+    reference assumes Gaussian shocks.
+    """
+
+    @pytest.fixture
+    def identified_2v_t(self, synthetic_idata_2v_t, var_data_2v):
+        from impulso.observation import StudentT
+
+        fitted = FittedVAR(
+            idata=synthetic_idata_2v_t,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            error_dist=StudentT(nu=5.0),
+        )
+        return fitted.set_identification_strategy(Cholesky(ordering=["y1", "y2"]))
+
+    def test_error_dist_survives_identification(self, identified_2v_t):
+        assert identified_2v_t.error_dist.is_heavy_tailed
+
+    @pytest.mark.parametrize("include_shock_uncertainty", [True, False])
+    @pytest.mark.parametrize("conditions", [None, [VariablePath(variable="y1", values=0.2)]])
+    def test_raises_not_implemented(self, identified_2v_t, include_shock_uncertainty, conditions):
+        with pytest.raises(NotImplementedError, match="Gaussian-only"):
+            identified_2v_t.structural_scenario(
+                steps=4,
+                conditions=conditions,
+                include_shock_uncertainty=include_shock_uncertainty,
+                seed=1,
+            )
+
+    def test_raises_with_shock_prescriptions_too(self, identified_2v_t):
+        with pytest.raises(NotImplementedError, match="Gaussian-only"):
+            identified_2v_t.structural_scenario(steps=4, shocks=[ShockPath(shock="y1", values=1.0)], seed=1)
+
+    def test_error_names_the_alternatives(self, identified_2v_t):
+        with pytest.raises(NotImplementedError, match=r"counterfactual\(\)"):
+            identified_2v_t.structural_scenario(steps=4)
+        with pytest.raises(NotImplementedError, match="error_dist='gaussian'"):
+            identified_2v_t.structural_scenario(steps=4)
+
+    def test_gaussian_sibling_still_works(self, identified_2v):
+        result = identified_2v.structural_scenario(steps=4, seed=1)
+        assert result.median().shape == (4, 2)
