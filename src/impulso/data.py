@@ -30,10 +30,16 @@ class VARData(ImpulsoBaseModel):
     checked for internal duplicates, and the two must not share any name —
     a single label cannot refer to both an endogenous and an exogenous column.
 
+    Exogenous columns must vary within the sample. A column that is exactly
+    constant is collinear with the intercept every VAR carries, so it is not
+    identified; it is rejected rather than silently soaking up an arbitrary
+    share of the intercept.
+
     Attributes:
         endog: Endogenous variable array of shape (T, n) where T >= 1 and n >= 2.
         endog_names: Names for each endogenous variable. Must be unique.
-        exog: Optional exogenous variable array of shape (T, k).
+        exog: Optional exogenous variable array of shape (T, k). Every column
+            must take at least two distinct values.
         exog_names: Names for each exogenous variable. Required if exog is provided.
             Must be unique and disjoint from `endog_names`.
         index: DatetimeIndex of length T.
@@ -71,8 +77,29 @@ class VARData(ImpulsoBaseModel):
                 raise ValueError("exog_names required when exog is provided")
             if len(self.exog_names) != self.exog.shape[1]:
                 raise ValueError(f"exog_names length {len(self.exog_names)} != exog columns {self.exog.shape[1]}")
+            self._validate_exog_varies(self.exog, self.exog_names)
         elif self.exog_names is not None:
             raise ValueError("exog_names provided without exog")
+
+    @staticmethod
+    def _validate_exog_varies(exog: np.ndarray, exog_names: Sequence[str]) -> None:
+        """Reject exogenous columns that are exactly constant.
+
+        Every VAR carries an intercept, so a constant regressor is perfectly
+        collinear with it: the likelihood cannot separate the two, and the pair
+        is only pinned down by their priors. A constant column also has zero
+        sample spread, so no scale-adaptive prior can be formed for it (ADR-0012).
+        """
+        # NaN/Inf columns give a NaN range, which is not == 0; they fall through to
+        # the finiteness check instead, whose message names the real problem.
+        constant = [name for name, col in zip(exog_names, exog.T, strict=True) if np.ptp(col).item() == 0.0]
+        if constant:
+            raise ValueError(
+                f"exog columns must vary within the sample, got constant columns: {_format_names(constant)}. "
+                "A constant regressor is collinear with the intercept every VAR already includes, so its "
+                "coefficient is not identified. Drop the column, or — if you meant a level shift — encode it "
+                "as a dummy that changes value within the sample."
+            )
 
     def _validate_unique_names(self) -> None:
         endog_dupes = _duplicates(self.endog_names)

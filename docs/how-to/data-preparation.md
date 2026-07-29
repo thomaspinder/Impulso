@@ -49,4 +49,7 @@ data = VARData(
 - `endog_names` length must match number of columns
 - `index` length must match number of rows
 - If `exog` is provided, `exog_names` is required (and vice versa)
+- Every `exog` column must vary within the sample — a constant column is collinear
+  with the intercept the VAR already includes, so its coefficient is not identified.
+  Drop it, or encode a level shift as a dummy that changes value inside the sample.
 - Arrays are copied and made read-only — the original data is never modified

@@ -1,12 +1,13 @@
 """VAR model specification."""
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, Self
 
 import numpy as np
 from pydantic import Field, model_validator
 
 from impulso._base import ImpulsoBaseModel
-from impulso.data import VARData
+from impulso.data import VARData, _format_names
 from impulso.priors import MinnesotaPrior
 from impulso.protocols import Prior, PyMCVolatilityProcess, Sampler
 from impulso.sv.spec import StochasticVolatility
@@ -24,6 +25,80 @@ _VOLATILITY_REGISTRY: dict[str, type] = {
     "sv": StochasticVolatility,
 }
 
+# A column whose spread is below this fraction of its own largest absolute value is
+# numerically constant even though it passed VARData's exactly-constant check. Using
+# its raw standard deviation would inflate the prior towards infinity, so the floor
+# substitutes a scale derived from the column's level instead.
+_EXOG_SD_FLOOR_FRACTION: float = 1e-3
+
+
+def _exog_prior_sigma(
+    endog: np.ndarray,
+    x_exog: np.ndarray,
+    scale: float,
+    exog_names: Sequence[str] | None = None,
+) -> np.ndarray:
+    """Prior standard deviations for the exogenous coefficients `B_exog`.
+
+    The coefficient on an exogenous regressor is not a unit-free quantity: it
+    converts the regressor's units into the dependent variable's. A prior fixed
+    in coefficient space therefore encodes a different belief for every dataset
+    — crushing coefficients on small-scale regressors and leaving coefficients
+    on large-scale ones effectively unrestricted. This scales the prior so the
+    belief lives in *contribution* space instead:
+
+        sd[i, j] = scale * sigma_i / s_j
+
+    where `sigma_i` is the AR(1) residual standard deviation of endogenous
+    variable `i` (the same scale the Minnesota prior uses) and `s_j` is the
+    sample standard deviation of exogenous column `j`. One prior standard
+    deviation of `B_exog[i, j]` then moves variable `i` by `scale` of its own
+    residual standard deviation when regressor `j` moves by one of its own.
+    The default `scale` is deliberately loose (see `VAR.exog_prior_scale`).
+
+    Args:
+        endog: Endogenous data of shape `(T, n_vars)`. Passed whole — `sigma_i`
+            is a property of the series, not of the estimation sample.
+        x_exog: Exogenous regressor block of shape `(T_eff, n_exog)`, already
+            trimmed to the rows the likelihood sees.
+        scale: Multiplier in units of "residual standard deviations of the
+            dependent variable per standard deviation of the regressor".
+        exog_names: Optional column names, used only to make the
+            constant-column error message readable.
+
+    Returns:
+        Array of shape `(n_vars, n_exog)` of prior standard deviations.
+
+    Raises:
+        ValueError: If a column of `x_exog` is exactly constant. `VARData`
+            rejects columns that are constant over the whole sample, but
+            trimming the first `n_lags` rows can flatten a column that did
+            vary — a dummy that only switches inside the initial conditions,
+            say. What the likelihood then sees is collinear with the
+            intercept, so the coefficient is not identified; the floor below
+            would happily hand it a wide prior and hide that.
+    """
+    # Lazy: `_conjugate` imports scipy at module level, and `spec` is on the
+    # package import path.
+    from impulso._conjugate import ar1_residual_sd
+
+    sigma = ar1_residual_sd(endog)
+    s = x_exog.std(axis=0, ddof=1)
+    # Checked before the floor is applied: the floor exists to tame columns with
+    # tiny-but-real variation, not to manufacture a scale for columns with none.
+    degenerate = np.flatnonzero(s <= 0.0)
+    if degenerate.size:
+        labels = [exog_names[j] if exog_names is not None else f"column {j}" for j in degenerate]
+        raise ValueError(
+            f"exog columns are constant over the estimation sample: {_format_names(labels)}. "
+            "The first n_lags rows are consumed as initial conditions, and what remains of these columns "
+            "does not vary, so their coefficients are collinear with the intercept and not identified. "
+            "Drop the columns, or reduce `lags` so the rows that do vary enter the estimation sample."
+        )
+    peak = np.abs(x_exog).max(axis=0)
+    s_eff = np.maximum(s, _EXOG_SD_FLOOR_FRACTION * peak)
+    return scale * np.outer(sigma, 1.0 / s_eff)
+
 
 class VAR(ImpulsoBaseModel):
     """Immutable VAR model specification.
@@ -33,12 +108,23 @@ class VAR(ImpulsoBaseModel):
         max_lags: Upper bound for automatic selection. Only valid with string lags.
         prior: Prior shorthand string or Prior protocol instance.
         volatility: Volatility shorthand string or PyMCVolatilityProcess protocol instance.
+        exog_prior_scale: Tightness of the prior on the exogenous coefficients
+            `B_exog`, read in contribution space: one prior standard deviation
+            moves an endogenous variable by this many of its own AR(1) residual
+            standard deviations when the regressor moves by one of its own. The
+            default of 100 is deliberately loose — deterministic and exogenous
+            terms are conventionally left near-uninformative (the conjugate
+            engine uses `Vc = 10e6` on the intercept), and the prior's job here
+            is to stop the scale of the regressor from silently setting the
+            answer, not to shrink. Lower it to shrink `B_exog` towards zero.
+            Applies only to `VAR.fit`; `prior` governs the lag coefficients.
     """
 
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
     max_lags: int | None = None
     prior: Literal["minnesota"] | Prior = "minnesota"
     volatility: Literal["constant", "sv"] | PyMCVolatilityProcess = "constant"
+    exog_prior_scale: float = Field(100.0, gt=0)
 
     @model_validator(mode="after")
     def _validate_spec(self) -> Self:
@@ -152,9 +238,16 @@ class VAR(ImpulsoBaseModel):
                 dims=("var", "coeff"),
             )
 
-            # Exogenous coefficients
+            # Exogenous coefficients. The prior scales with the data so that it
+            # encodes the same belief regardless of the units the regressors
+            # happen to be measured in (#192).
             if X_exog is not None:
-                B_exog = pm.Normal("B_exog", mu=0, sigma=1, dims=("var", "exog"))
+                B_exog = pm.Normal(
+                    "B_exog",
+                    mu=0,
+                    sigma=_exog_prior_sigma(y, X_exog, self.exog_prior_scale, data.exog_names),
+                    dims=("var", "exog"),
+                )
                 mu = intercept + pm.math.dot(X_lag, B.T) + pm.math.dot(X_exog, B_exog.T)
             else:
                 mu = intercept + pm.math.dot(X_lag, B.T)
