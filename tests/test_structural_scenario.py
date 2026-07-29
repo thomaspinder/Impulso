@@ -17,7 +17,7 @@ from matplotlib.figure import Figure
 
 from impulso._linalg import lag_matrices
 from impulso._propagate import propagate
-from impulso._scenario import _resolve_adjusting
+from impulso._scenario import _resolve_adjusting, structural_forecast_draws
 from impulso.fitted import FittedVAR
 from impulso.identification import Cholesky, SignRestriction
 from impulso.identified import IdentifiedVAR
@@ -292,6 +292,19 @@ class TestTimeVaryingVolatility:
             cf.idata.posterior_predictive["forecast"].values,
             atol=1e-8,
         )
+
+    def test_structural_forecast_draws_nest_under_generator_consuming_volatility(self, pair_sv):
+        """structural_forecast_draws holds its RNG contract when the volatility path draws too.
+
+        `_forecast_shock_matrices` consumes the generator only under
+        time-varying volatility, so this is the branch where a mis-ordered
+        stream would silently desynchronise the two code paths.
+        """
+        _, identified = pair_sv
+        paths, eps = structural_forecast_draws(identified, 5, seed=23)
+        scn = identified.structural_scenario(steps=5, seed=23)
+        np.testing.assert_allclose(paths, scn.idata.posterior_predictive["forecast"].values, atol=1e-12)
+        assert eps.shape == paths.shape
 
 
 def _single_draw_identified_exog():

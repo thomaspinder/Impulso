@@ -94,7 +94,8 @@ Reading the output:
 
 - `baseline_probability` is how likely the event was before conditioning. If it is already 0.4, the "stress" is not stressful.
 - The cocktail's entries are shock sizes. A `-2.1` on a demand shock at step 3 means the outcome is associated with a 2.1-standard-deviation negative demand shock there.
-- `q = ‖cocktail‖²` is the cocktail's total magnitude in the same units as the scenario plausibility statistic, so `q = 9` reads as "a 3-standard-deviation configuration". `q_cal` rescales it onto `[0.5, 1]`.
+- `q = ‖cocktail‖²` is the cocktail's total magnitude in the same units as the scenario plausibility statistic, so `q = 9` reads as "a 3-standard-deviation configuration".
+- `q_cal` is a separate reading: it applies the ADPRR binomial calibration to the *tilt's relative entropy* — how far conditioning on the event moved the forecast — mapping it onto `[0.5, 1]`, with 0.5 meaning the event cost nothing to impose.
 
 Softening the conditioning keeps more of the sample:
 
