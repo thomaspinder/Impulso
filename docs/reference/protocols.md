@@ -11,4 +11,5 @@
    Sampler
    IdentificationScheme
    VolatilityProcess
+   ErrorDistribution
 ```

@@ -95,6 +95,112 @@ class IdentificationScheme(Protocol):
 
 
 @runtime_checkable
+class ErrorDistribution(Protocol):
+    """Contract for observation error distributions.
+
+    An ErrorDistribution owns *how the observation error enters the model*:
+    which likelihood is registered inside PyMC, and how standardised
+    innovations are drawn on the forecast side. It does not own the error's
+    scale — that belongs to the `VolatilityProcess`, which supplies the
+    Cholesky factor `L` of the scale matrix Ω = L Lᵀ. Concrete adapters:
+    `Gaussian` (the default) and `StudentT`.
+
+    Under heavy-tailed adapters Ω is the *scale* matrix, not the covariance;
+    `variance_inflation` supplies the factor relating the two, which is what
+    `FittedVAR.innovation_covariance` multiplies `sigma()` by. See
+    docs/adr/0007-student-t-errors-use-the-scale-matrix-convention.md.
+
+    RNG contract:
+        `draw_standardised_innovations` must consume `rng.standard_normal`
+        **first**, before any other generator call. The Gaussian adapter
+        consumes nothing else, so its stream is a strict prefix of every
+        other adapter's and seeded Gaussian forecasts stay bit-identical to
+        releases predating this seam. `FittedVAR.forecast` and the scenario
+        engine share that stream order, which is what makes a matched-seed
+        `conditional_forecast` with no pins equal `forecast()` draw for draw.
+
+    Note:
+        This is a single Protocol covering both the PyMC-side
+        (`build_likelihood`) and query-side (`draw_standardised_innovations`,
+        `variance_inflation`) surfaces, unlike the volatility seam, which is
+        split into `VolatilityProcess` and `PyMCVolatilityProcess`. Both
+        adapters here implement all three methods, so the split would buy
+        nothing today. Splitting is warranted the moment a query-only adapter
+        arrives — an error distribution reconstructed from a stored posterior
+        that can never rebuild its own likelihood.
+    """
+
+    name: str
+    is_heavy_tailed: bool
+    """Whether the error law has heavier-than-Gaussian tails. `False` for
+    `Gaussian`; `True` for `StudentT`. Drives the cross-seam rejection in
+    `VAR._validate_spec` and the Gaussian-only guards on
+    `FittedVAR.conditional_forecast` / `IdentifiedVAR.structural_scenario`,
+    so neither has to string-sniff the adapter `name`."""
+
+    def build_likelihood(
+        self,
+        name: str,
+        mu: "pt.TensorVariable",
+        chol: "pt.TensorVariable",
+        observed: np.ndarray,
+        dims: tuple[str, ...] | None = None,
+    ) -> "pt.TensorVariable":
+        """Register the observation likelihood in the active PyMC model.
+
+        Args:
+            name: Name for the observed random variable (the pipeline uses
+                `"obs"`).
+            mu: Conditional mean tensor of shape `(T, n_vars)`.
+            chol: Lower-triangular Cholesky factor of the scale matrix Ω,
+                shape `(n_vars, n_vars)` or `(T, n_vars, n_vars)`.
+            observed: Observed endogenous matrix of shape `(T, n_vars)`.
+            dims: PyMC dims for the observed variable.
+
+        Returns:
+            The registered PyMC random variable.
+        """
+        ...
+
+    def draw_standardised_innovations(
+        self,
+        shape: tuple[int, ...],
+        rng: np.random.Generator,
+        posterior: "xr.Dataset",
+    ) -> np.ndarray:
+        """Draw standardised innovations ξ to be scaled by `L`.
+
+        The forecast recursion adds `L_h @ ξ` to the conditional mean, so ξ
+        carries the shape of the error law with the scale divided out.
+
+        Args:
+            shape: Draw shape, `(chains, draws, n_vars)`.
+            rng: Generator to consume — see the RNG contract on the class.
+            posterior: Posterior Dataset, for adapters whose innovation law
+                depends on estimated parameters (`StudentT` reads `nu`).
+
+        Returns:
+            Array of shape `shape`.
+        """
+        ...
+
+    def variance_inflation(self, posterior: "xr.Dataset") -> "float | np.ndarray":
+        """Factor converting the scale matrix Ω into the innovation covariance.
+
+        `Cov[y_t] = variance_inflation * Ω`. `1.0` for Gaussian errors;
+        `nu/(nu-2)` per draw for Student-t.
+
+        Args:
+            posterior: Posterior Dataset.
+
+        Returns:
+            A scalar, or an array of shape `(chains, draws)` broadcastable
+            against the leading dims of `FittedVAR.sigma()`.
+        """
+        ...
+
+
+@runtime_checkable
 class VolatilityProcess(Protocol):
     """Contract for volatility processes.
 

@@ -134,3 +134,43 @@ class TestIdentificationSchemeNewSignature:
         assert params[3].default is None
         assert params[4].default is None
         assert params[5].default is None
+
+
+class TestErrorDistribution:
+    """The observation-error seam's Protocol (issue #152)."""
+
+    def test_is_runtime_checkable(self):
+        from impulso.protocols import ErrorDistribution
+
+        assert is_protocol(ErrorDistribution)
+
+    def test_declares_the_full_surface(self):
+        from impulso.protocols import ErrorDistribution
+
+        attrs = set(get_protocol_members(ErrorDistribution))
+        assert {
+            "name",
+            "is_heavy_tailed",
+            "build_likelihood",
+            "draw_standardised_innovations",
+            "variance_inflation",
+        } <= attrs
+
+    def test_both_adapters_are_instances(self):
+        from impulso.observation import Gaussian, StudentT
+        from impulso.protocols import ErrorDistribution
+
+        assert isinstance(Gaussian(), ErrorDistribution)
+        assert isinstance(StudentT(), ErrorDistribution)
+
+    def test_volatility_adapter_is_not_an_error_distribution(self):
+        from impulso.protocols import ErrorDistribution
+        from impulso.volatility import Constant
+
+        assert not isinstance(Constant(), ErrorDistribution)
+
+    def test_error_distribution_adapter_is_not_a_volatility_process(self):
+        from impulso.observation import StudentT
+        from impulso.protocols import VolatilityProcess
+
+        assert not isinstance(StudentT(), VolatilityProcess)

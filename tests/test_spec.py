@@ -454,6 +454,212 @@ class TestExogPriorWiredIntoModel:
         self._capture(data, VAR(lags=1))
 
 
+def _capture_model(var_data, **var_kwargs):
+    """Build the production PyMC graph via VAR.fit, aborting before MCMC."""
+    import pymc as pm
+
+    captured: dict[str, pm.Model] = {}
+
+    class CapturingSampler:
+        name = "capture"
+
+        def sample(self, model: pm.Model):
+            captured["model"] = model
+            raise RuntimeError("stop before sampling")
+
+    with pytest.raises(RuntimeError, match="stop before sampling"):
+        VAR(**var_kwargs).fit(var_data, sampler=CapturingSampler())
+    return captured["model"]
+
+
+class TestErrorDistributionParameter:
+    """The `error_dist=` seam on the VAR spec (issue #152)."""
+
+    def test_default_is_gaussian_string(self):
+        assert VAR(lags=2).error_dist == "gaussian"
+
+    def test_string_resolves_to_adapter(self):
+        from impulso.observation import Gaussian, StudentT
+
+        assert isinstance(VAR(lags=2).resolved_error_dist, Gaussian)
+        resolved = VAR(lags=2, error_dist="student_t").resolved_error_dist
+        assert isinstance(resolved, StudentT)
+        # The string shorthand takes the adapter's defaults, i.e. inferred nu.
+        assert resolved.nu == "infer"
+
+    def test_object_pass_through_is_identity(self):
+        from impulso.observation import StudentT
+
+        adapter = StudentT(nu=7.0)
+        assert VAR(lags=2, error_dist=adapter).resolved_error_dist is adapter
+
+    def test_unknown_string_raises(self):
+        with pytest.raises(ValidationError):
+            VAR(lags=2, error_dist="nonexistent")
+
+    def test_volatility_adapter_rejected_as_error_dist(self):
+        """Cross-seam accident: a VolatilityProcess is not an ErrorDistribution."""
+        with pytest.raises(ValidationError):
+            VAR(lags=2, error_dist=Constant())
+
+    def test_error_dist_adapter_rejected_as_volatility(self):
+        from impulso.observation import StudentT
+
+        with pytest.raises(ValidationError):
+            VAR(lags=2, volatility=StudentT())
+
+
+class TestStudentTRejectedWithStochasticVolatility:
+    """SV x Student-t is rejected at construction, not at fit (issue #152)."""
+
+    def test_string_forms_raise(self):
+        with pytest.raises(ValidationError, match="time-varying volatility"):
+            VAR(lags=1, volatility="sv", error_dist="student_t")
+
+    def test_object_forms_raise(self):
+        from impulso.observation import StudentT
+        from impulso.sv.spec import StochasticVolatility
+
+        with pytest.raises(ValidationError, match="time-varying volatility"):
+            VAR(lags=1, volatility=StochasticVolatility(), error_dist=StudentT(nu=5.0))
+
+    def test_error_names_the_alternatives(self):
+        with pytest.raises(ValidationError, match="volatility='constant'"):
+            VAR(lags=1, volatility="sv", error_dist="student_t")
+
+    def test_gaussian_with_sv_still_allowed(self):
+        assert VAR(lags=1, volatility="sv").resolved_volatility.is_time_varying
+
+
+class TestStudentTModelBuild:
+    """The graph VAR.fit builds under `error_dist='student_t'`."""
+
+    def test_gaussian_branch_is_unchanged(self, var_data_2v):
+        import pymc as pm
+
+        model = _capture_model(var_data_2v, lags=1)
+        obs = model.observed_RVs[0]
+        assert isinstance(obs.owner.op, pm.MvNormal.rv_type)
+        assert "nu" not in {v.name for v in model.deterministics}
+        assert "nu_excess" not in {v.name for v in model.free_RVs}
+
+    def test_fixed_nu_registers_a_deterministic(self, var_data_2v):
+        import pymc as pm
+
+        from impulso.observation import StudentT
+
+        model = _capture_model(var_data_2v, lags=1, error_dist=StudentT(nu=5.0))
+        obs = model.observed_RVs[0]
+        assert isinstance(obs.owner.op, pm.MvStudentT.rv_type)
+        dets = {v.name: v for v in model.deterministics}
+        assert "nu" in dets
+        assert "nu_excess" not in {v.name for v in model.free_RVs}
+        assert float(dets["nu"].eval()) == 5.0
+
+    def test_inferred_nu_registers_a_free_excess_rv(self, var_data_2v):
+        import pymc as pm
+
+        model = _capture_model(var_data_2v, lags=1, error_dist="student_t")
+        obs = model.observed_RVs[0]
+        assert isinstance(obs.owner.op, pm.MvStudentT.rv_type)
+        assert "nu_excess" in {v.name for v in model.free_RVs}
+        dets = {v.name: v for v in model.deterministics}
+        assert "nu" in dets
+        # The prior is a *shift*, not a truncation: every prior draw of nu
+        # exceeds 2, so nu/(nu-2) never diverges.
+        nu_prior_draws = np.asarray(pm.draw(dets["nu"], draws=50, random_seed=0))
+        assert (nu_prior_draws > 2.0).all()
+
+    @pytest.mark.parametrize("error_dist", ["gaussian", "student_t"])
+    def test_manual_cholesky_parameterisation_survives(self, var_data_2v, error_dist):
+        """LKJCholeskyCov is broken upstream; the manual factor must persist."""
+        model = _capture_model(var_data_2v, lags=1, error_dist=error_dist)
+        rv_names = {v.name for v in model.free_RVs}
+        det_names = {v.name for v in model.deterministics}
+        assert {"sigma_sd", "tril_offdiag"} <= rv_names
+        assert "Sigma" in det_names
+        op_names = {type(v.owner.op).__name__ for v in model.free_RVs}
+        assert not any("LKJ" in op for op in op_names), op_names
+
+    @pytest.mark.parametrize("error_dist", ["gaussian", "student_t"])
+    def test_logp_compiles_and_is_finite(self, var_data_2v, error_dist):
+        model = _capture_model(var_data_2v, lags=1, error_dist=error_dist)
+        logp = model.compile_logp()(model.initial_point())
+        assert np.isfinite(logp)
+
+    def test_exogenous_regressors_survive_the_t_likelihood(self, var_data_2v):
+        import pymc as pm
+
+        from impulso.data import VARData
+
+        data = VARData(
+            endog=var_data_2v.endog,
+            endog_names=var_data_2v.endog_names,
+            index=var_data_2v.index,
+            exog=np.arange(len(var_data_2v.endog), dtype=float)[:, None],
+            exog_names=["trend"],
+        )
+        model = _capture_model(data, lags=1, error_dist="student_t")
+        assert "B_exog" in {v.name for v in model.free_RVs}
+        assert isinstance(model.observed_RVs[0].owner.op, pm.MvStudentT.rv_type)
+
+
+class TestErrorDistThreadsToFittedVAR:
+    """The model_construct threading guard (issue #152, risk 5).
+
+    Forgetting `error_dist=` in `FittedVAR.model_construct` is a *silent*
+    wrong-numbers bug: a t-fitted model would forecast Gaussian tails with
+    no error anywhere.
+    """
+
+    def test_fit_passes_the_resolved_adapter_to_fitted_var(self, var_data_2v):
+        import arviz as az
+        import xarray as xr
+
+        from impulso.observation import StudentT
+
+        adapter = StudentT(nu=6.0)
+
+        class StubSampler:
+            name = "stub"
+
+            def sample(self, model):
+                # Minimal posterior; only the threading is under test here.
+                return az.InferenceData(
+                    posterior=xr.Dataset({
+                        "B": (("chain", "draw", "var", "coeff"), np.zeros((1, 2, 2, 2))),
+                        "intercept": (("chain", "draw", "var"), np.zeros((1, 2, 2))),
+                        "L": (("chain", "draw", "var1", "var2"), np.tile(np.eye(2), (1, 2, 1, 1))),
+                        "nu": (("chain", "draw"), np.full((1, 2), 6.0)),
+                    })
+                )
+
+        fitted = VAR(lags=1, error_dist=adapter).fit(var_data_2v, sampler=StubSampler())
+        assert fitted.error_dist is adapter
+        assert fitted.error_dist.is_heavy_tailed
+
+    def test_gaussian_fit_keeps_a_gaussian_adapter(self, var_data_2v):
+        import arviz as az
+        import xarray as xr
+
+        from impulso.observation import Gaussian
+
+        class StubSampler:
+            name = "stub"
+
+            def sample(self, model):
+                return az.InferenceData(
+                    posterior=xr.Dataset({
+                        "B": (("chain", "draw", "var", "coeff"), np.zeros((1, 2, 2, 2))),
+                        "intercept": (("chain", "draw", "var"), np.zeros((1, 2, 2))),
+                        "L": (("chain", "draw", "var1", "var2"), np.tile(np.eye(2), (1, 2, 1, 1))),
+                    })
+                )
+
+        fitted = VAR(lags=1).fit(var_data_2v, sampler=StubSampler())
+        assert isinstance(fitted.error_dist, Gaussian)
+
+
 class TestVolatilityShorthandSV:
     def test_sv_string_resolves_to_stochastic_volatility(self):
         from impulso.spec import VAR

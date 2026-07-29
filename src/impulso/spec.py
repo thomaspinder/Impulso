@@ -8,8 +8,9 @@ from pydantic import Field, model_validator
 
 from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData, _format_names
+from impulso.observation import Gaussian, StudentT
 from impulso.priors import MinnesotaPrior
-from impulso.protocols import Prior, PyMCVolatilityProcess, Sampler
+from impulso.protocols import ErrorDistribution, Prior, PyMCVolatilityProcess, Sampler
 from impulso.sv.spec import StochasticVolatility
 from impulso.volatility import Constant
 
@@ -23,6 +24,11 @@ _PRIOR_REGISTRY: dict[str, type] = {
 _VOLATILITY_REGISTRY: dict[str, type] = {
     "constant": Constant,
     "sv": StochasticVolatility,
+}
+
+_ERROR_DIST_REGISTRY: dict[str, type] = {
+    "gaussian": Gaussian,
+    "student_t": StudentT,
 }
 
 # A column whose spread is below this fraction of its own largest absolute value is
@@ -118,6 +124,13 @@ class VAR(ImpulsoBaseModel):
             is to stop the scale of the regressor from silently setting the
             answer, not to shrink. Lower it to shrink `B_exog` towards zero.
             Applies only to `VAR.fit`; `prior` governs the lag coefficients.
+        error_dist: Observation error distribution — shorthand string
+            (`"gaussian"`, the default, or `"student_t"`) or an
+            `ErrorDistribution` protocol instance. The string form takes the
+            adapter's defaults, so `error_dist="student_t"` *infers* the
+            degrees of freedom; pass `StudentT(nu=5.0)` to fix them. Heavy-
+            tailed errors are rejected in combination with time-varying
+            volatility.
     """
 
     lags: int | Literal["aic", "bic", "hq"] = Field(...)
@@ -125,6 +138,7 @@ class VAR(ImpulsoBaseModel):
     prior: Literal["minnesota"] | Prior = "minnesota"
     volatility: Literal["constant", "sv"] | PyMCVolatilityProcess = "constant"
     exog_prior_scale: float = Field(100.0, gt=0)
+    error_dist: Literal["gaussian", "student_t"] | ErrorDistribution = "gaussian"
 
     @model_validator(mode="after")
     def _validate_spec(self) -> Self:
@@ -132,6 +146,15 @@ class VAR(ImpulsoBaseModel):
             raise ValueError("max_lags is only valid when lags is a selection criterion ('aic', 'bic', 'hq')")
         if isinstance(self.lags, int) and self.lags < 1:
             raise ValueError(f"lags must be >= 1, got {self.lags}")
+        if self.resolved_error_dist.is_heavy_tailed and self.resolved_volatility.is_time_varying:
+            raise ValueError(
+                "Heavy-tailed observation errors are not yet supported with "
+                "time-varying volatility: the degrees of freedom and the "
+                "log-volatility innovation variance both absorb outliers, so "
+                "the two are only weakly identified jointly and NUTS mixes "
+                "poorly. Use volatility='constant' with error_dist='student_t', "
+                "or stochastic volatility with Gaussian errors."
+            )
         return self
 
     @property
@@ -147,6 +170,13 @@ class VAR(ImpulsoBaseModel):
         if isinstance(self.volatility, str):
             return _VOLATILITY_REGISTRY[self.volatility]()
         return self.volatility
+
+    @property
+    def resolved_error_dist(self) -> ErrorDistribution:
+        """Resolve string error-distribution shorthand to an ErrorDistribution instance."""
+        if isinstance(self.error_dist, str):
+            return _ERROR_DIST_REGISTRY[self.error_dist]()
+        return self.error_dist
 
     @staticmethod
     def _default_sampler() -> Sampler:
@@ -263,10 +293,13 @@ class VAR(ImpulsoBaseModel):
             if L.ndim == 2:
                 pm.Deterministic("Sigma", pm.math.dot(L, L.T), dims=("var1", "var2"))
 
-            # Likelihood. PyMC handles batched chol natively: for 2D L, every
-            # observation uses the same chol; for 3D L (T, n, n), each
-            # observation t uses chol[t].
-            pm.MvNormal("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
+            # Likelihood. The error-distribution seam owns which law is
+            # registered; PyMC handles batched chol natively either way (for
+            # 2D L every observation uses the same chol; for 3D L (T, n, n)
+            # observation t uses chol[t]). Under Student-t errors, L L' is the
+            # *scale* matrix rather than the covariance — see ADR-0007.
+            error_dist = self.resolved_error_dist
+            error_dist.build_likelihood("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
 
         # Sample
         idata = sampler.sample(model)
@@ -277,5 +310,6 @@ class VAR(ImpulsoBaseModel):
             data=data,
             var_names=data.endog_names,
             volatility=self.resolved_volatility,
+            error_dist=error_dist,
             pymc_model=model,
         )

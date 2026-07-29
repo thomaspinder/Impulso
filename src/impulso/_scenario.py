@@ -369,6 +369,10 @@ def conditional_forecast_engine(
 
     if include_shock_uncertainty:
         xi = np.empty((n_chains, n_draws, steps, n_vars))
+        # Gaussian by construction: the Waggoner-Zha / ADPRR solves below are
+        # Gaussian conditioning results. Heavy-tailed error distributions are
+        # rejected upstream in FittedVAR.conditional_forecast, so this does
+        # NOT route through the error_dist seam the way forecast() does.
         for h in range(steps):  # per-step draws, forecast()'s stream order
             xi[:, :, h, :] = rng.standard_normal((n_chains, n_draws, n_vars))
         xi_flat = xi.reshape(n_chains, n_draws, d_total)
@@ -692,6 +696,10 @@ def structural_scenario_engine(
     xi_flat = None
     if include_shock_uncertainty:
         xi = np.empty((n_chains, n_draws, steps, n_vars))
+        # Gaussian by construction: the Waggoner-Zha / ADPRR solves are
+        # Gaussian conditioning results. Heavy-tailed error distributions are
+        # rejected upstream in IdentifiedVAR.structural_scenario, so this does
+        # NOT route through the error_dist seam the way forecast() does.
         for h in range(steps):
             xi[:, :, h, :] = rng.standard_normal((n_chains, n_draws, n_vars))
         xi_flat = xi.reshape(n_chains, n_draws, d_total)

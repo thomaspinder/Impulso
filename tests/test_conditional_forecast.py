@@ -484,3 +484,52 @@ class TestResultSurface:
         assert "Conditional Forecast" in fig._suptitle.get_text()
         labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
         assert "pinned" in labels
+
+
+class TestHeavyTailedErrorsRejected:
+    """conditional_forecast is Gaussian-only (issue #152).
+
+    The Waggoner-Zha constrained draw *is* the Gaussian conditional-law
+    formula and the plausibility statistic's chi-squared reference assumes
+    Gaussian shocks, so a heavy-tailed fit gets a clear error rather than a
+    half-valid answer.
+    """
+
+    @pytest.fixture
+    def fitted_2v_t(self, synthetic_idata_2v_t, var_data_2v):
+        from impulso.observation import StudentT
+
+        return FittedVAR(
+            idata=synthetic_idata_2v_t,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+            error_dist=StudentT(nu=5.0),
+        )
+
+    @pytest.mark.parametrize("include_shock_uncertainty", [True, False])
+    @pytest.mark.parametrize("conditions", [None, [VariablePath(variable="y1", values=0.4)]])
+    def test_raises_not_implemented(self, fitted_2v_t, include_shock_uncertainty, conditions):
+        with pytest.raises(NotImplementedError, match="Gaussian-only"):
+            fitted_2v_t.conditional_forecast(
+                steps=4,
+                conditions=conditions,
+                include_shock_uncertainty=include_shock_uncertainty,
+                seed=1,
+            )
+
+    def test_error_names_the_alternatives(self, fitted_2v_t):
+        with pytest.raises(NotImplementedError, match=r"forecast\(\)"):
+            fitted_2v_t.conditional_forecast(steps=4)
+        with pytest.raises(NotImplementedError, match="error_dist='gaussian'"):
+            fitted_2v_t.conditional_forecast(steps=4)
+
+    def test_guard_fires_before_any_validation(self, fitted_2v_t):
+        """Heavy tails win over the path_uncertainty ValueError."""
+        with pytest.raises(NotImplementedError):
+            fitted_2v_t.conditional_forecast(steps=4, path_uncertainty="bogus")
+
+    def test_gaussian_sibling_still_works(self, fitted_2v):
+        result = fitted_2v.conditional_forecast(steps=4, seed=1)
+        assert result.median().shape == (4, 2)

@@ -29,6 +29,18 @@ Time-varying volatility where Σ_t evolves stochastically. Two flavours:
 - **Primiceri-style** — TVP correlations on top of per-variable log-vol. Planned future adapter; the seam is shaped to admit it without redesign.
 The class `StochasticVolatility` serves a dual role: a standalone univariate model (via `.fit(SVData)`) and a `VolatilityProcess` plugged into VAR.
 
+**Observation error distribution**:
+The seam that owns *which law the observation error follows* — the likelihood registered inside PyMC and the innovation law used on the forecast side. Concrete adapters of the `ErrorDistribution` Protocol: `Gaussian` (the default) and `StudentT`. It is the sibling of the volatility process, which owns how *big* the error is: the error distribution never touches Σ, and the volatility process never touches the shape of the tails. A `VAR` selects it with `error_dist=`.
+_Avoid_: "likelihood" as the name of the seam (the likelihood is what the adapter *builds*, and the word also gets used for the whole model's `logp`); "error model", "noise distribution".
+
+**Degrees of freedom (ν)**:
+The tail-weight parameter of `StudentT`. Either a fixed float strictly greater than 2, or `"infer"` (the default) to estimate it. The bound at 2 is hardcoded, not configurable: below it the t has infinite variance and every variance-shaped consumer stops being defined. Under both parameterisations the posterior carries `nu` as a deterministic; under inference the free random variable is `nu_excess`, with `nu = 2 + nu_excess` (a *shift*, not a truncation — `Gamma(2, ·)` has zero density at the origin, so the prior vanishes exactly where `ν/(ν−2)` diverges).
+_Avoid_: "df" as a field name (collides with the DataFrame idiom); "tail parameter".
+
+**Scale matrix (Ω)**:
+What `L_t L_tᵀ` *is* under a heavy-tailed error distribution. It equals the innovation covariance under `Gaussian` errors, but under `StudentT` the covariance is `ν/(ν−2)·Ω`. `FittedVAR.sigma()` returns Ω in both cases — identification factorises the scale matrix — and `FittedVAR.innovation_covariance()` returns the covariance. FEVD, historical decompositions and zero-edit counterfactuals are *exactly* invariant to the distinction; impulse responses are in scale units. See ADR-0007.
+_Avoid_: calling `sigma()` "the covariance" without qualification — true only under Gaussian errors.
+
 **L_t**:
 Lower-triangular Cholesky factor of the time-`t` structural-shock covariance: `Σ_t = L_t @ L_t.T`. The primary output of the volatility process. For constant volatility, `L_t` is constant in `t`. For stochastic volatility, `L_t` varies. Identification operates on `L_t` directly — no redundant Cholesky decomposition.
 
@@ -93,7 +105,7 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 
 ## Relationships
 
-- A **VAR** carries one **prior** and one **volatility process**.
+- A **VAR** carries one **prior**, one **volatility process**, and one **observation error distribution**.
 - A **FittedVAR** plus an **identification scheme** produces an **IdentifiedVAR**.
 - An **identification scheme** consumes an `L_t` (queried from the volatility process) and produces a structural shock matrix `B`.
 - An **IdentifiedVAR** computes **IRFs**, FEVDs, and historical decompositions by asking the volatility process for `L_t` at the requested `at`, then applying the identification scheme.
@@ -124,6 +136,9 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 >
 > **User:** "Same rate path, but make the *policy* shock do the work — and how believable is that?"
 > **Library:** `identified.structural_scenario(steps=8, conditions=[VariablePath(variable="rate", values=path)], adjusting=["policy"])`. Non-adjusting shocks keep their unconditional draws; `result.plausibility()` reports `q` and the calibrated `q_cal`.
+>
+> **User:** "2020Q2 is wrecking my estimates. Can I stop dummying it out?"
+> **Library:** `VAR(lags=4, error_dist="student_t").fit(VARData(...))`. The t likelihood downweights the observation automatically; the degrees of freedom come back in the posterior as `nu`. Pass `StudentT(nu=5.0)` to fix them instead — the robust choice on short samples.
 
 ## Conventions
 
@@ -134,4 +149,5 @@ _Avoid_: "stochastic volatility" — the break is deterministic given its hyperp
 - "SV" is both a noun (the model family — *stochastic volatility*) and an adjective ("an SV adapter"). The class `StochasticVolatility` is the canonical noun reference; the adjective form is fine in prose after the term has been spelled out.
 - "Volatility" alone is ambiguous between *volatility process* (the seam) and *volatility paths* (the per-variable σ_i,t time series, useful for plotting). Be explicit when the distinction matters.
 - "Minnesota prior" now denotes two distinct encodings: the independent-Normal `MinnesotaPrior` (NUTS path) and the conjugate `NIWPrior` (`ConjugateVAR`). Name the estimator when it matters.
+- "Σ" now means the *scale* matrix under `StudentT` errors and the covariance under `Gaussian` errors. `sigma()` returns the same object either way; when the number has to be a variance, say so and use `innovation_covariance()`.
 - "Counterfactual" in the wider literature spans shock-path edits (Impulso's meaning), policy-rule replacement (Sims–Zha style; out of scope), and Lucas-robust constructions (McKay–Wolf; out of scope). When comparing with external work, say which one is meant.
