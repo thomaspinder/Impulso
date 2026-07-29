@@ -42,13 +42,14 @@ pool.summary()
 ```
 
 `summary()` returns one row per model, heaviest weight first, with the total and
-per-period held-out log score:
+per-period held-out log score — the shape of the output, with your own data's
+numbers in it:
 
 | | weight | log_score | mean_log_score | rank |
 |---|---|---|---|---|
-| var4 | 0.62 | -131.1 | -10.9 | 1 |
-| var2 | 0.38 | -153.8 | -12.8 | 2 |
-| conjugate | 0.00 | -204.5 | -17.0 | 3 |
+| var4 | 0.62 | ... | ... | 1 |
+| var2 | 0.38 | ... | ... | 2 |
+| conjugate | 0.00 | ... | ... | 3 |
 
 `pool.log_scores` is the full matrix behind those totals — one row per held-out
 date, one column per model — and `pool.to_dataframe()` adds the pooled
@@ -57,32 +58,69 @@ ranked bar chart.
 
 ## Stacking versus log-score weights
 
-The two methods answer different questions, and on genuinely complementary
-models they disagree sharply. Take two models with identical mean forecasts but
-mirrored shock scales — one tight on the first variable and wide on the second,
-the other the reverse — and a holdout that alternates between the two regions:
+The two methods answer different questions. When one candidate simply forecasts
+better than the others, they agree and both hand it the weight. Take a tightly
+shrunk VAR(1) against a loosely shrunk VAR(4), fitted on the same synthetic
+series and scored over sixteen held-out quarters:
 
 ```python
-stacked = pool_forecasts(fits, holdout, method="stacking", seed=0)
-log_scored = pool_forecasts(fits, holdout, method="log_score", seed=0)
+import numpy as np
+import pandas as pd
+from impulso import VARData, pool_forecasts
+from impulso.conjugate import ConjugateVAR
+from impulso.priors import NIWPrior
+
+rng = np.random.default_rng(0)
+T, H = 240, 16
+A = np.array([[0.55, 0.15], [-0.20, 0.45]])
+y = np.zeros((T + H, 2))
+for t in range(1, T + H):
+    calm = (t // 4) % 2 == 0
+    y[t] = A @ y[t - 1] + rng.standard_normal(2) * (
+        np.array([0.3, 1.6]) if calm else np.array([1.6, 0.3])
+    )
+index = pd.date_range("1980-01-01", periods=T + H, freq="QS")
+frame = pd.DataFrame(y, columns=["output", "prices"], index=index)
+
+train = VARData.from_df(frame.iloc[:T], endog=["output", "prices"])
+held_out = VARData.from_df(frame.iloc[T:], endog=["output", "prices"])
+candidates = {
+    "var1_tight": ConjugateVAR(lags=1, prior=NIWPrior(tightness=0.05), draws=500, seed=0).fit(train),
+    "var4_loose": ConjugateVAR(lags=4, prior=NIWPrior(tightness=1.0), draws=500, seed=1).fit(train),
+}
+
+stacked = pool_forecasts(candidates, held_out, method="stacking", seed=0)
+log_scored = pool_forecasts(candidates, held_out, method="log_score", seed=0)
 ```
 
-| | weights | pooled log score |
-|---|---|---|
-| `method="stacking"` | 0.50 / 0.50 | -40.8 |
-| `method="log_score"` | 0.00 / 1.00 | -119.0 |
+The two models score -56.7 and -51.2 over the window, and both rules reach the
+same verdict:
 
-Neither model scores better than -131.1 on its own. Stacking splits the weight
-evenly and the pooled density scores -40.8, because it maximises the score of
-the *mixture* and a mixture covers both regions. Log-score weights compare the
-models one at a time, so they hand everything to the marginally better single
-model and pool no better than that model does. Log-score weights are the right
-choice when you believe one candidate is correct and want the evidence to say
-which; stacking is the right choice when you want the best combined forecast.
+| | `var1_tight` | `var4_loose` | pooled log score |
+|---|---|---|---|
+| `method="stacking"` | 0.000 | 1.000 | -51.2 |
+| `method="log_score"` | 0.004 | 0.996 | -51.2 |
 
-Log-score weights also collapse harder the longer the holdout: total scores
-diverge linearly, so the softmax concentrates on one model. That is a property
-of the rule, not a bug.
+This is the common case: one model dominates, the pool finds it, and the pooled
+score matches the winner's. Pooling has told you something useful — that the
+second candidate adds nothing — even though it did not improve the forecast.
+
+The rules come apart when the candidates are genuinely **complementary**: each
+one better over a different part of the held-out window, neither better
+throughout. Stacking scores the *mixture*, so it can hold both models at
+non-trivial weight and reach a score above anything either achieves alone — a
+mixture covers regions that no single member covers. Log-score weights compare
+the models one at a time and take a softmax of their totals, so they concentrate
+on whichever model has the better total even when a blend would score higher.
+Whether the resulting pool beats the best single model depends on how close the
+totals are; the point is that log-score weights are not trying to maximise the
+pooled score, and stacking is.
+
+Log-score weights also concentrate harder the longer the holdout, because total
+scores diverge roughly linearly in the number of held-out periods. That is a
+property of the rule, not a bug: it is the behaviour you want if you believe one
+candidate is correct and want the evidence to say which. Reach for stacking when
+you want the best combined forecast instead.
 
 ## Forecast with the weights
 

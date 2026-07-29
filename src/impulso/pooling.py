@@ -35,6 +35,7 @@ DensityKind = Literal["gaussian", "diagonal"]
 _COV_JITTER = 1e-10
 _LOG_2PI = float(np.log(2.0 * np.pi))
 _NO_OPTIMISER = "log-score weights are closed-form; no optimiser was run."
+_POOLED_COLUMN = "pooled"
 
 
 # --------------------------------------------------------------------------
@@ -268,6 +269,16 @@ def _index_freq(index: pd.DatetimeIndex) -> pd.offsets.BaseOffset | None:
     return None
 
 
+def _check_reserved_labels(labels: list[str]) -> None:
+    """Reject model labels that would collide with a generated column."""
+    if _POOLED_COLUMN in labels:
+        raise ValueError(
+            f"{_POOLED_COLUMN!r} is a reserved model label: PredictivePool.to_dataframe() adds a "
+            f"{_POOLED_COLUMN!r} column holding the combined predictive's score, which would silently "
+            "overwrite that model's own scores. Rename the model."
+        )
+
+
 def _check_variables(label: str, fit_names: list[str], holdout_names: list[str]) -> None:
     if fit_names == holdout_names:
         return
@@ -297,18 +308,44 @@ def _check_exog(label: str, fit: FittedVAR, holdout: VARData) -> None:
         )
 
 
-def _check_alignment(train_index: pd.DatetimeIndex, holdout: VARData, origin: pd.Timestamp) -> None:
-    """Require the holdout to continue the estimation sample without a gap."""
-    freq = _index_freq(train_index) or _index_freq(holdout.index)
+def _check_alignment(fits: Mapping[str, FittedVAR], holdout: VARData, origin: pd.Timestamp) -> None:
+    """Require one shared frequency across the models that the holdout continues.
+
+    Checked against *every* model's estimation index, not just the first: two
+    models can share a sample end while running at different frequencies, in
+    which case a forecast step means a different span of time for each and
+    their held-out scores are not comparable.
+    """
+    freqs = {label: _index_freq(fit.data.index) for label, fit in fits.items()}
+    known = {label: freq for label, freq in freqs.items() if freq is not None}
+    if len({freq.freqstr for freq in known.values()}) > 1:
+        stamps = ", ".join(f"{label}={freq.freqstr}" for label, freq in known.items())
+        raise ValueError(
+            f"Pooled models were estimated at different frequencies: {stamps}. They share a sample "
+            "end, but a forecast step spans a different amount of time for each, so their held-out "
+            "scores are not comparable. Resample the candidates onto a common frequency before pooling."
+        )
+
+    freq = next(iter(known.values()), None)
+    if freq is None:
+        freq = _index_freq(holdout.index)
     if freq is None:
         warnings.warn(
-            "Could not infer a frequency for the estimation sample or the holdout, so the held-out "
+            "Could not infer a frequency for the estimation samples or the holdout, so the held-out "
             "dates are assumed to line up positionally with forecast steps 1..H. Pass data with a "
             "regular DatetimeIndex if you want that checked.",
             UserWarning,
             stacklevel=4,
         )
         return
+    if len(known) < len(fits):
+        unknown = sorted(set(freqs) - set(known))
+        warnings.warn(
+            f"Could not infer a frequency for {unknown}, so their forecast steps are assumed to line "
+            f"up positionally with the {freq.freqstr} held-out dates.",
+            UserWarning,
+            stacklevel=4,
+        )
     expected = pd.date_range(origin, periods=len(holdout.index) + 1, freq=freq)[1:]
     mismatch = np.flatnonzero(expected.to_numpy() != holdout.index.to_numpy())
     if mismatch.size:
@@ -327,6 +364,7 @@ def _validate_pool_inputs(fits: Mapping[str, FittedVAR], holdout: VARData) -> pd
         raise ValueError(f"Pooling requires at least two fitted models, got {len(fits)}.")
     if len(holdout.index) < 1:
         raise ValueError("Pooling needs at least one held-out observation to score; the holdout is empty.")
+    _check_reserved_labels(list(fits))
 
     ends = {}
     for label, fit in fits.items():
@@ -346,7 +384,7 @@ def _validate_pool_inputs(fits: Mapping[str, FittedVAR], holdout: VARData) -> pd
             f"The holdout starts at {holdout.index[0].date()} but the models are estimated through "
             f"{origin.date()}; the holdout must postdate the estimation sample or the scores are in-sample."
         )
-    _check_alignment(next(iter(fits.values())).data.index, holdout, origin)
+    _check_alignment(fits, holdout, origin)
     return origin
 
 
@@ -465,6 +503,7 @@ class PredictivePool(ImpulsoBaseModel):
             raise ValueError(
                 f"Weight labels {list(weights.index)} do not match the log-score columns {list(log_scores.columns)}."
             )
+        _check_reserved_labels(list(weights.index))
         values = weights.to_numpy(dtype=float)
         if bool((values < -1e-12).any()):
             raise ValueError(f"Pool weights must be non-negative, got {values.tolist()}.")
@@ -512,9 +551,13 @@ class PredictivePool(ImpulsoBaseModel):
         return frame
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Per-date log scores for every model plus the pooled predictive."""
+        """Per-date log scores for every model plus the pooled predictive.
+
+        The combined predictive occupies a `"pooled"` column, which is why
+        `"pooled"` is rejected as a model label.
+        """
         frame = self.log_scores.copy()
-        frame["pooled"] = _pooled_row_scores(self.log_scores.to_numpy(), self.weights.to_numpy())
+        frame[_POOLED_COLUMN] = _pooled_row_scores(self.log_scores.to_numpy(), self.weights.to_numpy())
         return frame
 
     def realised_weights(self) -> pd.Series:
