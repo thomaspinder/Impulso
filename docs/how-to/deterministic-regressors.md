@@ -133,6 +133,13 @@ what `build` and `extend` emit, in that order:
 | `SeasonalDummies(season="dayofweek")` | `dow_1` … `dow_6` |
 | `BreakDummy(date="1991-06-15")` | `level_1991-06-15` |
 | `BreakDummy(date="1991-06-15", kind="pulse")` | `pulse_1991-06-15` |
+| `BreakDummy(date="1991-06-15 12:00", kind="pulse")` | `pulse_1991-06-15T12:00` |
+
+A break at midnight — every timestamp on a daily-or-coarser index — renders as
+a bare `YYYY-MM-DD`. On intraday sampling the time is kept, ISO-8601 extended,
+with seconds and a fractional part appended only when they are non-zero. That
+keeps two breaks on the same day apart instead of colliding into one column
+name, and `pd.Timestamp` reads the rendered form straight back.
 
 Those names travel: they become `exog_names` on `VARData`, and PyMC labels the
 `exog` coordinate of `B_exog` with them, so the posterior comes back

@@ -32,6 +32,7 @@ _FREQ_SPECS = {
     "QS": ("1980-01-01", 240),
     "D": ("2010-01-01", 1200),
     "YS": ("1900-01-01", 150),
+    "h": ("2010-01-01", 1200),
 }
 
 #: Reserved tail length: continuation cases build on `index[: T + h]`.
@@ -88,6 +89,19 @@ _DESIGNS_BY_FREQ: dict[str, dict[str, list]] = {
         "level": [BreakDummy(date="1950-01-01")],
         "composed": [Trend(degree=1, scale=10.0), BreakDummy(date="1950-01-01")],
     },
+    # Intraday sampling: break-dummy column names carry a time component, and
+    # they have to be the same string in `build` and `extend`.
+    "h": {
+        "fourier": [Fourier(period=24, order=2)],
+        "level_intraday": [BreakDummy(date="2010-01-05 06:00")],
+        "pulse_intraday": [BreakDummy(date="2010-01-05 06:00", kind="pulse")],
+        "composed": [
+            Trend(degree=1, scale=24.0),
+            Fourier(period=24, order=2),
+            BreakDummy(date="2010-01-05 06:00"),
+            BreakDummy(date="2010-01-05 18:00", kind="pulse"),
+        ],
+    },
 }
 
 
@@ -116,6 +130,11 @@ def daily_index():
 @pytest.fixture
 def annual_index():
     return _index_for("YS")
+
+
+@pytest.fixture
+def hourly_index():
+    return _index_for("h")
 
 
 @pytest.fixture
@@ -257,6 +276,38 @@ class TestColumnNames:
         assert BreakDummy(date="2000-01-01").column_names == ["level_2000-01-01"]
         assert BreakDummy(date=pd.Timestamp("2000-03-15"), kind="pulse").column_names == ["pulse_2000-03-15"]
 
+    @pytest.mark.parametrize(
+        ("date", "expected"),
+        [
+            # Midnight stays bare — the regression pin for daily-or-coarser data.
+            ("2000-02-01", "level_2000-02-01"),
+            ("2000-02-01 00:00:00", "level_2000-02-01"),
+            ("2000-02-01 12:00", "level_2000-02-01T12:00"),
+            ("2000-02-01 00:30", "level_2000-02-01T00:30"),
+            ("2000-02-01 12:00:30", "level_2000-02-01T12:00:30"),
+            ("2000-02-01 12:00:00.5", "level_2000-02-01T12:00:00.5"),
+            ("2000-02-01 23:59:59.123456789", "level_2000-02-01T23:59:59.123456789"),
+        ],
+    )
+    def test_break_names_keep_an_intraday_time(self, date, expected):
+        assert BreakDummy(date=date).column_names == [expected]
+
+    def test_break_name_round_trips_through_timestamp(self):
+        term = BreakDummy(date="2000-02-01 12:30", kind="pulse")
+        (name,) = term.column_names
+
+        assert pd.Timestamp(name.removeprefix("pulse_")) == term.date
+
+    def test_breaks_differing_only_by_time_of_day_are_distinct_columns(self):
+        design = DeterministicDesign(
+            terms=[
+                BreakDummy(date="2000-02-01", kind="pulse"),
+                BreakDummy(date="2000-02-01 12:00", kind="pulse"),
+            ]
+        )
+
+        assert design.column_names == ["pulse_2000-02-01", "pulse_2000-02-01T12:00"]
+
     def test_design_column_names_concatenate_in_term_order(self, simple_design):
         assert simple_design.column_names == [
             "trend",
@@ -320,6 +371,32 @@ class TestBuildValidation:
         design = DeterministicDesign(terms=[BreakDummy(date="1990-01-15", kind="pulse")])
         with pytest.raises(ValueError, match=r"1990-01-01 \(before\) and 1990-02-01 \(after\)"):
             design.build(monthly_index)
+
+    def test_intraday_pulse_builds_and_fires_on_its_own_timestamp(self, hourly_index):
+        design = DeterministicDesign(terms=[BreakDummy(date="2010-01-05 06:00", kind="pulse")])
+
+        frame = design.build(hourly_index)
+
+        assert list(frame.columns) == ["pulse_2010-01-05T06:00"]
+        assert frame.to_numpy().sum() == 1.0
+        assert frame.loc[pd.Timestamp("2010-01-05 06:00"), "pulse_2010-01-05T06:00"] == 1.0
+
+    def test_intraday_pulse_off_the_index_names_the_full_timestamp(self, hourly_index):
+        # The date alone is on the index; the 06:30 is what missed it, so the
+        # message has to say 06:30 or it accuses an innocent date.
+        design = DeterministicDesign(terms=[BreakDummy(date="2010-01-05 06:30", kind="pulse")])
+
+        with pytest.raises(ValueError, match=r"date=2010-01-05T06:30\) does not fall on") as excinfo:
+            design.build(hourly_index)
+
+        assert "2010-01-05T06:00 (before)" in str(excinfo.value)
+        assert "2010-01-05T07:00 (after)" in str(excinfo.value)
+
+    def test_intraday_level_break_after_the_sample_names_the_full_timestamp(self, hourly_index):
+        design = DeterministicDesign(terms=[BreakDummy(date="2030-06-01 09:15")])
+
+        with pytest.raises(ValueError, match=r"date=2030-06-01T09:15\) is after the end"):
+            design.build(hourly_index)
 
     def test_level_break_at_sample_start_is_rejected(self, monthly_index):
         design = DeterministicDesign(terms=[BreakDummy(date="1980-01-01")])
