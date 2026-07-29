@@ -1056,10 +1056,10 @@ class MaxShare(ImpulsoModel):
 
     Identifies the single structural shock that accounts for the largest
     possible fraction of one target variable's variance over a stated band
-    of frequencies — the "main business-cycle shock" of
-    {cite:t}`angeletosCollardDellas2020`, in the frequency-domain form of
-    {cite:t}`faust1998` and {cite:t}`uhlig2004`. Nothing is searched for:
-    the maximiser is an eigenvector, computed in closed form per draw.
+    of frequencies — the "main business-cycle shock" of Angeletos, Collard
+    and Dellas (2020), in the frequency-domain form of Faust (1998) and
+    Uhlig (2004). Nothing is searched for: the maximiser is an
+    eigenvector, computed in closed form per draw.
 
     The reduced-form transfer function is
     `C(w) = (I - sum_j A_j e^{-i w j})^-1`, so for a candidate impact

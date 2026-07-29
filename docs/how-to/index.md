@@ -12,5 +12,6 @@ stationarity-testing
 climate-pitfalls
 sign-restrictions
 long-run-restrictions
+max-share
 heavy-tailed-errors
 ```

@@ -22,6 +22,9 @@ The sum of the moving-average coefficients of a stable reduced-form VAR, `C(1) =
 **Cumulative MA impact matrix (Θ(1))**:
 The structural counterpart, `Θ(1) = C(1) P`: the total effect of each structural shock on each variable's level. Where `Cholesky` and `SignRestriction` constrain the impact matrix `Θ(0) = P`, `LongRunRestriction` constrains `Θ(1)` to be lower-triangular in a stated variable ordering, with positive diagonal (shock `j` raises variable `j`'s long-run level).
 _Avoid_: "Blanchard-Quah identification" as an API name — the scheme is named for what it restricts, not for its first users (the prose citation is fine). "Permanent shock" for anything but the first column: only the shock restricted nowhere is unambiguously permanent.
+**Max-share identification**:
+The scheme (`MaxShare`) that identifies one structural shock as the direction explaining the largest share of a nominated variable's variance over a **frequency band**. The maximiser is the leading eigenvector of the band variance form `M = ∫_B (C_i L)* (C_i L) dω` — a closed-form rotation of the Cholesky factor, not a search. Only one column is identified; the rest are the same rotation-arbitrary `unidentified_*` completion `ProxySVAR` produces.
+_Avoid_: "the business-cycle shock" as if the band named a mechanism — the band organises variance, it does not attribute cause. Radians in the API: bands are always stated in **periods of the sampling interval**, `(low_period, high_period)`, so quarterly business cycles are `band=(6, 32)`.
 
 **Volatility process**:
 The seam that owns how the structural-shock covariance Σ_t is constructed (in PyMC), evolved over time, and queried. Concrete adapters of the `VolatilityProcess` Protocol: `Constant` (homoscedastic Σ; the default) and `StochasticVolatility` (time-varying). The volatility process owns its downstream computation — forecast covariance paths, time-`t` Cholesky query, per-variable volatility paths — so the pipeline never branches on adapter type.
@@ -138,6 +141,7 @@ _Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "coin
 - A **stationarity pretest** consumes `VARData` (endogenous block only), a DataFrame, or a Series, and produces a result object — never a modified dataset and never a specification. It sits *beside* the pipeline, not in it: nothing downstream of `VAR.fit()` reads its output.
 - **Integration order** feeds **cointegration rank**: the Johansen test is only meaningful for series that are individually integrated, and it is conditioned on a lag order (`k_ar_diff = p - 1`) that `select_lag_order` supplies.
 - A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.
+- An **identification scheme** may additionally consume the posterior lag coefficients: **max-share identification** needs them to build the transfer function, as `SignRestriction(restriction_horizon > 0)` and `ProxySVAR` already do. `L_t` alone is the minimum, not the maximum, of what a scheme may ask for.
 
 ## Example dialogue
 
