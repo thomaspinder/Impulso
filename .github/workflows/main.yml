@@ -68,6 +68,41 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  lowest-direct-deps:
+    # The lockfile pins the newest compatible release of everything, so the
+    # matrix above never exercises the floors declared in pyproject.toml. This
+    # job resolves every direct dependency down to its declared minimum, so a
+    # floor that is only nominally supported fails here instead of in a
+    # downstream install. Runs on the oldest supported Python, since the lowest
+    # dependencies and the lowest interpreter travel together (old releases
+    # have no wheels for new Pythons).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.11"
+
+      - name: Resolve every dependency floor to its minimum
+        # Rewrites uv.lock in the runner's checkout; the committed lockfile is
+        # verified separately by the `quality` job's `uv lock --locked`.
+        run: uv sync --python 3.11 --resolution lowest-direct --group dev --extra nutpie --extra diagnostics
+
+      - name: Report the resolved floors
+        run: |
+          uv run --no-sync python -c "
+          import importlib.metadata as m
+          for p in ['numpy','pandas','pydantic','pymc','arviz','matplotlib','beartype','scipy','nutpie','statsmodels']:
+              print(f'{p:14}{m.version(p)}')
+          "
+
+      - name: Run tests against the floors
+        run: uv run --no-sync python -m pytest tests -m "not slow"
+
   build-docs:
     runs-on: ubuntu-latest
     # Full render on main executes real MCMC; smoke render on PRs is fast.

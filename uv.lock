@@ -1150,10 +1150,10 @@ docs = [
 requires-dist = [
     { name = "arviz", specifier = ">=0.20" },
     { name = "beartype", specifier = ">=0.18" },
-    { name = "matplotlib", specifier = ">=3.7" },
+    { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "nutpie", marker = "extra == 'nutpie'", specifier = ">=0.13" },
-    { name = "pandas", specifier = ">=2.3" },
+    { name = "pandas", specifier = ">=2.3.3" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pymc", specifier = ">=5.26.1" },
     { name = "scipy", specifier = ">=1.10" },
@@ -1163,7 +1163,7 @@ provides-extras = ["nutpie", "diagnostics"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "ipython" },
+    { name = "ipython", specifier = ">=8.18" },
     { name = "ipywidgets", specifier = ">=8.1.8" },
     { name = "jupyter", specifier = ">=1.0" },
     { name = "nutpie", specifier = ">=0.13" },
