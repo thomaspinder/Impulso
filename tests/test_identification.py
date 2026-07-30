@@ -851,7 +851,9 @@ class TestLongRunRestrictionRecovery:
         data = VARData(
             endog=y,
             endog_names=["y1", "y2"],
-            index=pd.date_range("1900-01-01", periods=T, freq="QS"),
+            # unit="s": 2000 quarters from 1900 lands in 2400, past the
+            # nanosecond ceiling (2262-04-11) pandas 2.x defaults to.
+            index=pd.date_range("1900-01-01", periods=T, freq="QS", unit="s"),
         )
 
         fitted = ConjugateVAR(lags=1, prior=NIWPrior(), draws=200, seed=0).fit(data)

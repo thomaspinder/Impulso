@@ -1,6 +1,6 @@
 [project]
 name = "impulso"
-version = "0.0.9"
+version = "0.0.10"
 description = "Bayesian Vector Autoregression (VAR) in Python."
 authors = [{ name = "Thomas Pinder", email = "tompinder@live.co.uk" }]
 readme = "README.md"
@@ -8,7 +8,7 @@ keywords = ['python']
 requires-python = ">=3.11,<4.0"
 dependencies = [
     "numpy>=2.0",
-    "pandas>=3.0",
+    "pandas>=2.3",
     "pydantic>=2.0",
     "pymc>=5.26.1",
     "arviz>=0.20",

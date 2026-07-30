@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.4), requires Python >=3.11.
+Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage, requires Python >=3.11.
 
 ## Commands
 
