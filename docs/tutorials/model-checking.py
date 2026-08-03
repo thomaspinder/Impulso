@@ -401,7 +401,7 @@ plt.tight_layout()
 # :class: note
 # This section covers the checks you should never skip. For the full menu — MCSE-aware
 # reporting, chain-splitting subtleties, folded $\widehat{R}$ — see the
-# [ArviZ diagnostics documentation](https://python.arviz.org/en/stable/api/diagnostics.html)
+# [ArviZ API reference](https://python.arviz.org/en/stable/api.html)
 # ({cite:t}`kumar2019`), {cite:t}`vehtari2021`, and {cite:t}`betancourt2017`.
 # :::
 #
