@@ -214,6 +214,26 @@ class TestPosteriorPredictive:
         assert ppc.observed_data["obs"].dims == ("time", "var")
         assert np.array_equal(ppc.observed_data["obs"].values, var_data_2v.endog[1:])
 
+    def test_named_dataframe_index_survives(self, synthetic_idata_2v, var_data_2v):
+        """A `from_df` index named e.g. "date" must not hijack the time dim.
+
+        xarray adopts a pandas Index's name as the coordinate's dimension,
+        which used to clash with the explicit "time" dim and raise.
+        """
+        df = pd.DataFrame(var_data_2v.endog, columns=["y1", "y2"], index=var_data_2v.index.rename("date"))
+        data = VARData.from_df(df, endog=["y1", "y2"])
+        fitted = FittedVAR(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=data,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+        )
+
+        ppc = fitted.posterior_predictive(seed=0)
+        assert ppc.posterior_predictive["obs"].dims == ("chain", "draw", "time", "var")
+        assert np.array_equal(pd.to_datetime(ppc.posterior_predictive["obs"].coords["time"].values), data.index[1:])
+
     def test_mean_mode_ties_the_residual_helpers(self, fitted_2v, var_data_2v):
         """Mean mode IS the conditional mean, so observed - mean IS the residual."""
         ppc = fitted_2v.posterior_predictive(simulate_innovations=False)
