@@ -246,7 +246,10 @@ class FittedVAR(ImpulsoBaseModel):
             eps = rng.standard_normal(mu.shape)
             y_rep = mu + np.einsum("cdtij,cdtj->cdti", L_path, eps)
 
-        time = self.data.index[self.n_lags :]
+        # Explicit-dim tuple form, as in `identified.py`: a `from_df` index may
+        # carry a name (e.g. "date") that xarray would otherwise adopt as the
+        # coordinate's dimension and reject against the explicit "time" dim.
+        time = ("time", self.data.index[self.n_lags :])
         coords = {"time": time, "var": self.var_names}
         return az.InferenceData(
             posterior_predictive=xr.Dataset({
