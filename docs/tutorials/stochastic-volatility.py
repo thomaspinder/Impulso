@@ -19,7 +19,7 @@
 #
 # U.S. monthly CPI inflation is not a single well-behaved process. Look at any plot of the series from 1965 onward and two regimes jump out. The 1970s and early 1980s were a period of high and erratic inflation driven by oil shocks, wage-price dynamics, and a Federal Reserve that had not yet committed to disinflation. From the mid-1980s through the early 2000s the picture changed. Inflation settled at a lower level and its month-to-month variability collapsed. This calmer period is usually called the *Great Moderation*. A constant-variance model fitted over the full sample will average across these regimes, overstating the noise in quiet periods and understating it in turbulent ones.
 #
-# Stochastic volatility (SV) models address this directly. Rather than assuming a single residual variance $\sigma^2$, we let the log of the conditional variance evolve as its own latent stochastic process. The observation equation says the series is centered at its mean and shocked by Gaussian noise whose scale depends on the latent log-volatility at that date; the state equation says log-volatility itself drifts or mean-reverts over time. The output is a posterior path of conditional standard deviations, one per observation, which tracks how uncertainty rises and falls across the sample.
+# Stochastic volatility (SV) models address this directly. Rather than assuming a single residual variance $\sigma^2$, we let the log of the conditional variance evolve as its own latent stochastic process. The observation equation says the series is centered at its mean and shocked by Gaussian noise whose scale depends on the latent log-volatility at that date; the state equation says log-volatility itself drifts or mean-reverts over time. The output is a posterior path of conditional standard deviations, one per observation, which tracks how uncertainty rises and falls across the sample. This is the modelling tradition that {cite:t}`kimShephardChib1998` formalised for financial returns and that {cite:t}`cogleySargent2005` and {cite:t}`primiceri2005` brought into empirical macroeconomics.
 #
 # In this notebook we fit two SV specifications to US CPI inflation: a random-walk log-volatility model, which places no anchor on the volatility level, and an AR(1) variant, which pulls log-volatility toward a long-run mean. We then use the fitted model to generate a density forecast whose width reflects genuine uncertainty about future volatility, not just about the conditional mean.
 
@@ -111,7 +111,7 @@ fig.tight_layout()
 # :::{admonition} NUTS on the SV likelihood
 # :class: note
 #
-# We sample the SV model with PyMC's NUTS using a non-centered reparameterisation of the latent log-volatility path. Non-centering lets Hamiltonian Monte Carlo traverse the funnel geometry induced by $\sigma_\eta$ without the auxiliary-mixture approximation introduced by Kim, Shephard and Chib (1998) to make the likelihood conditionally Gaussian.
+# We sample the SV model with PyMC's NUTS using a non-centered reparameterisation of the latent log-volatility path. Non-centering lets Hamiltonian Monte Carlo traverse the funnel geometry induced by $\sigma_\eta$ without the auxiliary-mixture approximation introduced by {cite:t}`kimShephardChib1998` to make the likelihood conditionally Gaussian.
 # :::
 # ## Fitting the random-walk SV model
 #
@@ -258,7 +258,7 @@ fig_fcst.tight_layout()
 #
 # ## Stochastic volatility inside a VAR
 #
-# The same `monetary_policy.csv` we loaded earlier already carries a multivariate macro panel (`output`, `prices`, `rate`). To swap the homoscedastic VAR for one with multivariate Clark-style stochastic volatility, pass `volatility="sv"` (or a `StochasticVolatility(...)` instance) when constructing the spec:
+# The same `monetary_policy.csv` we loaded earlier already carries a multivariate macro panel (`output`, `prices`, `rate`). To swap the homoscedastic VAR for one with multivariate Clark-style stochastic volatility {cite:p}`clark2011,carrieroClarkMarcellino2016`, pass `volatility="sv"` (or a `StochasticVolatility(...)` instance) when constructing the spec:
 
 # %%
 from impulso import VAR, VARData
@@ -349,9 +349,4 @@ print(irf_all_arr.dims)
 #
 # ## References
 #
-#
-# - Carriero, A., Clark, T. E., and Marcellino, M. (2016). Common drifting volatility in large Bayesian VARs. *Journal of Applied Econometrics*, 31(2), 375-404.
-# - Clark, T. E. (2011). Real-time density forecasts from Bayesian vector autoregressions with stochastic volatility. *Journal of Business and Economic Statistics*, 29(3), 327-341.
-# - Cogley, T., and Sargent, T. J. (2005). Drifts and volatilities: Monetary policies and outcomes in the post-WWII U.S. *Review of Economic Dynamics*, 8(2), 262-302.
-# - Kim, S., Shephard, N., and Chib, S. (1998). Stochastic volatility: Likelihood inference and comparison with ARCH models. *Review of Economic Studies*, 65(3), 361-393.
-# - Primiceri, G. E. (2005). Time varying structural vector autoregressions and monetary policy. *Review of Economic Studies*, 72(3), 821-852.
+# The works cited above are collected on the [project bibliography](../references.md) page.
