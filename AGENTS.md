@@ -123,6 +123,7 @@ Shared fixtures available in all test files:
 
 - **LKJCholeskyCov/LKJCorr are broken** with PyMC 5.28 + PyTensor 2.38 + NumPy 2.4 (einsum unpacking bug). Use manual Cholesky parameterization instead (HalfCauchy diagonal + Normal off-diagonal), as done in `spec.py`.
 - **Parallel sampling segfaults**: Use `cores=1` in `NUTSSampler` for tests to avoid multiprocessing crashes. Tests marked `@pytest.mark.slow` exercise MCMC.
+- **Interrupted nutpie runs return NaN-padded posteriors, not errors**: nutpie catches KeyboardInterrupt (e.g. a MyST-NB cell hitting `nb_execution_timeout` and tearing down the kernel), aborts, and returns the partial trace — unfinished draws come back NaN with `diverging` zero-filled, so diagnostics print `ESS = nan` with "0 divergences". `NUTSSampler.sample` guards against this and raises. Keep each docs notebook MCMC cell under the 1800 s cell budget; nutpie runs chains in parallel threads regardless of `cores`, so a cell's wall time tracks one chain's `tune + draws`.
 
 ## PR Review Policy
 

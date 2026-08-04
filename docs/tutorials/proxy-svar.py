@@ -318,12 +318,17 @@ if ci:
         nuts_sampler_kwargs={"low_rank_modified_mass_matrix": True},
     )
 else:
+    # Sized to the docs CI cell budget: nutpie runs chains in parallel, so the
+    # cell's wall time tracks one chain's tune+draws. Heavier settings (e.g.
+    # tune=2000, draws=1000, chains=4) push this cell past the 1800 s
+    # nb_execution_timeout on CI runners; the interrupted sampler then returns
+    # a NaN-padded posterior (see NUTSSampler's incomplete-draw guard).
     sv_sampler = NUTSSampler(
-        draws=1000,
-        tune=2000,
-        chains=4,
+        draws=500,
+        tune=1000,
+        chains=2,
         cores=1,
-        target_accept=0.95,
+        target_accept=0.9,
         random_seed=42,
         nuts_sampler_kwargs={"low_rank_modified_mass_matrix": True},
     )
