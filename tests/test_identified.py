@@ -2,11 +2,11 @@
 
 import warnings
 
-import arviz as az
 import numpy as np
 import pytest
 import xarray as xr
 
+from impulso._arviz_compat import make_idata
 from impulso.fitted import FittedVAR
 from impulso.identification import Cholesky, SignRestriction
 from impulso.identified import IdentifiedVAR
@@ -260,7 +260,7 @@ class TestFEVDAt:
             },
             name="fevd",
         )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
         fevd_all = FEVDResult.model_construct(idata=idata, horizon=horizon, var_names=["y1", "y2"])
 
         with pytest.raises(NotImplementedError, match="time-varying FEVDs"):
@@ -444,7 +444,7 @@ class TestCholeskyOrderingLabels:
         L = np.linalg.cholesky(sigma)
 
         names = [["y1", "y2"][i] for i in perm]
-        return az.InferenceData(
+        return make_idata(
             posterior=xr.Dataset({
                 "B": xr.DataArray(B, dims=["chain", "draw", "var", "coeff"]),
                 "intercept": xr.DataArray(intercept, dims=["chain", "draw", "var"]),

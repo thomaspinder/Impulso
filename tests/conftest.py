@@ -1,11 +1,11 @@
 """Shared test fixtures for Impulso."""
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
+from impulso._arviz_compat import get_group_dataset, make_idata
 from impulso.data import VARData
 
 # --------------- Raw data helpers ---------------
@@ -110,7 +110,7 @@ def synthetic_idata_2v():
         ),
         "L": xr.DataArray(L, dims=["chain", "draw", "var1", "var2"]),
     })
-    return az.InferenceData(posterior=posterior)
+    return make_idata(posterior=posterior)
 
 
 @pytest.fixture
@@ -123,13 +123,13 @@ def synthetic_idata_2v_t(synthetic_idata_2v):
     assertions about the innovation draws possible. Draw-varying `nu` is
     covered by the unit tests in test_error_distributions.py.
     """
-    posterior = synthetic_idata_2v.posterior.copy()
+    posterior = get_group_dataset(synthetic_idata_2v, "posterior").copy()
     n_chains, n_draws = posterior.sizes["chain"], posterior.sizes["draw"]
     posterior["nu"] = xr.DataArray(
         np.full((n_chains, n_draws), 5.0),
         dims=["chain", "draw"],
     )
-    return az.InferenceData(posterior=posterior)
+    return make_idata(posterior=posterior)
 
 
 @pytest.fixture
@@ -189,7 +189,7 @@ def permanent_transitory_2v():
         "P_true": P_true,
         "Sigma": Sigma,
         "L": L_draws,
-        "idata": az.InferenceData(posterior=posterior),
+        "idata": make_idata(posterior=posterior),
     }
 
 
@@ -206,13 +206,16 @@ def identified_long_run_nan_draws(permanent_transitory_2v, var_data_2v):
     from impulso.volatility import Constant
 
     n_bad = 5
-    idata = permanent_transitory_2v["idata"].copy()
-    B = idata.posterior["B"].values.copy()
+    # Rebuild rather than assigning into the group in place: the two ArviZ
+    # lines disagree about in-place group mutation (a `DataTree` leaf will not
+    # accept a bare `(dims, values)` tuple the way a `Dataset` does).
+    posterior = get_group_dataset(permanent_transitory_2v["idata"], "posterior").copy(deep=True)
+    B = posterior["B"].values.copy()
     B[0, :n_bad] = np.eye(2)
-    idata.posterior["B"] = (("chain", "draw", "var", "coeff"), B)
+    posterior["B"] = (("chain", "draw", "var", "coeff"), B)
 
     fitted = FittedVAR(
-        idata=idata,
+        idata=make_idata(posterior=posterior),
         n_lags=1,
         data=var_data_2v,
         var_names=["y1", "y2"],
@@ -282,7 +285,7 @@ def synthetic_sv_idata():
         "mu": xr.DataArray(mu, dims=["chain", "draw"]),
         "sigma_eta": xr.DataArray(sigma_eta, dims=["chain", "draw"]),
     })
-    return az.InferenceData(posterior=posterior)
+    return make_idata(posterior=posterior)
 
 
 @pytest.fixture
@@ -328,4 +331,4 @@ def synthetic_sv_idata_2v():
         "v0_sigma_eta": (("chain", "draw"), np.abs(rng.standard_normal((n_chains, n_draws)))),
         "v1_sigma_eta": (("chain", "draw"), np.abs(rng.standard_normal((n_chains, n_draws)))),
     })
-    return az.InferenceData(posterior=posterior)
+    return make_idata(posterior=posterior)

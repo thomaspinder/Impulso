@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from impulso._arviz_compat import make_idata
 from impulso.protocols import VolatilityProcess
 from impulso.samplers import NUTSSampler
 from impulso.spec import VAR
@@ -219,7 +220,6 @@ class TestConstantCholeskyAt:
         """cholesky_at must read posterior["L"] directly, not recompute
         chol(Σ). Pinned by making L and Σ inconsistent in the fixture and
         asserting the returned array equals L exactly."""
-        import arviz as az
         import xarray as xr
 
         # L is a fixed lower-triangular factor; Σ is something *different*
@@ -232,7 +232,7 @@ class TestConstantCholeskyAt:
             "L": xr.DataArray(L_arr, dims=["chain", "draw", "var1", "var2"]),
             "Sigma": xr.DataArray(sigma_arr, dims=["chain", "draw", "var1", "var2"]),
         })
-        idata = az.InferenceData(posterior=posterior)
+        idata = make_idata(posterior=posterior)
 
         out = Constant().cholesky_at(idata.posterior, t=None)
         np.testing.assert_array_equal(out, L_arr)

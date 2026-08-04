@@ -2,10 +2,11 @@
 
 from typing import TYPE_CHECKING, Any, Literal
 
-import arviz as az
 import numpy as np
+import xarray as xr
 from pydantic import Field
 
+from impulso._arviz_compat import InferenceDataLike, get_group_dataset, make_idata
 from impulso._base import ImpulsoBaseModel
 from impulso._linalg import lag_matrices, sigma_from_cholesky
 from impulso._ma import compute_ma_phi
@@ -29,7 +30,9 @@ class FittedVAR(ImpulsoBaseModel):
     """Immutable container for a fitted (reduced-form) Bayesian VAR.
 
     Attributes:
-        idata: ArviZ InferenceData with posterior draws.
+        idata: InferenceData-schema container with posterior draws
+            (`arviz.InferenceData` on ArviZ 0, `xarray.DataTree` on ArviZ 1).
+            Mutating it follows the installed upstream API.
         n_lags: Lag order used in estimation.
         data: Original VARData used for fitting.
         var_names: Names of endogenous variables.
@@ -60,7 +63,7 @@ class FittedVAR(ImpulsoBaseModel):
             `impulso.compare_evidence` for Bayes factors.
     """
 
-    idata: az.InferenceData = Field(repr=False)
+    idata: InferenceDataLike = Field(repr=False)
     n_lags: int
     data: VARData
     var_names: list[str]
@@ -74,6 +77,18 @@ class FittedVAR(ImpulsoBaseModel):
     pymc_model: Any = Field(default=None, repr=False)
     evidence: ModelEvidence | None = Field(default=None, repr=False)
 
+    def _posterior(self) -> xr.Dataset:
+        """The `posterior` group as an `xarray.Dataset`.
+
+        On ArviZ 1 the raw group is a `DataTree` node rather than a Dataset,
+        which would violate the `xr.Dataset` contract every volatility,
+        error-distribution, and identification implementation is written
+        against. Methods that use the posterior more than once — or hand it
+        to a memoising helper — must bind this to a local first, because a
+        fresh Dataset is built on each call.
+        """
+        return get_group_dataset(self.idata, "posterior")
+
     @property
     def has_exog(self) -> bool:
         """Whether the model includes exogenous variables."""
@@ -82,12 +97,12 @@ class FittedVAR(ImpulsoBaseModel):
     @property
     def coefficients(self) -> np.ndarray:
         """Posterior draws of B coefficient matrices."""
-        return self.idata.posterior["B"].values
+        return self._posterior()["B"].values
 
     @property
     def intercepts(self) -> np.ndarray:
         """Posterior draws of intercept vectors."""
-        return self.idata.posterior["intercept"].values
+        return self._posterior()["intercept"].values
 
     def sigma(self) -> np.ndarray:
         """Posterior draws of the structural-shock scale matrix Σ.
@@ -119,11 +134,12 @@ class FittedVAR(ImpulsoBaseModel):
             Posterior draws of Σ (or Σ_t for SV) computed from the
             volatility adapter's Cholesky factor as `L @ L.T`.
         """
+        posterior = self._posterior()
         if self.volatility.is_time_varying:
             T = self.data.endog.shape[0] - self.n_lags
-            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
+            L_path = self.volatility.cholesky_path(posterior, T=T)
             return sigma_from_cholesky(L_path)
-        L = self.volatility.cholesky_at(self.idata.posterior, t=None)
+        L = self.volatility.cholesky_at(posterior, t=None)
         return sigma_from_cholesky(L)
 
     def innovation_covariance(self) -> np.ndarray:
@@ -150,7 +166,7 @@ class FittedVAR(ImpulsoBaseModel):
             stochastic volatility — the shape of `sigma()`, unchanged.
         """
         sigma = self.sigma()
-        inflation = self.error_dist.variance_inflation(self.idata.posterior)
+        inflation = self.error_dist.variance_inflation(self._posterior())
         if np.isscalar(inflation):
             return sigma * inflation
         # (C, D) -> broadcast over the trailing matrix (and time) axes.
@@ -163,7 +179,7 @@ class FittedVAR(ImpulsoBaseModel):
         *,
         simulate_innovations: bool = True,
         seed: int | np.random.Generator | None = None,
-    ) -> az.InferenceData:
+    ) -> InferenceDataLike:
         """Replicate the estimation sample from the posterior.
 
         For every posterior draw and every in-sample date `t`,
@@ -195,11 +211,17 @@ class FittedVAR(ImpulsoBaseModel):
         ADR-0011.
 
         Note:
-            `self.idata` is never mutated — a fresh `InferenceData` comes
-            back. To attach the result to the fit, extend it yourself:
+            `self.idata` is never mutated — a fresh container comes back.
+            To attach the result to the fit, merge it yourself using the
+            installed ArviZ line's own API:
 
                 ppc = fitted.posterior_predictive(seed=0)
-                fitted.idata.extend(ppc)
+                fitted.idata.extend(ppc)   # ArviZ 0 (arviz.InferenceData)
+                fitted.idata.update(ppc)   # ArviZ 1 (xarray.DataTree)
+
+            The two differ in conflict precedence: `extend` keeps the
+            existing group unless `join="right"`, while `update` overwrites
+            it. Drop the conflicting group first if that matters.
 
         Note:
             The replicate array is dense: `chains * draws * T * n_vars`
@@ -216,8 +238,8 @@ class FittedVAR(ImpulsoBaseModel):
                 Ignored when `simulate_innovations=False`.
 
         Returns:
-            ArviZ InferenceData with a `posterior_predictive` group holding
-            `obs` with dims `(chain, draw, time, var)` and an
+            InferenceData-schema container with a `posterior_predictive`
+            group holding `obs` with dims `(chain, draw, time, var)` and an
             `observed_data` group holding the realised `obs` with dims
             `(time, var)`. Both are time-aligned with
             `data.index[n_lags:]`.
@@ -226,11 +248,9 @@ class FittedVAR(ImpulsoBaseModel):
             ValueError: If the data carries exogenous regressors the
                 estimator never consumed (no `B_exog` in the posterior).
         """
-        import xarray as xr
-
         from impulso._residuals import fitted_values
 
-        posterior = self.idata.posterior
+        posterior = self._posterior()
         if self.data.exog is not None and "B_exog" not in posterior:
             raise ValueError(
                 "This FittedVAR's data carries exogenous regressors the estimator "
@@ -251,7 +271,7 @@ class FittedVAR(ImpulsoBaseModel):
         # coordinate's dimension and reject against the explicit "time" dim.
         time = ("time", self.data.index[self.n_lags :])
         coords = {"time": time, "var": self.var_names}
-        return az.InferenceData(
+        return make_idata(
             posterior_predictive=xr.Dataset({
                 "obs": xr.DataArray(y_rep, dims=["chain", "draw", "time", "var"], coords=coords, name="obs")
             }),
@@ -295,8 +315,6 @@ class FittedVAR(ImpulsoBaseModel):
             Mean mode consumes no randomness and is therefore identical
             across error distributions.
         """
-        import xarray as xr
-
         from impulso.results import ForecastResult
 
         if self.has_exog and exog_future is None:
@@ -306,8 +324,9 @@ class FittedVAR(ImpulsoBaseModel):
 
         rng = np.random.default_rng(seed) if not isinstance(seed, np.random.Generator) else seed
 
-        B_draws = self.coefficients  # (C, D, n_vars, n_vars*n_lags)
-        intercept_draws = self.intercepts  # (C, D, n_vars)
+        posterior = self._posterior()
+        B_draws = posterior["B"].values  # (C, D, n_vars, n_vars*n_lags)
+        intercept_draws = posterior["intercept"].values  # (C, D, n_vars)
         n_chains, n_draws, n_vars, _ = B_draws.shape
 
         # Density mode: get forecast Cholesky path for shock innovations.
@@ -316,7 +335,7 @@ class FittedVAR(ImpulsoBaseModel):
             if rng is None:
                 rng = np.random.default_rng()
             L_path = self.volatility.forecast_cholesky_path(
-                self.idata.posterior,
+                posterior,
                 steps=steps,
                 rng=rng,
             )  # (C, D, steps, n_vars, n_vars)
@@ -331,7 +350,7 @@ class FittedVAR(ImpulsoBaseModel):
             y_new = intercept_draws + np.einsum("cdij,cdj->cdi", B_draws, x_lag)
 
             if self.has_exog and exog_future is not None:
-                B_exog = self.idata.posterior["B_exog"].values
+                B_exog = posterior["B_exog"].values
                 y_new = y_new + np.einsum("cdij,j->cdi", B_exog, exog_future[h])
 
             # Density mode: add shock innovation L_h @ eps, with eps drawn
@@ -339,9 +358,7 @@ class FittedVAR(ImpulsoBaseModel):
             # under Gaussian, nu/(nu-2)·I under Student-t).
             if L_path is not None:
                 L_h = L_path[:, :, h, :, :]  # (C, D, n_vars, n_vars)
-                eps = self.error_dist.draw_standardised_innovations(
-                    (n_chains, n_draws, n_vars), rng, self.idata.posterior
-                )
+                eps = self.error_dist.draw_standardised_innovations((n_chains, n_draws, n_vars), rng, posterior)
                 shock = np.einsum("cdij,cdj->cdi", L_h, eps)
                 y_new = y_new + shock
 
@@ -355,7 +372,7 @@ class FittedVAR(ImpulsoBaseModel):
             coords={"variable": self.var_names},
             name="forecast",
         )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
         return ForecastResult(idata=idata, steps=steps, var_names=self.var_names, mode=mode)
 
     def conditional_forecast(
@@ -444,7 +461,6 @@ class FittedVAR(ImpulsoBaseModel):
                 pins, an invalid `path_uncertainty`, exogenous data the
                 estimator never consumed, or a mis-shaped `exog_future`.
         """
-        import xarray as xr
         from scipy.stats import chi2
 
         from impulso._scenario import conditional_forecast_engine
@@ -464,7 +480,7 @@ class FittedVAR(ImpulsoBaseModel):
             )
         if path_uncertainty not in ("none", "unconditional"):
             raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
-        posterior = self.idata.posterior
+        posterior = self._posterior()
         if self.data.exog is not None and "B_exog" not in posterior:
             raise ValueError(
                 "This FittedVAR's data carries exogenous regressors the estimator "
@@ -503,7 +519,7 @@ class FittedVAR(ImpulsoBaseModel):
         ds.attrs["n_restrictions"] = r
         ds.attrs["chi2_tail_of_median"] = float(chi2.sf(float(np.median(q)), df=r)) if r else 1.0
         return ConditionalForecastResult(
-            idata=az.InferenceData(posterior_predictive=ds),
+            idata=make_idata(posterior_predictive=ds),
             steps=steps,
             var_names=self.var_names,
             mode="density" if include_shock_uncertainty else "mean",
@@ -554,23 +570,22 @@ class FittedVAR(ImpulsoBaseModel):
                 `data.exog_names` disagrees with the posterior's `B_exog`
                 column count.
         """
-        import xarray as xr
-
         from impulso.results import DynamicMultiplierResult
 
         if horizon < 0:
             raise ValueError(f"horizon must be non-negative, got {horizon}")
+        posterior = self._posterior()
         # Guard on the posterior, not on `has_exog`: an estimator may carry
         # exogenous data it never actually consumed.
-        if "B_exog" not in self.idata.posterior:
+        if "B_exog" not in posterior:
             raise ValueError(
                 "This FittedVAR has no B_exog in its posterior, so no dynamic "
                 "multiplier is defined. Fit a VAR with exogenous regressors "
                 "(VARData(..., exog=...)) using an estimator that supports them."
             )
 
-        B_da = self.idata.posterior["B"]
-        B_exog_da = self.idata.posterior["B_exog"]
+        B_da = posterior["B"]
+        B_exog_da = posterior["B_exog"]
         # Hand-built posteriors may order dims arbitrarily. Realign by name
         # when the canonical labels are present; otherwise trust the
         # positional (chain, draw, var, coeff/exog) convention.
@@ -605,7 +620,7 @@ class FittedVAR(ImpulsoBaseModel):
             },
             name="dynamic_multiplier",
         )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"dynamic_multiplier": psi_da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"dynamic_multiplier": psi_da}))
         return DynamicMultiplierResult(
             idata=idata,
             horizon=horizon,

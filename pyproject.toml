@@ -9,11 +9,32 @@ requires-python = ">=3.11,<4.0"
 dependencies = [
     "numpy>=2.0",
     "pandas>=2.3.3",
-    "pydantic>=2.0",
-    "pymc>=5.26.1",
-    "arviz>=0.20",
+    # pydantic 2.0's pinned pydantic-core (2.0.1) has no wheels for Python
+    # >= 3.12 and its source build fails on modern interpreters
+    # (ForwardRef._evaluate signature change), so the floor is split by the
+    # same family boundary as PyMC/ArviZ below. 2.5 is the first release
+    # with official Python 3.12 support.
+    "pydantic>=2.0; python_version < '3.12'",
+    "pydantic>=2.5; python_version >= '3.12'",
+    # PyMC and ArviZ must be pinned as a matched pair. PyMC 5 evaluates
+    # `arviz.InferenceData` at import time, so it cannot import at all against
+    # ArviZ >= 1 (which replaced InferenceData with xarray.DataTree); PyMC 6
+    # requires arviz>=1.1 and, transitively, Python >= 3.12. Declaring the two
+    # families independently would let a resolver pick PyMC 5 + ArviZ 1.
+    "pymc>=5.26.1,<6; python_version < '3.12'",
+    "arviz>=0.20,<1; python_version < '3.12'",
+    "pymc>=6,<7; python_version >= '3.12'",
+    "arviz>=1.1,<2; python_version >= '3.12'",
+    # DataTree became a public xarray API in 2024.10; arviz-base 1.1 raises the
+    # effective floor to 2024.11.
+    "xarray>=2024.11",
     "matplotlib>=3.9",
-    "beartype>=0.18",
+    # 0.20 is the first release that resolves stringified forward references
+    # in third-party generic superclasses against their defining module.
+    # xarray's `Dataset(..., Mapping[Hashable, "DataArray"])` base trips the
+    # old behaviour: under 0.18/0.19 any beartype-checked function returning
+    # a non-empty Dataset raises BeartypeCallHintForwardRefException.
+    "beartype>=0.20",
     "scipy>=1.10",
 ]
 classifiers = [
@@ -85,6 +106,9 @@ python-version = "3.11"
 # (__getattr__, symbolic ops) that static analysis cannot resolve.
 unresolved-attribute = "ignore"
 not-subscriptable = "ignore"
+# ArviZ 1 re-exports its public functions through a lazy module-level
+# __getattr__, so even names that always exist look conditional to ty.
+possibly-missing-attribute = "ignore"
 # pandas type stubs on 3.10 reject list[str]/list[int] for index/columns
 # params (expects Axes type), but this works fine at runtime.
 invalid-argument-type = "ignore"

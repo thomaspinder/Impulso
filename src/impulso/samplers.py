@@ -3,10 +3,10 @@
 import os
 from typing import Literal
 
-import arviz as az
 import pymc as pm
 from pydantic import Field
 
+from impulso._arviz_compat import InferenceDataLike
 from impulso._base import ImpulsoModel
 
 
@@ -61,7 +61,7 @@ class NUTSSampler(ImpulsoModel):
     progressbar: bool = Field(default_factory=_default_progressbar)
     nuts_sampler_kwargs: dict | None = None
 
-    def sample(self, model: pm.Model) -> az.InferenceData:
+    def sample(self, model: pm.Model) -> InferenceDataLike:
         """Run NUTS sampling on the given PyMC model.
 
         Args:

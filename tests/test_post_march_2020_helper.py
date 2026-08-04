@@ -8,10 +8,10 @@ package module.
 import importlib.util
 from pathlib import Path
 
-import arviz as az
 import numpy as np
 import xarray as xr
 
+from impulso._arviz_compat import make_idata
 from impulso.fitted import FittedVAR
 from impulso.volatility import Constant
 
@@ -41,7 +41,7 @@ def _synthetic_fitted(n_chains, n_draws, n_vars, n_lags, seed=0):
         "intercept": xr.DataArray(intercept, dims=["chain", "draw", "var"]),
         "L": xr.DataArray(l_chol, dims=["chain", "draw", "var1", "var2"]),
     })
-    idata = az.InferenceData(posterior=posterior)
+    idata = make_idata(posterior=posterior)
     return FittedVAR.model_construct(idata=idata, n_lags=n_lags, volatility=Constant())
 
 

@@ -11,13 +11,13 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 from matplotlib.figure import Figure
 
+from impulso._arviz_compat import get_group_dataset, make_idata
 from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
 from impulso.data import VARData
@@ -55,7 +55,7 @@ def _single_draw_fitted():
         index=pd.date_range("2000-01-01", periods=12, freq="QS"),
     )
     return FittedVAR(
-        idata=az.InferenceData(posterior=posterior),
+        idata=make_idata(posterior=posterior),
         n_lags=1,
         data=data,
         var_names=["y1", "y2"],
@@ -158,8 +158,9 @@ class TestRotationInvariance:
         """Invariant 5: replacing L by LQ (same Sigma) leaves the answer unchanged."""
         rng = np.random.default_rng(3)
         Q, _ = np.linalg.qr(rng.standard_normal((2, 2)))
-        rotated = synthetic_idata_2v.posterior.copy(deep=True)
-        rotated["L"].values[:] = np.einsum("cdij,jk->cdik", synthetic_idata_2v.posterior["L"].values, Q)
+        base_posterior = get_group_dataset(synthetic_idata_2v, "posterior")
+        rotated = base_posterior.copy(deep=True)
+        rotated["L"].values[:] = np.einsum("cdij,jk->cdik", base_posterior["L"].values, Q)
 
         conditions = [VariablePath(variable="y1", values=0.7)]
         kwargs = {"steps": 5, "conditions": conditions, "include_shock_uncertainty": False}
@@ -167,7 +168,7 @@ class TestRotationInvariance:
             idata=synthetic_idata_2v, n_lags=1, data=var_data_2v, var_names=["y1", "y2"], volatility=Constant()
         ).conditional_forecast(**kwargs)
         rot = FittedVAR(
-            idata=az.InferenceData(posterior=rotated),
+            idata=make_idata(posterior=rotated),
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
@@ -368,7 +369,7 @@ def _single_draw_fitted_exog():
         index=pd.date_range("2000-01-01", periods=12, freq="QS"),
     )
     return FittedVAR(
-        idata=az.InferenceData(posterior=posterior),
+        idata=make_idata(posterior=posterior),
         n_lags=1,
         data=data,
         var_names=["y1", "y2"],

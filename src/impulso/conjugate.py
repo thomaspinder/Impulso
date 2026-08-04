@@ -15,10 +15,10 @@ See docs/adr/0004-conjugate-var-is-a-sibling-estimator.md and the build contract
 
 from __future__ import annotations
 
-import arviz as az
 import xarray as xr
 from pydantic import Field, field_validator
 
+from impulso._arviz_compat import make_idata
 from impulso._base import ImpulsoBaseModel
 from impulso._conjugate import split_intercept
 from impulso._conjugate_sampler import select_and_sample
@@ -172,7 +172,7 @@ class ConjugateVAR(ImpulsoBaseModel):
         # returns a placeholder rate of 1.0, so leave the attr off entirely there.
         if result["hyperparameters"]:
             posterior.attrs["metropolis_acceptance_rate"] = float(result["acceptance_rate"])
-        idata = az.InferenceData(posterior=posterior)
+        idata = make_idata(posterior=posterior)
         volatility = self.volatility if self.volatility is not None else Constant()
 
         evidence = ModelEvidence(

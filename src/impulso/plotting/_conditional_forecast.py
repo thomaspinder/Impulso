@@ -2,10 +2,11 @@
 
 from typing import TYPE_CHECKING
 
-import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
+
+from impulso._arviz_compat import hdi_bounds
 
 if TYPE_CHECKING:
     from impulso.results import ConditionalForecastResult
@@ -32,9 +33,10 @@ def plot_conditional_forecast(
     """
     from impulso._scenario import resolve_variable_pins
 
-    da = result.idata.posterior_predictive["forecast"]
+    pp = result._pp()
+    da = pp["forecast"]
     med = da.median(dim=("chain", "draw"))
-    hdi = az.hdi(da, hdi_prob=prob)["forecast"]
+    hdi_lower, hdi_upper = hdi_bounds(da, prob)
     steps_axis = np.arange(1, result.steps + 1)
     n_vars = len(result.var_names)
     pins = resolve_variable_pins(list(result.conditions), result.var_names, result.steps)
@@ -46,9 +48,9 @@ def plot_conditional_forecast(
     if n_vars == 1:
         axes = [axes]
     title = "Conditional Forecast"
-    n_restrictions = int(result.idata.posterior_predictive.attrs.get("n_restrictions", 0))
+    n_restrictions = int(pp.attrs.get("n_restrictions", 0))
     if n_restrictions:
-        q_cal = float(result.idata.posterior_predictive["plausibility_calibrated"].median())
+        q_cal = float(pp["plausibility_calibrated"].median())
         title += f" (calibrated plausibility q = {q_cal:.2f})"
     fig.suptitle(title)
 
@@ -62,8 +64,8 @@ def plot_conditional_forecast(
         )
         axes[i].fill_between(
             steps_axis,
-            hdi.isel(variable=i).sel(hdi="lower").values,
-            hdi.isel(variable=i).sel(hdi="higher").values,
+            hdi_lower.isel(variable=i).values,
+            hdi_upper.isel(variable=i).values,
             color="C0",
             alpha=0.25,
             linewidth=0,

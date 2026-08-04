@@ -12,11 +12,31 @@ import pytest
 matplotlib.use("Agg")
 
 from impulso import VAR, VARData
+from impulso._arviz_compat import ARVIZ_V1
 from impulso._lag_selection import select_lag_order
 from impulso._residuals import fitted_values, reduced_form_residuals
 from impulso.fitted import FittedVAR
 from impulso.spec import _exog_prior_sigma
 from impulso.volatility import Constant
+
+
+def _group_names(idata) -> set[str]:
+    """Schema group names, read through the installed ArviZ line's own API.
+
+    Deliberately not routed through the compat seam: the point of these tests
+    is that `idata` really is the upstream-native container, so the upstream
+    accessor is what should be exercised.
+    """
+    return set(idata.children) if ARVIZ_V1 else set(idata.groups())
+
+
+def _merge_groups(target, extra) -> None:
+    """Attach `extra`'s groups to `target` in place, as a user would."""
+    if ARVIZ_V1:
+        target.update(extra)
+    else:
+        target.extend(extra)
+
 
 # Driven in a fresh interpreter: enable_runtime_checks() beartype-wraps the
 # library's classes in place, so the wrapping must not leak into the rest of
@@ -110,7 +130,7 @@ class TestPriorPredictive:
     def test_groups_and_variable(self, var_data_2v):
         idata = VAR(lags=1).prior_predictive(var_data_2v, draws=50, random_seed=0)
 
-        assert {"prior", "prior_predictive", "observed_data"} <= set(idata.groups())
+        assert {"prior", "prior_predictive", "observed_data"} <= _group_names(idata)
         assert "obs" in idata.prior_predictive
         assert "obs" in idata.observed_data
         # The latents are simulated too, so the prior itself is inspectable.
@@ -193,11 +213,17 @@ class TestPriorPredictive:
         assert covered.mean() >= 0.9
 
     def test_plot_ppc_smoke(self, var_data_2v):
-        """`az.plot_ppc` must accept the group as returned (datetime time coord)."""
+        """ArviZ's PPC plot must accept the group as returned (datetime time coord)."""
         idata = VAR(lags=1).prior_predictive(var_data_2v, draws=20, random_seed=0)
 
-        axes = az.plot_ppc(idata, group="prior", num_pp_samples=5)
-        assert axes is not None
+        if ARVIZ_V1:
+            # ArviZ 1 renamed plot_ppc to plot_ppc_dist and reads the observed
+            # series from `observed_data`, which the prior group does not pair
+            # with, so point it at `prior_predictive` explicitly.
+            plotted = az.plot_ppc_dist(idata, group="prior_predictive", num_samples=5)
+        else:
+            plotted = az.plot_ppc(idata, group="prior", num_pp_samples=5)
+        assert plotted is not None
 
 
 class TestPosteriorPredictive:
@@ -291,15 +317,15 @@ class TestPosteriorPredictive:
         assert np.allclose(np.cov(pooled, rowvar=False), np.eye(2), atol=0.06)
 
     def test_does_not_mutate_the_fit(self, fitted_2v):
-        before = set(fitted_2v.idata.groups())
+        before = _group_names(fitted_2v.idata)
         ppc = fitted_2v.posterior_predictive(seed=0)
 
-        assert set(fitted_2v.idata.groups()) == before
+        assert _group_names(fitted_2v.idata) == before
         assert "posterior_predictive" not in before
 
-        # The documented recipe for attaching it must work.
-        fitted_2v.idata.extend(ppc)
-        assert "posterior_predictive" in set(fitted_2v.idata.groups())
+        # The documented recipe for attaching it must work on both stacks.
+        _merge_groups(fitted_2v.idata, ppc)
+        assert "posterior_predictive" in _group_names(fitted_2v.idata)
 
     def test_exog_without_b_exog_raises(self, synthetic_idata_2v, var_data_2v_exog):
         fitted = FittedVAR(
@@ -328,8 +354,8 @@ class TestPosteriorPredictive:
     def test_plot_ppc_smoke(self, fitted_2v):
         ppc = fitted_2v.posterior_predictive(seed=0)
 
-        axes = az.plot_ppc(ppc, num_pp_samples=5)
-        assert axes is not None
+        plotted = az.plot_ppc_dist(ppc, num_samples=5) if ARVIZ_V1 else az.plot_ppc(ppc, num_pp_samples=5)
+        assert plotted is not None
 
 
 class TestPredictiveRuntimeChecks:

@@ -2,10 +2,11 @@
 
 from typing import TYPE_CHECKING
 
-import arviz as az
 import numpy as np
+import xarray as xr
 from pydantic import Field
 
+from impulso._arviz_compat import InferenceDataLike, get_group_dataset, make_idata
 from impulso._base import ImpulsoBaseModel
 from impulso.sv.data import SVData
 from impulso.sv.dynamics import SVDynamics
@@ -18,19 +19,29 @@ class FittedSV(ImpulsoBaseModel):
     """Immutable container for a fitted univariate SV model.
 
     Attributes:
-        idata: ArviZ InferenceData with posterior draws of h, mu, sigma_eta.
+        idata: InferenceData-schema container with posterior draws of h,
+            mu, sigma_eta (`arviz.InferenceData` on ArviZ 0,
+            `xarray.DataTree` on ArviZ 1).
         data: Original SVData used for fitting.
         dynamics: Resolved SVDynamics instance used for fitting.
     """
 
-    idata: az.InferenceData = Field(repr=False)
+    idata: InferenceDataLike = Field(repr=False)
     data: SVData
     dynamics: SVDynamics
+
+    def _posterior(self) -> xr.Dataset:
+        """The `posterior` group as an `xarray.Dataset`.
+
+        On ArviZ 1 the raw group is a `DataTree` node, which the SV dynamics
+        adapters — typed against `xr.Dataset` — would reject.
+        """
+        return get_group_dataset(self.idata, "posterior")
 
     @property
     def log_volatility(self) -> np.ndarray:
         """Posterior draws of log-volatility path. Shape (chains, draws, T)."""
-        return self.idata.posterior["h"].values
+        return self._posterior()["h"].values
 
     def volatility(self) -> "VolatilityResult":
         """Posterior of conditional SD sigma_t = exp(h_t / 2)."""
@@ -68,13 +79,11 @@ class FittedSV(ImpulsoBaseModel):
         Returns:
             SVForecastResult wrapping posterior predictive draws.
         """
-        import xarray as xr
-
         from impulso._time import forecast_index
         from impulso.results import SVForecastResult
 
         rng = np.random.default_rng(random_seed)
-        posterior = self.idata.posterior
+        posterior = self._posterior()
 
         h_forecast = self.dynamics.forecast_log_vol(posterior, steps, rng)
         mu_draws = posterior["mu"].values
@@ -87,7 +96,7 @@ class FittedSV(ImpulsoBaseModel):
             dims=["chain", "draw", "step"],
             name="forecast",
         )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"forecast": forecast_da}))
         return SVForecastResult(
             idata=idata,
             series_name=self.data.name,

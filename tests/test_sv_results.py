@@ -1,12 +1,12 @@
 """Tests for SV result types."""
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 from pydantic import ValidationError
 
+from impulso._arviz_compat import InferenceDataLike, make_idata
 from impulso._time import forecast_index, infer_index_freq
 from impulso.results import SVForecastResult, VolatilityResult
 
@@ -54,11 +54,11 @@ def test_volatility_result_to_dataframe_has_index(synthetic_sv_idata):
 # --------------- SVForecastResult forecast axis ---------------
 
 
-def _sv_forecast_idata(steps: int = 12) -> az.InferenceData:
+def _sv_forecast_idata(steps: int = 12) -> InferenceDataLike:
     """Synthetic posterior-predictive draws for a univariate SV forecast."""
     rng = np.random.default_rng(0)
     draws = rng.standard_normal((2, 50, steps))
-    return az.InferenceData(
+    return make_idata(
         posterior_predictive=xr.Dataset({"forecast": xr.DataArray(draws, dims=["chain", "draw", "step"])})
     )
 

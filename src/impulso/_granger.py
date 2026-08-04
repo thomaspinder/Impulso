@@ -62,7 +62,7 @@ def _posterior_coefficients(fitted: FittedVAR) -> np.ndarray:
     by name when the canonical labels are present, otherwise trust the
     positional convention (the same contract as `dynamic_multiplier`).
     """
-    B_da = fitted.idata.posterior["B"]
+    B_da = fitted._posterior()["B"]
     if set(B_da.dims) == {"chain", "draw", "var", "coeff"}:
         B_da = B_da.transpose("chain", "draw", "var", "coeff")
     return np.asarray(B_da.values, dtype=float)

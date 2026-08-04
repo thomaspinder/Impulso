@@ -9,6 +9,7 @@ import pytest
 import xarray as xr
 from pydantic import ValidationError
 
+from impulso._arviz_compat import get_group_dataset
 from impulso.identification import _CACHE_MISS, Cholesky, LongRunRestriction, SignRestriction, _PosteriorCache
 from impulso.protocols import IdentificationScheme
 
@@ -627,7 +628,7 @@ class TestLongRunRestriction:
     @staticmethod
     def _posterior_with(fx: dict, A_by_draw) -> "object":
         """Copy the fixture posterior with `A_by_draw(c, d)` substituted for B."""
-        posterior = fx["idata"].posterior.copy(deep=True)
+        posterior = get_group_dataset(fx["idata"], "posterior").copy(deep=True)
         B = posterior["B"].values.copy()
         for c in range(B.shape[0]):
             for d in range(B.shape[1]):

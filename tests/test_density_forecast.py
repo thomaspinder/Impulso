@@ -4,12 +4,12 @@ Pin-first: mean-mode regression pins captured against current code BEFORE
 any behaviour change. Then density-mode tests verify the new behaviour.
 """
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
+from impulso._arviz_compat import get_group_dataset, make_idata
 from impulso.data import VARData
 from impulso.fitted import FittedVAR
 from impulso.volatility import Constant
@@ -41,7 +41,7 @@ def fitted_constant():
         "intercept": (("chain", "draw", "var1"), intercept),
         "L": (("chain", "draw", "var1", "var2"), L_raw),
     })
-    idata = az.InferenceData(posterior=posterior)
+    idata = make_idata(posterior=posterior)
     A1 = np.array([[0.5, 0.1], [-0.2, 0.3]])
     y = np.zeros((200, 2))
     y[0] = np.array([0.1, -0.05]) / 0.7
@@ -68,11 +68,11 @@ def fitted_constant_t(fitted_constant):
     """
     from impulso.observation import StudentT
 
-    posterior = fitted_constant.idata.posterior.copy()
+    posterior = get_group_dataset(fitted_constant.idata, "posterior").copy()
     n_chains, n_draws = posterior.sizes["chain"], posterior.sizes["draw"]
     posterior["nu"] = xr.DataArray(np.full((n_chains, n_draws), 5.0), dims=["chain", "draw"])
     return FittedVAR(
-        idata=az.InferenceData(posterior=posterior),
+        idata=make_idata(posterior=posterior),
         n_lags=fitted_constant.n_lags,
         data=fitted_constant.data,
         var_names=fitted_constant.var_names,

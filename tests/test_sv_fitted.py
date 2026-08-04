@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from impulso._arviz_compat import make_idata
 from impulso.results import VolatilityResult
 from impulso.sv.data import SVData
 from impulso.sv.dynamics import AR1, RandomWalk
@@ -53,7 +54,6 @@ def _build_ar1_fitted_sv(index: pd.DatetimeIndex | None = None):
         index: Optional DatetimeIndex of length 50. Defaults to a monthly
             range; pass an irregular index to exercise the undated path.
     """
-    import arviz as az
     import xarray as xr
 
     rng = np.random.default_rng(0)
@@ -71,7 +71,7 @@ def _build_ar1_fitted_sv(index: pd.DatetimeIndex | None = None):
         "phi": xr.DataArray(phi, dims=["chain", "draw"]),
         "alpha": xr.DataArray(alpha, dims=["chain", "draw"]),
     })
-    idata = az.InferenceData(posterior=posterior)
+    idata = make_idata(posterior=posterior)
 
     y = rng.standard_normal(T)
     if index is None:

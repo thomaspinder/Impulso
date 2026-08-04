@@ -6,12 +6,12 @@ deterministic baseline, restoring the textbook additivity identity
 y_t = baseline_t + sum_j c_{j,t}.
 """
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
+from impulso._arviz_compat import get_group_dataset, make_idata
 from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
 from impulso._residuals import reduced_form_residuals
@@ -63,9 +63,9 @@ class TestAdditivity:
 
     def test_zero_dynamics_reduces_to_impact(self, synthetic_idata_2v, var_data_2v):
         """With B = 0 the propagated HD equals the contemporaneous impact."""
-        posterior = synthetic_idata_2v.posterior.copy(deep=True)
+        posterior = get_group_dataset(synthetic_idata_2v, "posterior").copy(deep=True)
         posterior["B"].values[:] = 0.0
-        idata = az.InferenceData(posterior=posterior)
+        idata = make_idata(posterior=posterior)
         fitted = FittedVAR(
             idata=idata,
             n_lags=1,
@@ -120,7 +120,7 @@ class TestExogAndMultiLag:
             index=pd.date_range("2023-01-02", periods=t, freq="W-MON"),
         )
         fitted = FittedVAR(
-            idata=az.InferenceData(posterior=posterior),
+            idata=make_idata(posterior=posterior),
             n_lags=n_lags,
             data=data,
             var_names=["y1", "y2"],
@@ -239,7 +239,7 @@ class TestResultSurface:
             name="hd",
         )
         result = HistoricalDecompositionResult(
-            idata=az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd})),
+            idata=make_idata(posterior_predictive=xr.Dataset({"hd": hd})),
             var_names=["y1", "y2"],
         )
         with pytest.raises(ValueError, match="baseline"):

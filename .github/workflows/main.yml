@@ -56,15 +56,41 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Report the resolved PyMC/ArviZ pair
+        # The two families are pinned by Python marker, so this line is the
+        # quickest way to see which stack a matrix leg actually exercised.
+        run: |
+          uv run --no-sync python -c "
+          import importlib.metadata as m
+          print('pymc', m.version('pymc'), '| arviz', m.version('arviz'), '| xarray', m.version('xarray'))
+          "
+
+      - name: Reject the removed arviz.InferenceData shim at import time
+        # ArviZ 1 keeps `arviz.InferenceData` alive only behind a
+        # MigrationWarning-emitting shim, so an evaluated annotation would make
+        # every `import impulso` warn (issue #273). Only that warning is
+        # promoted to an error; unrelated warnings stay warnings.
+        if: ${{ matrix.python-version != '3.11' }}
+        run: |
+          uv run --no-sync python -c "
+          import warnings, arviz as az
+          warnings.simplefilter('error', az.MigrationWarning)
+          import impulso
+          print('import impulso: no MigrationWarning')
+          "
+
       - name: Run tests (fast; MCMC-marked tests run in slow-tests.yml)
         run: uv run python -m pytest tests -m "not slow" --cov --cov-branch --cov-config=pyproject.toml --cov-report=xml
 
       - name: Check typing
         run: uv run ty check
 
-      - name: Upload coverage reports to Codecov with GitHub Action on Python 3.11
+      - name: Upload coverage reports to Codecov (one leg per PyMC/ArviZ family)
+        # 3.11 covers the ArviZ 0 branches of the seam, 3.12 the ArviZ 1
+        # branches; Codecov merges the two reports, so uploading from a
+        # single stack would permanently under-report src/impulso/_arviz_compat.py.
         uses: codecov/codecov-action@v7
-        if: ${{ matrix.python-version == '3.11' }}
+        if: ${{ matrix.python-version == '3.11' || matrix.python-version == '3.12' }}
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
@@ -73,9 +99,59 @@ jobs:
     # matrix above never exercises the floors declared in pyproject.toml. This
     # job resolves every direct dependency down to its declared minimum, so a
     # floor that is only nominally supported fails here instead of in a
-    # downstream install. Runs on the oldest supported Python, since the lowest
-    # dependencies and the lowest interpreter travel together (old releases
-    # have no wheels for new Pythons).
+    # downstream install. PyMC/ArviZ are declared as two Python-marked
+    # families, so both floors need a leg: 3.11 pins the PyMC 5 / ArviZ 0
+    # floor and 3.12 pins the PyMC 6 / ArviZ 1 floor.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+      fail-fast: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Resolve every dependency floor to its minimum
+        # Rewrites uv.lock in the runner's checkout; the committed lockfile is
+        # verified separately by the `quality` job's `uv lock --locked`.
+        run: >
+          uv sync --python ${{ matrix.python-version }} --resolution lowest-direct
+          --group dev --extra nutpie --extra diagnostics
+
+      - name: Report the resolved floors
+        run: |
+          uv run --no-sync python -c "
+          import importlib.metadata as m
+          for p in ['numpy','pandas','pydantic','pymc','arviz','xarray','matplotlib','beartype','scipy','nutpie','statsmodels']:
+              print(f'{p:14}{m.version(p)}')
+          "
+
+      - name: Assert the floor resolved to the expected PyMC/ArviZ family
+        run: |
+          uv run --no-sync python -c "
+          import importlib.metadata as m
+          pymc_major = int(m.version('pymc').split('.')[0])
+          arviz_major = int(m.version('arviz').split('.')[0])
+          expected = (5, 0) if '${{ matrix.python-version }}' == '3.11' else (6, 1)
+          got = (pymc_major, arviz_major)
+          assert got == expected, f'expected PyMC/ArviZ majors {expected}, got {got}'
+          print('floor family OK:', got)
+          "
+
+      - name: Run tests against the floors
+        run: uv run --no-sync python -m pytest tests -m "not slow"
+
+  arviz-1-2-compat:
+    # The modern family is declared as `arviz>=1.1,<2`, so the lockfile alone
+    # does not prove that a specific later release still works. Downstream
+    # projects (notably pymc-marketing) track ArviZ 1.2+, so constrain this leg
+    # to it explicitly rather than inferring support from the broad range.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -85,23 +161,66 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Resolve every dependency floor to its minimum
-        # Rewrites uv.lock in the runner's checkout; the committed lockfile is
-        # verified separately by the `quality` job's `uv lock --locked`.
-        run: uv sync --python 3.11 --resolution lowest-direct --group dev --extra nutpie --extra diagnostics
+      - name: Install with ArviZ constrained to >=1.2,<2
+        run: |
+          uv sync --python 3.12 --group dev --extra nutpie --extra diagnostics
+          uv pip install --python 3.12 "arviz>=1.2,<2"
 
-      - name: Report the resolved floors
+      - name: Assert the constrained version really is >=1.2,<2
         run: |
           uv run --no-sync python -c "
-          import importlib.metadata as m
-          for p in ['numpy','pandas','pydantic','pymc','arviz','matplotlib','beartype','scipy','nutpie','statsmodels']:
-              print(f'{p:14}{m.version(p)}')
+          from importlib.metadata import version
+          v = tuple(int(p) for p in version('arviz').split('.')[:2])
+          assert (1, 2) <= v < (2, 0), f'expected arviz >=1.2,<2, got {version(\"arviz\")}'
+          print('arviz', version('arviz'))
           "
 
-      - name: Run tests against the floors
+      - name: Run tests against ArviZ 1.2+
         run: uv run --no-sync python -m pytest tests -m "not slow"
+
+  wheel-install:
+    # Editable installs resolve straight from the source tree, so they never
+    # validate the published metadata — including the Python-marked PyMC/ArviZ
+    # pairs. Build the wheel once and install it into clean legacy and modern
+    # environments to prove a real `pip install impulso` picks a valid stack.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+      fail-fast: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build the wheel
+        run: uv build --wheel
+
+      - name: Install the wheel into a clean environment
+        run: |
+          uv venv --python ${{ matrix.python-version }} .venv-wheel
+          uv pip install --python .venv-wheel dist/*.whl
+
+      - name: Smoke-test the installed wheel
+        run: |
+          .venv-wheel/bin/python -c "
+          import importlib.metadata as m
+          import impulso
+          print('impulso', impulso.__name__, '| pymc', m.version('pymc'), '| arviz', m.version('arviz'))
+          for name in ['VAR', 'VARData', 'FittedVAR', 'IdentifiedVAR', 'ForecastResult', 'Cholesky']:
+              assert getattr(impulso, name) is not None, name
+          from impulso._arviz_compat import ARVIZ_V1, InferenceDataLike
+          expected_v1 = '${{ matrix.python-version }}' != '3.11'
+          assert ARVIZ_V1 is expected_v1, (ARVIZ_V1, expected_v1)
+          print('active container:', InferenceDataLike.__name__)
+          "
 
   build-docs:
     runs-on: ubuntu-latest
@@ -113,6 +232,12 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          # Pinned to the legacy stack: the tutorials still call ArviZ 0 APIs
+          # (plot_ppc, plot_trace, hdi_prob=, .extend()). Their migration is
+          # tracked separately; the API reference is generated from source,
+          # which is already dual-stack.
+          python-version: "3.11"
 
       - name: Install docs dependencies
         run: uv sync --frozen --group docs
@@ -175,6 +300,9 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          # Same legacy pin as build-docs, for the same reason.
+          python-version: "3.11"
 
       - name: Install docs dependencies
         run: uv sync --frozen --group docs

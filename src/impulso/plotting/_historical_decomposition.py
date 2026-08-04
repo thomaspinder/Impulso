@@ -32,7 +32,7 @@ def plot_historical_decomposition(
     Returns:
         Matplotlib Figure.
     """
-    hd_da = result.idata.posterior_predictive["hd"]
+    hd_da = result._pp()["hd"]
     med = hd_da.median(dim=("chain", "draw"))
     deviation = hd_da.sum("shock").median(dim=("chain", "draw"))
     shock_names = [str(s) for s in hd_da.coords["shock"].values]

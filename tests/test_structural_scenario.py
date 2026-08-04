@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from matplotlib.figure import Figure
 
+from impulso._arviz_compat import make_idata
 from impulso._linalg import lag_matrices
 from impulso._propagate import propagate
 from impulso._scenario import _resolve_adjusting
@@ -296,7 +297,6 @@ class TestTimeVaryingVolatility:
 
 def _single_draw_identified_exog():
     """Single-draw exog posterior, Cholesky-identified."""
-    import arviz as az
     import pandas as pd
     import xarray as xr
 
@@ -317,7 +317,7 @@ def _single_draw_identified_exog():
         index=pd.date_range("2000-01-01", periods=12, freq="QS"),
     )
     fitted = FittedVAR(
-        idata=az.InferenceData(posterior=posterior),
+        idata=make_idata(posterior=posterior),
         n_lags=1,
         data=data,
         var_names=["y1", "y2"],
@@ -431,7 +431,6 @@ class TestNaNShockMatrixGuard:
 class TestNumericalGuards:
     def test_near_collinear_adjusting_block_warns(self):
         """cond(C_A C_A') check fires where the full-Gram check cannot."""
-        import arviz as az
         import pandas as pd
         import xarray as xr
 
@@ -450,7 +449,7 @@ class TestNumericalGuards:
             index=pd.date_range("2000-01-01", periods=10, freq="QS"),
         )
         fitted = FittedVAR(
-            idata=az.InferenceData(posterior=posterior),
+            idata=make_idata(posterior=posterior),
             n_lags=1,
             data=data,
             var_names=["y1", "y2"],
