@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.4), requires Python >=3.11.
+Impulso is a Python library for Bayesian Vector Autoregression (VAR). Early stage (v0.0.12), requires Python >=3.11.
 
 ## Commands
 
@@ -30,17 +30,17 @@ uv run ty check
 # Lint/format only
 uv run ruff check . && uv run ruff format .
 
-# Render Quarto notebooks to markdown
-make docs-render
-
-# Render notebooks in CI mode (fast, ~30s, minimal MCMC)
-make docs-render-ci
-
-# Build and serve docs locally (renders notebooks first)
+# Build the Sphinx/MyST-NB docs (executes + caches notebooks; full MCMC)
 make docs
 
-# Test docs build (renders notebooks first)
-make docs-test
+# Build docs in smoke mode, warnings-as-errors (fast MCMC; the PR CI gate)
+make docs-ci
+
+# Serve the built docs locally on :8000
+make docs-serve
+
+# Check external links resolve (no notebook execution)
+make docs-linkcheck
 
 # Multi-version test (Python 3.11-3.14)
 uv run tox
@@ -50,7 +50,7 @@ uv run tox
 
 - **Source**: `src/impulso/` — library code, built as a wheel via Hatchling
 - **Tests**: `tests/` — pytest with `--cov`, 90% coverage target (codecov.yaml)
-- **Docs**: `docs/` — Zensical (zensical.toml), tutorials as Quarto .qmd files, docstrings auto-rendered via mkdocstrings
+- **Docs**: `docs/` — Sphinx + MyST-NB with the shibuya theme (`docs/conf.py`). Tutorials are jupytext py:percent notebooks (`docs/tutorials/*.py`, read via `nb_custom_formats`); the API reference is autodoc/autosummary from docstrings. Link-preview (Open Graph) tags come from sphinxext-opengraph; a page opts into a custom `og:image` via MyST front matter in its first markdown cell.
 
 ### Core Pipeline
 
@@ -99,7 +99,7 @@ All domain models inherit from one of these. Use `object.__setattr__` only for i
 - **Linter/Formatter**: Ruff — line length 120, target py311, auto-fix enabled
 - **Type checker**: ty (configured for `.venv`, Python 3.11). Ignores `unresolved-attribute`, `not-subscriptable`, and `invalid-argument-type` due to ArviZ/PyMC/pandas dynamic attrs.
 - **Prek**: Ruff checks + standard hooks (trailing whitespace, TOML/YAML/JSON validation)
-- **CI**: GitHub Actions runs quality, tests (3.11–3.14), and docs checks on push/PR. Heavy notebooks (monetary-policy) use a `ci` parameter for fast smoke rendering in PR CI. Rendered `.md` + `_files/` are committed to the repo. Full rendering runs weekly and on release via `full-render-notebooks.yml`.
+- **CI**: GitHub Actions runs quality, tests (3.11–3.14), dependency-floor legs, wheel install, and docs checks on push/PR. Notebook outputs are NOT committed: MyST-NB executes notebooks at build time with `nb_execution_mode = "cache"` (jupyter-cache keyed on cell source), and CI restores `docs/_build/.jupyter_cache*` across runs. PR builds are strict smoke renders (`IMPULSO_DOCS_CI=1`, tiny MCMC, `-W`); the main-branch deploy path builds full-fidelity with `IMPULSO_DOCS_RESILIENT=1` so one broken notebook cannot block the site. Smoke and full renders use separate cache dirs, and every build stamps `render-mode.txt` at the site root.
 
 ## Test Fixtures (`conftest.py`)
 
