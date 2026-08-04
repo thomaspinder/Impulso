@@ -14,6 +14,12 @@
 # ---
 
 # %% [markdown]
+# ```{eval-rst}
+# .. meta::
+#    :property=og:image: https://thomaspinder.github.io/impulso/_static/proxy-svar-card.png
+#    :property=og:image:alt: Posterior median and 68% band of the month-by-month impact of a one-standard-deviation oil supply news shock on the real oil price, 1974-2017.
+# ```
+#
 # # Oil supply news with an external instrument
 #
 # An OPEC announcement can move the oil price today even when it does not change production today. On 14 December 2006, for example, OPEC announced a cut of 500,000 barrels per day that would take effect the following February. Correspondingly, the oil price rose by about 2% on the announcement day as the market was reacting to news about future supply.
@@ -357,6 +363,17 @@ ax.plot(t, sd_med, color="C0", lw=1.2)
 ax.set_ylabel("% oil price impact")
 ax.set_title("One-standard-deviation oil supply news shock, period by period")
 plt.tight_layout()
+
+# %% tags=["remove-cell"]
+# Export the figure above as this page's social-card image (see the meta
+# directive in the first cell). It lands in html_static_path, so the deployed
+# URL is stable: /_static/proxy-svar-card.png. The rendered copy is committed
+# because CI restores the jupyter-cache: on a cache hit this cell never runs,
+# and a fresh runner would otherwise deploy without the file. Smoke renders
+# skip the export so a low-fidelity figure can never displace the committed
+# full-fidelity card.
+if not ci:
+    fig.savefig("../stylesheets/proxy-svar-card.png", dpi=120)
 
 # %% [markdown]
 # The scale moves several-fold over the sample, and its peaks sit on familiar episodes of oil-market turbulence, including the 1979-80 oil crisis, the 1986 price collapse, the Gulf War, and the 2008-09 financial crisis. At the 1986 and 1990-91 peaks a typical shock moved the oil price by around 11% on impact, whereas through the calm mid-1990s the same one-standard-deviation event was worth closer to 5%. The 2008-09 peak, the largest in the sample, is also a helpful guide to what the path measures. That episode is usually attributed to collapsing demand, so the plot is tracking the changing scale of the residuals rather than dating occasions of oil supply news, and it is not a historical decomposition. A constant-$\Sigma$ model would compress this whole path into one average scale.

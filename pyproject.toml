@@ -85,6 +85,7 @@ docs = [
     "sphinxcontrib-bibtex>=2.6",
     "sphinx-codeautolink>=0.15",
     "sphinx-sitemap>=2.6",
+    "sphinxext-opengraph>=0.13.0",
 ]
 
 [build-system]

@@ -26,6 +26,7 @@ extensions = [
     "sphinx_design",
     "sphinx_codeautolink",  # link API names in example code to the reference
     "sphinx_sitemap",  # emit sitemap.xml
+    "sphinxext.opengraph",  # og: link-preview metadata
 ]
 
 # -- Bibliography (sphinxcontrib-bibtex) -------------------------------------
@@ -127,6 +128,25 @@ html_theme = "shibuya"
 html_title = "impulso"
 html_baseurl = "https://thomaspinder.github.io/impulso/"  # for sitemap + canonical
 sitemap_url_scheme = "{link}"
+
+# -- Open Graph link previews (sphinxext-opengraph) ---------------------------
+# The extension emits og:title/og:url/og:description for every page. A page
+# opts into a preview image with a docutils `meta` directive in its first
+# markdown cell. MyST-NB parses neither notebook front matter nor a mocked
+# `{meta}` directive for the jupytext tutorials, so the directive goes
+# through `{eval-rst}` (the escape hatch myst-parser itself recommends):
+#     ```{eval-rst}
+#     .. meta::
+#        :property=og:image: https://thomaspinder.github.io/impulso/_static/<name>.png
+#     ```
+# The image itself is written by the notebook into `stylesheets/` (the
+# html_static_path dir) and committed, so the URL stays valid even when a
+# warm jupyter-cache skips the cell that regenerates it.
+ogp_site_url = html_baseurl
+ogp_enable_meta_description = True
+# Off until we choose a template: with matplotlib installed the extension
+# would otherwise auto-generate a text card for every page.
+ogp_social_cards = {"enable": False}
 html_static_path = ["stylesheets"]
 html_css_files = ["extra.css"]
 html_theme_options = {
