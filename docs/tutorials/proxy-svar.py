@@ -16,17 +16,11 @@
 # %% [markdown]
 # # Oil supply news with an external instrument
 #
-# An OPEC announcement can move the oil price today even when it does not change production today. On 14 December 2006, for example, OPEC announced a cut of 500,000 barrels per day that would take effect the following February. The oil price rose by about 2% on the announcement day. The market was reacting to news about future supply.
+# An OPEC announcement can move the oil price today even when it does not change production today. On 14 December 2006, for example, OPEC announced a cut of 500,000 barrels per day that would take effect the following February. Correspondingly, the oil price rose by about 2% on the announcement day as the market was reacting to news about future supply.
 #
-# Känzig (2021) uses this timing to ask what happens after expectations of future oil supply deteriorate. The distinction from an unexpected loss of current production is important. A shortage today forces users to draw down inventories. News of a shortage tomorrow instead gives them a reason to build inventories while oil is still available.
+# {cite:t}`kaenzig2021` uses this timing to ask what happens after expectations of future oil supply deteriorate. The distinction from an unexpected loss of current production is important: {cite:t}`kilian2009` shows that oil-price movements with different origins have different macroeconomic consequences. A shortage today forces users to draw down inventories. News of a shortage tomorrow instead gives them a reason to build inventories while oil is still available, which is why inventories carry identifying information in structural models of the oil market.
 #
-# | Response today | Unexpected supply loss today | News of lower supply in the future |
-# |---|---|---|
-# | Oil price | Rises | Rises |
-# | Oil production | Falls immediately | Changes little at first |
-# | Oil inventories | Fall as stocks are used | Rise as stocks are accumulated |
-#
-# This tutorial reproduces Känzig's six-variable oil-market VAR and then estimates a Bayesian version with Impulso. The identifying information comes from changes in oil futures prices around OPEC announcements. In the structural VAR literature, a separate series used in this way is called an **external instrument**, or **proxy**.
+# This tutorial reproduces Känzig's six-variable oil-market VAR and then demonstrates how inference may be done in a Bayesian manner with Impulso. Identification is done through external instrument, or proxy {cite:p}`stockWatson2012,mertensRavn2013`, that we just described around changes in oil futures prices around OPEC announcements.
 #
 # The aim is deliberately narrow. The proxy identifies the shock associated with news about future oil supply; it does not turn every oil-price movement into an oil supply shock, nor does it identify all the other shocks in the system.
 
@@ -54,7 +48,7 @@ ci = os.environ.get("IMPULSO_DOCS_CI") == "1"
 #
 # Here $\varepsilon_t$ collects the unobserved economic shocks, while each column of $P$ records how one of those shocks moves the six observed variables on impact.
 #
-# Let $z_t$ denote the futures-price change around an OPEC announcement. It can isolate the oil supply news shock, $\varepsilon_{1t}$, under two assumptions:
+# Let $z_t$ denote the futures-price change around an OPEC announcement. It can isolate the oil supply news shock, $\varepsilon_{1t}$, under two assumptions {cite:p}`mertensRavn2013,stockWatson2018`:
 #
 # - **Relevance:** the announcement surprise moves with oil supply news, so $\mathbb{E}[z_t \varepsilon_{1t}] = \phi \neq 0$.
 # - **Exogeneity:** it does not move systematically with the other structural shocks, so $\mathbb{E}[z_t \varepsilon_{jt}] = 0$ for $j \neq 1$.
@@ -67,7 +61,7 @@ ci = os.environ.get("IMPULSO_DOCS_CI") == "1"
 #
 # Once the VAR has been estimated, we can estimate the left-hand side with the sample covariance between the proxy and the residuals. The right-hand side says that this covariance points in the same direction as $p_1$, the impact effects of oil supply news. The unknown $\phi$ means that the scale is not identified, so we must choose a normalisation. Following Känzig, we scale the shock to raise the real oil price by 10% on impact. The fitted VAR then traces the response over subsequent months.
 #
-# This argument identifies only $p_1$. It requires no causal ordering among the six variables and imposes no signs on their responses. The rise in inventories and delayed fall in production are therefore evidence for the news interpretation, not restrictions built into it.
+# This argument identifies only $p_1$. It requires no causal ordering among the six variables and imposes no signs on their responses. The rise in inventories and delayed fall in production are therefore evidence for the news interpretation, not restrictions built into it. Chapter 15 of {cite:t}`kilianLuetkepohl2017` gives a textbook treatment of external-instrument identification.
 
 # %%
 import arviz as az
@@ -82,9 +76,9 @@ from impulso.samplers import NUTSSampler
 # %% [markdown]
 # ## Data: OPEC announcements and monthly macro variables
 #
-# Känzig builds the proxy from 119 OPEC announcements between 1983 and 2017. For each announcement, he measures the change in West Texas Intermediate (WTI) futures settlement prices from the last trading day before the announcement to the announcement day. OPEC production decisions usually take effect with a delay, so futures prices are a natural place to look for the market's response. If the futures risk premium does not change within the one-day window, the price change measures a revision in the expected future oil price.
+# Känzig builds the proxy from 119 OPEC announcements between 1983 and 2017. For each announcement, the change in West Texas Intermediate (WTI) futures settlement prices from the last trading day before the announcement to the announcement day is recorded. Futures prices are used as OPEC production decisions usually take effect with a delay. The event-window design follows the high-frequency identification literature, which measures monetary policy surprises from federal funds futures around Federal Open Market Committee announcements {cite:p}`kuttner2001,gertlerKaradi2015`. If the futures risk premium does not change within the one-day window, the price change measures a revision in the expected future oil price .
 #
-# The one-day window is a compromise. It gives markets time to interpret an OPEC statement, whose precise release time is often unavailable and whose contents may leak before publication. But a full day also leaves room for unrelated news to move oil prices. The proxy is therefore not automatically valid because it is measured at high frequency. Its interpretation still rests on the exogeneity assumption above. Känzig studies this concern with control days, an alternative heteroskedasticity-based estimator, and several other checks; this tutorial reproduces his baseline external-instrument specification.
+# The one-day window is a compromise. It gives markets time to interpret an OPEC statement, whose precise release time is often unavailable and whose contents may leak before publication. But a full day also leaves room for unrelated news to move oil prices. The proxy is therefore not automatically valid because it is measured at high frequency and its interpretation still rests on the exogeneity assumption above. Känzig studies this concern with control days, an alternative heteroskedasticity-based estimator, and several other checks; however, this tutorial focusses exclusively on the baseline external-instrument specification.
 #
 # The files come from Känzig's public replication repository ([dkaenzig/replicationOilSupplyNews](https://github.com/dkaenzig/replicationOilSupplyNews)) and serve two different purposes:
 #
@@ -93,13 +87,21 @@ from impulso.samplers import NUTSSampler
 
 # %%
 data_df = pd.read_csv("data/kaenzig_data.csv", index_col=0, parse_dates=True)
-instrument = pd.read_csv("data/kaenzig_instrument.csv", index_col=0, parse_dates=True)["oil_surprise"]
+instrument = pd.read_csv("data/kaenzig_instrument.csv", index_col=0, parse_dates=True)[
+    "oil_surprise"
+]
 
 var_names_paper = [
-    "Real oil price", "World oil production", "World oil inventories",
-    "World industrial production", "U.S. industrial production", "U.S. CPI",
+    "Real oil price",
+    "World oil production",
+    "World oil inventories",
+    "World industrial production",
+    "U.S. industrial production",
+    "U.S. CPI",
 ]
-data = VARData(endog=data_df.values, endog_names=list(data_df.columns), index=data_df.index)
+data = VARData(
+    endog=data_df.values, endog_names=list(data_df.columns), index=data_df.index
+)
 
 fig, ax = plt.subplots(figsize=(10, 3))
 ax.plot(instrument.index, instrument.values, lw=0.8)
@@ -118,14 +120,24 @@ plt.tight_layout()
 from _kaenzig_frequentist import first_stage_f, proxy_var_kaenzig, var_ols
 
 nsim = 50 if ci else 1000
-freq = proxy_var_kaenzig(data_df.values, instrument.values, p=12, horizon=50, shock_size=10.0, nsim=nsim, seed=0)
+freq = proxy_var_kaenzig(
+    data_df.values,
+    instrument.values,
+    p=12,
+    horizon=50,
+    shock_size=10.0,
+    nsim=nsim,
+    seed=0,
+)
 
 _, U_ols = var_ols(data_df.values, 12)
-print(f"First stage: F = {first_stage_f(instrument.values, U_ols[:, 0]):.2f}, "
-      f"robust F = {first_stage_f(instrument.values, U_ols[:, 0], robust=True):.2f}")
+print(
+    f"First stage: F = {first_stage_f(instrument.values, U_ols[:, 0]):.2f}, "
+    f"robust F = {first_stage_f(instrument.values, U_ols[:, 0], robust=True):.2f}"
+)
 
 # %% [markdown]
-# Känzig reports a conventional first-stage F-statistic of 22.67 for the composite proxy and a heteroskedasticity-robust value of 10.55; the local calculation recovers these figures. The proxy explains 4.22% of the monthly oil-price residual. That is enough signal to be useful, but not so much that instrument strength can be ignored. The familiar $F>10$ rule is only a screening device, and the robust result sits just above it. An F-statistic also says nothing about exogeneity: a strong instrument can still be invalid.
+# Känzig reports a conventional first-stage F-statistic of 22.67 for the composite proxy and a heteroskedasticity-robust value of 10.55; the local calculation recovers these figures. The proxy explains 4.22% of the monthly oil-price residual. That is enough signal to be useful, but not so much that instrument strength can be ignored. The familiar $F>10$ rule {cite:p}`staigerStock1997` is only a screening device, and the robust result {cite:p}`montielOleaPflueger2013` sits just above it. An F-statistic also says nothing about exogeneity: a strong instrument can still be invalid {cite:p}`andrewsStockSun2019`.
 #
 # ## What changes in the Bayesian version
 #
@@ -137,7 +149,9 @@ print(f"First stage: F = {first_stage_f(instrument.values, U_ols[:, 0]):.2f}, "
 # | Identification | One impact vector from the external instrument | The external-instrument impact vector, estimated for every posterior draw |
 # | Uncertainty | Moving-block bootstrap | Posterior credible intervals, conditional on the observed proxy series |
 #
-# This distinction matters for the comparison below. The Bayesian analysis is not simply Känzig's estimator with different plotting code: the Minnesota prior shrinks a large system toward persistent, parsimonious dynamics. With six variables and 12 lags, each equation contains 72 lag coefficients. The low-rank mass-matrix setting helps NUTS sample their strong posterior correlations; it is a computational setting, not an additional economic assumption.
+# This distinction matters for the comparison below. The Bayesian analysis is not simply Känzig's estimator with different plotting code: the Minnesota prior shrinks a large system toward persistent, parsimonious dynamics {cite:p}`doan1984,litterman1986`. With six variables and 12 lags, each equation contains 72 lag coefficients. The low-rank mass-matrix setting helps NUTS sample their strong posterior correlations; it is a computational setting, not an additional economic assumption.
+#
+# Estimating the impact vector draw by draw uses the proxy for identification but not for estimation. Fully Bayesian proxy SVARs that model the instrument jointly with the VAR, so that the proxy also informs the reduced-form posterior, are developed by {cite:t}`caldaraHerbst2019` and {cite:t}`ariasRubioRamirezWaggoner2021`.
 
 # %%
 if ci:
@@ -164,9 +178,11 @@ else:
 fitted = VAR(lags=12, prior="minnesota").fit(data, sampler=sampler)
 
 summ = az.summary(fitted.idata, var_names=["B"], kind="diagnostics")
-print(f"B coefficients: min ESS = {summ['ess_bulk'].min():.0f}, "
-      f"median ESS = {summ['ess_bulk'].median():.0f}, "
-      f"max r_hat = {summ['r_hat'].max():.3f}")
+print(
+    f"B coefficients: min ESS = {summ['ess_bulk'].min():.0f}, "
+    f"median ESS = {summ['ess_bulk'].median():.0f}, "
+    f"max r_hat = {summ['r_hat'].max():.3f}"
+)
 print(f"divergences: {int(fitted.idata.sample_stats['diverging'].sum())}")
 
 # %% [markdown]
@@ -199,29 +215,51 @@ f_draws = scheme.first_stage(fitted.idata.posterior, data, n_lags=12).ravel()
 fig, ax = plt.subplots(figsize=(6, 3.2))
 ax.hist(f_draws, bins=40, color="C0", alpha=0.75)
 ax.axvline(10, color="k", ls="--", lw=1, label="F = 10 rule of thumb")
-ax.axvline(np.median(f_draws), color="C1", lw=1.5, label=f"posterior median = {np.median(f_draws):.1f}")
+ax.axvline(
+    np.median(f_draws),
+    color="C1",
+    lw=1.5,
+    label=f"posterior median = {np.median(f_draws):.1f}",
+)
 ax.set_xlabel("First-stage F")
 ax.set_title("Posterior of instrument relevance")
 ax.legend(fontsize=8)
 plt.tight_layout()
 
 # %% [markdown]
-# Most of the posterior mass lies above the $F=10$ rule of thumb. This is reassuring about relevance, but it does not settle the exclusion question. Nor is this distribution a bootstrap of the announcement series: it records uncertainty about the fitted VAR while treating the observed proxy as fixed.
+# Most of the posterior mass lies above the $F=10$ rule of thumb. This is reassuring about relevance, but it does not settle the exclusion question. Nor is this distribution a bootstrap of the announcement series: it records uncertainty about the fitted VAR while treating the observed proxy as fixed. {cite:t}`montielOleaStockWatson2021` develop frequentist inference for external-instrument SVARs that remains valid when the instrument is weak.
 #
 # ## What follows adverse oil supply news?
 #
-# The figure overlays two analyses of the same six-variable system. Blue shows the Impulso posterior median with 68% and 90% credible intervals. Orange shows a local reproduction of Känzig's OLS point estimate and moving-block-bootstrap confidence bands. The paper uses 10,000 bootstrap replications; the full notebook uses 1,000 to keep the render manageable. These intervals have different interpretations, so their widths should not be read as a contest between methods. The useful comparison is whether the estimated paths tell the same economic story.
+# The figure overlays two analyses of the same six-variable system. Blue shows the Impulso posterior median with 68% and 90% credible intervals. Orange shows a local reproduction of Känzig's OLS point estimate and moving-block-bootstrap confidence bands, the resampling scheme that {cite:t}`jentschLunsford2019` recommend for proxy SVARs. The paper uses 10,000 bootstrap replications; the full notebook uses 1,000 to keep the render manageable. These intervals have different interpretations, so their widths should not be read as a contest between methods. The useful comparison is whether the estimated paths tell the same economic story.
 
 # %%
 irf_draws = irf.idata.posterior_predictive["irf"].sel(shock="oil_supply_news")
 med = irf_draws.median(dim=("chain", "draw")).values
-q = {p: irf_draws.quantile(p, dim=("chain", "draw")).values for p in (0.05, 0.16, 0.84, 0.95)}
+q = {
+    p: irf_draws.quantile(p, dim=("chain", "draw")).values
+    for p in (0.05, 0.16, 0.84, 0.95)
+}
 
 horizon = np.arange(51)
 fig, axes = plt.subplots(2, 3, figsize=(11, 7), sharex=True)
 for j, (ax, name) in enumerate(zip(axes.ravel(), var_names_paper)):
-    ax.fill_between(horizon, q[0.05][:, j], q[0.95][:, j], alpha=0.18, color="C0", label="Impulso 90%")
-    ax.fill_between(horizon, q[0.16][:, j], q[0.84][:, j], alpha=0.35, color="C0", label="Impulso 68%")
+    ax.fill_between(
+        horizon,
+        q[0.05][:, j],
+        q[0.95][:, j],
+        alpha=0.18,
+        color="C0",
+        label="Impulso 90%",
+    )
+    ax.fill_between(
+        horizon,
+        q[0.16][:, j],
+        q[0.84][:, j],
+        alpha=0.35,
+        color="C0",
+        label="Impulso 68%",
+    )
     ax.plot(horizon, med[:, j], color="C0", lw=1.8, label="Impulso median")
     ax.plot(horizon, freq.irf[:, j], color="C1", lw=1.5, ls="--", label="Känzig point")
     for lo, hi in (freq.bands68, freq.bands90):
@@ -235,7 +273,9 @@ for j, (ax, name) in enumerate(zip(axes.ravel(), var_names_paper)):
     if j % 3 == 0:
         ax.set_ylabel("%")
 axes[0, 0].legend(fontsize=7, loc="upper right")
-fig.suptitle("Response to an oil supply news shock raising the real oil price by 10%", y=1.0)
+fig.suptitle(
+    "Response to an oil supply news shock raising the real oil price by 10%", y=1.0
+)
 plt.tight_layout()
 
 # %% [markdown]
@@ -245,11 +285,11 @@ plt.tight_layout()
 #
 # The blue credible intervals are generally narrower than the orange bootstrap bands, especially at long horizons. Two differences matter. The Minnesota prior regularises the 12-lag system, whereas Känzig estimates its coefficients by OLS. Impulso's intervals also condition on the observed proxy, while the moving-block bootstrap resamples the time-series observations used for identification. Narrower blue bands therefore do not establish a general precision advantage for Bayesian estimation.
 #
-# The clearest difference appears in U.S. CPI after about 30 months. Impulso's posterior median decays more slowly than Känzig's point estimate, though the published path remains inside the 90% credible interval. Random-walk shrinkage of the persistent CPI series is a plausible explanation, but establishing that claim would require a prior-sensitivity exercise. This comparison also covers only the paper's baseline external-instrument design; Känzig's checks for event-window noise and alternative specifications remain important evidence for the economic interpretation.
+# The clearest difference appears in U.S. CPI after about 30 months. Impulso's posterior median decays more slowly than Känzig's point estimate, though the published path remains inside the 90% credible interval. Random-walk shrinkage of the persistent CPI series is a plausible explanation, but establishing that claim would require a prior-sensitivity exercise; {cite:t}`giannoneLenzaPrimiceri2015` show how the tightness of such priors can itself be inferred from the data. This comparison also covers only the paper's baseline external-instrument design; Känzig's checks for event-window noise and alternative specifications remain important evidence for the economic interpretation.
 #
 # ## Extension: allow the shock scale to change over time
 #
-# Känzig's benchmark uses one residual covariance matrix, $\Sigma$, for the full sample. The next analysis is an extension rather than part of the replication. Impulso can replace that constant matrix with a sequence, $\Sigma_t$, so the model can represent calm and volatile periods differently. The proxy continues to determine which direction in the residuals represents oil supply news; the time-varying covariance determines the size of a one-standard-deviation shock in each month.
+# Känzig's benchmark uses one residual covariance matrix, $\Sigma$, for the full sample. The next analysis is an extension rather than part of the replication. Impulso can replace that constant matrix with a sequence, $\Sigma_t$, so the model can represent calm and volatile periods differently {cite:p}`cogleySargent2005,primiceri2005`. The proxy continues to determine which direction in the residuals represents oil supply news; the time-varying covariance determines the size of a one-standard-deviation shock in each month.
 #
 # To keep the notebook practical to render, we fit this stochastic-volatility model to four variables: the real oil price, world oil production, U.S. industrial production, and U.S. CPI. The same API accepts the six-variable system, but that model contains more than 3,000 latent volatility states. Because the system is smaller, the results below demonstrate the extension and should not be treated as a direct robustness check of the six-variable benchmark.
 
@@ -281,9 +321,11 @@ else:
 fitted_sv = VAR(lags=12, volatility="sv").fit(data_sv, sampler=sv_sampler)
 
 summ_sv = az.summary(fitted_sv.idata, var_names=["B"], kind="diagnostics")
-print(f"B coefficients: min ESS = {summ_sv['ess_bulk'].min():.0f}, "
-      f"max r_hat = {summ_sv['r_hat'].max():.3f}, "
-      f"divergences: {int(fitted_sv.idata.sample_stats['diverging'].sum())}")
+print(
+    f"B coefficients: min ESS = {summ_sv['ess_bulk'].min():.0f}, "
+    f"max r_hat = {summ_sv['r_hat'].max():.3f}, "
+    f"divergences: {int(fitted_sv.idata.sample_stats['diverging'].sum())}"
+)
 
 # %% [markdown]
 # The stochastic-volatility fit is less clean than the baseline: the full render reports a small number of divergences (see the count printed above) and a maximum $\hat R$ of about 1.02. That is adequate for demonstrating how the interfaces compose, but not for a final empirical analysis. A substantive application should run longer and resolve the divergences before interpreting the time-varying scale.
@@ -291,9 +333,15 @@ print(f"B coefficients: min ESS = {summ_sv['ess_bulk'].min():.0f}, "
 # With time-varying volatility, `shock_matrix(at="all")` returns an impact matrix for every month. Keeping the 10% normalisation would deliberately make the oil-price impact constant and hide the variation we want to inspect. We therefore set `scale=None` and plot the model-implied impact of a one-standard-deviation oil supply news shock on the real oil price.
 
 # %%
-scheme_sd = ProxySVAR(instrument=instrument, policy_variable="real_oil_price", shock_name="oil_supply_news")
+scheme_sd = ProxySVAR(
+    instrument=instrument,
+    policy_variable="real_oil_price",
+    shock_name="oil_supply_news",
+)
 ivar_sd = fitted_sv.set_identification_strategy(scheme_sd)
-sd_path = ivar_sd.shock_matrix(at="all").sel(response="real_oil_price", shock="oil_supply_news")
+sd_path = ivar_sd.shock_matrix(at="all").sel(
+    response="real_oil_price", shock="oil_supply_news"
+)
 sd_med = sd_path.median(dim=("chain", "draw"))
 sd_lo = sd_path.quantile(0.16, dim=("chain", "draw"))
 sd_hi = sd_path.quantile(0.84, dim=("chain", "draw"))
@@ -325,6 +373,4 @@ plt.tight_layout()
 #
 # ## References
 #
-# - Känzig, D. R. (2021). The macroeconomic effects of oil supply news: Evidence from OPEC announcements. *American Economic Review*, 111(4), 1092-1125.
-# - Mertens, K., and Ravn, M. O. (2013). The dynamic effects of personal and corporate income tax changes in the United States. *American Economic Review*, 103(4), 1212-1247.
-# - Stock, J. H., and Watson, M. W. (2018). Identification and estimation of dynamic causal effects in macroeconomics using external instruments. *The Economic Journal*, 128(610), 917-948.
+# The works cited above are collected on the [project bibliography](../references.md) page.
