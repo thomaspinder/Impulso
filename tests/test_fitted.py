@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from impulso._arviz_compat import get_group_dataset, hdi_bounds, make_idata
 from impulso.data import VARData
 from impulso.fitted import FittedVAR
 from impulso.samplers import NUTSSampler
@@ -285,7 +286,6 @@ class TestExogCoefficientRecovery:
 
     @pytest.mark.slow
     def test_recovers_a_large_coefficient_on_a_tiny_regressor(self):
-        import arviz as az
 
         data = self._tiny_regressor_dgp()
         ols = self._ols_exog_coefficients(data)
@@ -294,9 +294,9 @@ class TestExogCoefficientRecovery:
         sampler = NUTSSampler(draws=200, tune=200, chains=1, cores=1, random_seed=1234, progressbar=False)
         fitted = VAR(lags=1).fit(data, sampler=sampler)
 
-        b = fitted.idata.posterior["B_exog"].sel(var="y1", exog="z")
+        b = get_group_dataset(fitted.idata, "posterior")["B_exog"].sel(var="y1", exog="z")
         mean = float(b.mean())
-        hdi = az.hdi(b, hdi_prob=0.94)["B_exog"].values
+        hdi = np.array([float(bound) for bound in hdi_bounds(b, 0.94)])
 
         # The near-flat prior must let the likelihood speak.
         assert hdi[0] <= ols[0] <= hdi[1], f"OLS estimate {ols[0]} outside 94% HDI {hdi}"
@@ -407,18 +407,17 @@ class TestInnovationCovariance:
         assert student_t_fitted.innovation_covariance().shape == student_t_fitted.sigma().shape
 
     def test_per_draw_nu_broadcasts(self, synthetic_idata_2v, var_data_2v):
-        import arviz as az
         import xarray as xr
 
         from impulso.observation import StudentT
         from impulso.volatility import Constant
 
-        posterior = synthetic_idata_2v.posterior.copy()
+        posterior = get_group_dataset(synthetic_idata_2v, "posterior").copy()
         n_chains, n_draws = posterior.sizes["chain"], posterior.sizes["draw"]
         nu = np.linspace(3.0, 30.0, n_chains * n_draws).reshape(n_chains, n_draws)
         posterior["nu"] = xr.DataArray(nu, dims=["chain", "draw"])
         fitted = FittedVAR(
-            idata=az.InferenceData(posterior=posterior),
+            idata=make_idata(posterior=posterior),
             n_lags=1,
             data=var_data_2v,
             var_names=["y1", "y2"],
@@ -447,7 +446,6 @@ class TestInnovationCovariance:
         `(C, D)` inflation onto the `(C, D, T, n, n)` scale matrix shows up as
         a wrong number rather than a shape error.
         """
-        import arviz as az
         import xarray as xr
 
         from impulso.observation import StudentT
@@ -470,7 +468,7 @@ class TestInnovationCovariance:
             index=pd.date_range("2000-01-01", periods=T + 1, freq="MS"),
         )
         fitted = FittedVAR(
-            idata=az.InferenceData(posterior=posterior),
+            idata=make_idata(posterior=posterior),
             n_lags=1,  # T = endog rows - n_lags = 3, matching h's time axis
             data=data,
             var_names=["y1", "y2"],

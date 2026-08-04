@@ -10,12 +10,12 @@ Fast tests use a self-consistent synthetic InferenceData fixture with
 n_lags=1 and B shape (2, 50, 2, 2).
 """
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
+from impulso._arviz_compat import make_idata
 from impulso.data import VARData
 from impulso.fitted import FittedVAR
 from impulso.identification import Cholesky
@@ -56,7 +56,7 @@ def fitted_and_identified():
         "L": (("chain", "draw", "var1", "var2"), L_raw),
         "Sigma": (("chain", "draw", "var1", "var2"), Sigma),
     })
-    idata = az.InferenceData(posterior=posterior)
+    idata = make_idata(posterior=posterior)
 
     A1 = np.array([[0.5, 0.1], [-0.2, 0.3]])
     intercept_true = np.array([0.1, -0.05])

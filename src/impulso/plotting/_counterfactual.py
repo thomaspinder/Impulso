@@ -2,9 +2,10 @@
 
 from typing import TYPE_CHECKING
 
-import arviz as az
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
+
+from impulso._arviz_compat import hdi_bounds
 
 if TYPE_CHECKING:
     from impulso.results import CounterfactualResult
@@ -28,10 +29,11 @@ def plot_counterfactual(
     Returns:
         Matplotlib Figure.
     """
-    cf_da = result.idata.posterior_predictive["counterfactual"]
-    actual_da = result.idata.posterior_predictive["actual"]
+    pp = result._pp()
+    cf_da = pp["counterfactual"]
+    actual_da = pp["actual"]
     med = cf_da.median(dim=("chain", "draw"))
-    hdi = az.hdi(cf_da, hdi_prob=prob)["counterfactual"]
+    hdi_lower, hdi_upper = hdi_bounds(cf_da, prob)
     time = cf_da.coords["time"].values
     n_vars = len(result.var_names)
 
@@ -54,8 +56,8 @@ def plot_counterfactual(
         )
         axes[i].fill_between(
             time,
-            hdi.sel(variable=var, hdi="lower").values,
-            hdi.sel(variable=var, hdi="higher").values,
+            hdi_lower.sel(variable=var).values,
+            hdi_upper.sel(variable=var).values,
             color="C0",
             alpha=0.25,
             linewidth=0,

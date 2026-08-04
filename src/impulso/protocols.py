@@ -4,8 +4,13 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
+# Imported for real, not under TYPE_CHECKING: beartype resolves the stringified
+# return annotation below against this module's namespace when a wrapped
+# `Sampler` is called. `impulso.results` already imports the seam, so this adds
+# no import cost.
+from impulso._arviz_compat import InferenceDataLike
+
 if TYPE_CHECKING:
-    import arviz as az
     import pymc as pm
     import pytensor.tensor as pt
     import xarray as xr
@@ -24,7 +29,7 @@ class Prior(Protocol):
 class Sampler(Protocol):
     """Contract for posterior sampling strategies."""
 
-    def sample(self, model: "pm.Model") -> "az.InferenceData": ...
+    def sample(self, model: "pm.Model") -> "InferenceDataLike": ...
 
 
 @runtime_checkable

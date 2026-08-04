@@ -4,8 +4,9 @@ name: Slow Tests
 # every PR across the 3.11-3.14 matrix dominated the CI budget and leaked
 # sampler noise (divergences, multiprocessing crashes) into PR signal, so
 # `main.yml` now runs `-m "not slow"` and this workflow owns the MCMC suite.
-# One Python version is enough: these tests exercise the sampler, not
-# Python-version-specific behaviour.
+# Two Python versions are needed, not one: PyMC/ArviZ are pinned as
+# Python-marked pairs (3.11 -> PyMC 5 + ArviZ 0, >=3.12 -> PyMC 6 + ArviZ 1),
+# so each leg exercises a genuinely different sampler stack.
 
 on:
   schedule:
@@ -30,6 +31,10 @@ jobs:
     # stochastic, so allow generous headroom — the timeout exists to kill a
     # hang, not to police a slow-but-healthy run.
     timeout-minutes: 45
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+      fail-fast: false
     defaults:
       run:
         shell: bash
@@ -40,7 +45,14 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
+
+      - name: Report the resolved PyMC/ArviZ pair
+        run: |
+          uv run --no-sync python -c "
+          import importlib.metadata as m
+          print('pymc', m.version('pymc'), '| arviz', m.version('arviz'))
+          "
 
       - name: Run slow (MCMC) tests
         # No coverage upload: `main.yml` owns the single Codecov report and

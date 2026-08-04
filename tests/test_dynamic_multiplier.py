@@ -1,6 +1,5 @@
 """Tests for the exogenous dynamic multiplier and its supporting primitives."""
 
-import arviz as az
 import matplotlib
 import numpy as np
 import pandas as pd
@@ -10,6 +9,7 @@ import xarray as xr
 matplotlib.use("Agg")
 
 import impulso
+from impulso._arviz_compat import make_idata
 from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
 from impulso.data import VARData
@@ -104,7 +104,7 @@ def fitted_with_exog():
         index=pd.date_range("2023-01-02", periods=t, freq="W-MON"),
     )
     return FittedVAR(
-        idata=az.InferenceData(posterior=posterior),
+        idata=make_idata(posterior=posterior),
         n_lags=n_lags,
         data=data,
         var_names=["ad", "brand"],
@@ -203,7 +203,7 @@ class TestDynamicMultiplier:
             "intercept": post["intercept"],
         })
         fitted = FittedVAR(
-            idata=az.InferenceData(posterior=scrambled),
+            idata=make_idata(posterior=scrambled),
             n_lags=fitted_with_exog.n_lags,
             data=fitted_with_exog.data,
             var_names=fitted_with_exog.var_names,

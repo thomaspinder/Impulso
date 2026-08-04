@@ -7,7 +7,6 @@ import sys
 # classes in place, so the beartype wrapping must not leak into the rest of the
 # suite. No MCMC — the posterior is synthetic.
 _RUNTIME_CHECKS_SCRIPT = """
-import arviz as az
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -21,6 +20,7 @@ import impulso.results
 import impulso.sv.spec
 from beartype.roar import BeartypeCallHintViolation
 from impulso import VAR, VARData
+from impulso._arviz_compat import make_idata
 from impulso.fitted import FittedVAR
 from impulso.identification import Cholesky
 from impulso.volatility import Constant
@@ -53,7 +53,7 @@ posterior = xr.Dataset({
 })
 
 fitted = FittedVAR(
-    idata=az.InferenceData(posterior=posterior),
+    idata=make_idata(posterior=posterior),
     n_lags=1,
     data=data,
     var_names=["y1", "y2"],

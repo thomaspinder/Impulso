@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from impulso._arviz_compat import make_idata
 from impulso._residuals import reduced_form_residuals
 from impulso.data import VARData
 
@@ -46,7 +47,6 @@ class TestReducedFormResiduals:
 
     def test_zero_residuals_when_posterior_matches_dgp(self):
         """Data generated exactly from (intercept, B) gives zero residuals."""
-        import arviz as az
         import xarray as xr
 
         rng = np.random.default_rng(0)
@@ -76,6 +76,6 @@ class TestReducedFormResiduals:
                 dims=["chain", "draw", "var"],
             ),
         })
-        idata = az.InferenceData(posterior=posterior)
+        idata = make_idata(posterior=posterior)
         resid = reduced_form_residuals(idata.posterior, data, n_lags=1)
         np.testing.assert_allclose(resid, 0.0, atol=1e-12)

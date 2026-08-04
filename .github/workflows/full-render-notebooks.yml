@@ -21,6 +21,10 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          # Pinned to the legacy stack while the tutorials still call ArviZ 0
+          # APIs; their migration is tracked separately.
+          python-version: "3.11"
 
       - name: Install docs dependencies
         run: uv sync --frozen --group docs

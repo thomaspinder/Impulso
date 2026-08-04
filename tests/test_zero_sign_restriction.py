@@ -2,12 +2,12 @@
 
 import warnings
 
-import arviz as az
 import numpy as np
 import pytest
 import xarray as xr
 from pydantic import ValidationError
 
+from impulso._arviz_compat import make_idata
 from impulso.identification import SignRestriction, ZeroSignRestriction
 from impulso.protocols import IdentificationScheme
 
@@ -47,7 +47,7 @@ def synthetic_idata_3v():
         ),
         "L": xr.DataArray(L, dims=["chain", "draw", "var1", "var2"]),
     })
-    return az.InferenceData(posterior=posterior)
+    return make_idata(posterior=posterior)
 
 
 def _quiet(**kwargs) -> ZeroSignRestriction:

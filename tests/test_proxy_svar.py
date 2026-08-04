@@ -4,12 +4,12 @@ import gc
 import warnings
 import weakref
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
+from impulso._arviz_compat import make_idata
 from impulso.data import VARData
 from impulso.identification import _CACHE_MISS, ProxySVAR
 
@@ -53,7 +53,7 @@ def _make_svar_world(relevance_noise: float = 0.1, T: int = 400, seed: int = 3):
         "intercept": xr.DataArray(intercept, dims=["chain", "draw", "var"]),
         "L": xr.DataArray(L, dims=["chain", "draw", "var1", "var2"]),
     })
-    idata = az.InferenceData(posterior=posterior)
+    idata = make_idata(posterior=posterior)
     return data, idata, P_true, instrument, L
 
 

@@ -318,7 +318,8 @@ class SignRestriction(ImpulsoModel):
             if posterior is None or "B" not in posterior:
                 raise ValueError(
                     "restriction_horizon > 0 requires the full posterior with 'B' "
-                    "(VAR coefficients). Pass posterior=fitted.idata.posterior to identify()."
+                    "(VAR coefficients). Pass the fit's posterior group as an xarray.Dataset "
+                    "to identify() — FittedVAR.set_identification_strategy(...) does this for you."
                 )
             B_all = posterior["B"].values
             n_lags = B_all.shape[-1] // n_vars
@@ -658,7 +659,7 @@ class LongRunRestriction(ImpulsoModel):
             raise ValueError(
                 "LongRunRestriction.identify requires the full posterior with 'B' (the VAR lag "
                 "coefficients): the long-run multiplier C(1) = (I - sum_j A_j)^-1 is built from "
-                "them. Pass posterior=fitted.idata.posterior to identify() — "
+                "them. Pass the fit's posterior group as an xarray.Dataset to identify() — "
                 "FittedVAR.set_identification_strategy(...) supplies it automatically."
             )
         n_vars = L.shape[-1]
@@ -788,7 +789,7 @@ class LongRunRestriction(ImpulsoModel):
         """Per-draw conditioning and stability of the long-run multiplier.
 
         Args:
-            posterior: Posterior Dataset carrying `B` (`fitted.idata.posterior`).
+            posterior: Posterior Dataset carrying `B` (the fit's posterior group).
             n_lags: Lag order. Inferred from `B`'s trailing axis if omitted.
 
         Returns:
@@ -1013,8 +1014,8 @@ class ProxySVAR(ImpulsoBaseModel):
         instrument-relevance F is itself a posterior quantity.
 
         Args:
-            posterior: Posterior Dataset with `B` and `intercept` draws
-                (`fitted.idata.posterior`).
+            posterior: Posterior Dataset with `B` and `intercept` draws (the
+                fit's posterior group).
             data: The VARData used at fit time.
             n_lags: Lag order of the fitted VAR.
 
@@ -1436,7 +1437,8 @@ class ZeroSignRestriction(ImpulsoModel):
         if posterior is None or "B" not in posterior:
             raise ValueError(
                 "restriction_horizon > 0 requires the full posterior with 'B' "
-                "(VAR coefficients). Pass posterior=fitted.idata.posterior to identify()."
+                "(VAR coefficients). Pass the fit's posterior group as an xarray.Dataset "
+                "to identify() — FittedVAR.set_identification_strategy(...) does this for you."
             )
         return posterior["B"].values
 

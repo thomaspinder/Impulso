@@ -3,10 +3,10 @@
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal, Self
 
-import arviz as az
 import numpy as np
 from pydantic import Field, model_validator
 
+from impulso._arviz_compat import InferenceDataLike
 from impulso._base import ImpulsoBaseModel
 from impulso.data import VARData, _format_names
 from impulso.observation import Gaussian, StudentT
@@ -231,7 +231,7 @@ class VAR(ImpulsoBaseModel):
         *,
         draws: int = 500,
         random_seed: int | np.random.Generator | None = None,
-    ) -> az.InferenceData:
+    ) -> InferenceDataLike:
         """Simulate data from the prior, before seeing the likelihood.
 
         Builds the same PyMC graph `fit` builds and calls
@@ -268,7 +268,7 @@ class VAR(ImpulsoBaseModel):
                 `pymc.sample_prior_predictive`.
 
         Returns:
-            ArviZ InferenceData with `prior` (every latent), `prior_predictive`
+            InferenceData-schema container with `prior` (every latent), `prior_predictive`
             (the simulated `obs`, dims `(chain, draw, time, var)`) and
             `observed_data` (the realised `obs`) groups.
         """

@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from impulso._arviz_compat import make_idata
 from impulso.data import VARData
 from impulso.priors import MinnesotaPrior
 from impulso.spec import VAR, _exog_prior_sigma
@@ -647,7 +648,6 @@ class TestErrorDistThreadsToFittedVAR:
     """
 
     def test_fit_passes_the_resolved_adapter_to_fitted_var(self, var_data_2v):
-        import arviz as az
         import xarray as xr
 
         from impulso.observation import StudentT
@@ -659,7 +659,7 @@ class TestErrorDistThreadsToFittedVAR:
 
             def sample(self, model):
                 # Minimal posterior; only the threading is under test here.
-                return az.InferenceData(
+                return make_idata(
                     posterior=xr.Dataset({
                         "B": (("chain", "draw", "var", "coeff"), np.zeros((1, 2, 2, 2))),
                         "intercept": (("chain", "draw", "var"), np.zeros((1, 2, 2))),
@@ -673,7 +673,6 @@ class TestErrorDistThreadsToFittedVAR:
         assert fitted.error_dist.is_heavy_tailed
 
     def test_gaussian_fit_keeps_a_gaussian_adapter(self, var_data_2v):
-        import arviz as az
         import xarray as xr
 
         from impulso.observation import Gaussian
@@ -682,7 +681,7 @@ class TestErrorDistThreadsToFittedVAR:
             name = "stub"
 
             def sample(self, model):
-                return az.InferenceData(
+                return make_idata(
                     posterior=xr.Dataset({
                         "B": (("chain", "draw", "var", "coeff"), np.zeros((1, 2, 2, 2))),
                         "intercept": (("chain", "draw", "var"), np.zeros((1, 2, 2))),

@@ -1,12 +1,12 @@
 """Tests for result objects."""
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 from pydantic import ValidationError
 
+from impulso._arviz_compat import make_idata
 from impulso.results import (
     FEVDResult,
     ForecastResult,
@@ -78,7 +78,7 @@ class TestForecastResultMethods:
             coords={"variable": ["y1", "y2"]},
             name="forecast",
         )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"forecast": da}))
         return ForecastResult.model_construct(idata=idata, steps=4, var_names=["y1", "y2"])
 
     def test_median_shape(self):
@@ -113,7 +113,7 @@ def _make_irf_result(responses=("gdp", "inf"), shocks=("e_gdp", "e_inf"), horizo
         },
         name="irf",
     )
-    idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": da}))
+    idata = make_idata(posterior_predictive=xr.Dataset({"irf": da}))
     return IRFResult.model_construct(idata=idata, horizon=horizon, var_names=list(responses))
 
 
@@ -133,7 +133,7 @@ def _make_fevd_result(responses=("gdp", "inf"), shocks=("e_gdp", "e_inf"), horiz
         },
         name="fevd",
     )
-    idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": da}))
+    idata = make_idata(posterior_predictive=xr.Dataset({"fevd": da}))
     return FEVDResult.model_construct(idata=idata, horizon=horizon, var_names=list(responses))
 
 
@@ -153,7 +153,7 @@ def _make_hd_result(responses=("gdp", "inf"), shocks=("e_gdp", "e_inf"), n_perio
         },
         name="hd",
     )
-    idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": da}))
+    idata = make_idata(posterior_predictive=xr.Dataset({"hd": da}))
     return HistoricalDecompositionResult.model_construct(idata=idata, var_names=list(responses))
 
 

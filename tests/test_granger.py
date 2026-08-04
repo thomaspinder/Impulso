@@ -8,13 +8,13 @@ numbers, for the wrong pair. Those tests therefore run against a hand-built
 posterior whose every entry is distinct, so any slip changes the answer.
 """
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
 from impulso import GrangerCausalityResult, VARData, toda_yamamoto
+from impulso._arviz_compat import make_idata
 from impulso._granger import _coefficient_indices
 from impulso._linalg import lag_matrices
 from impulso.conjugate import ConjugateVAR
@@ -52,7 +52,7 @@ def _hand_built_fitted(B_matrix: np.ndarray, *, seed: int = 3, T: int = 60) -> F
     endog = rng.standard_normal((T, n_vars)) * np.arange(1, n_vars + 1)
     data = _var_data(endog, [f"y{i + 1}" for i in range(n_vars)])
     return FittedVAR(
-        idata=az.InferenceData(posterior=posterior),
+        idata=make_idata(posterior=posterior),
         n_lags=n_lags,
         data=data,
         var_names=list(data.endog_names),

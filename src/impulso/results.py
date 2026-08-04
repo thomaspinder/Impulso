@@ -3,13 +3,13 @@
 from abc import abstractmethod
 from typing import ClassVar, Literal
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import xarray as xr
 from matplotlib.figure import Figure
 from pydantic import Field, model_validator
 
+from impulso._arviz_compat import InferenceDataLike, get_group_dataset, hdi_bounds
 from impulso._base import ImpulsoBaseModel
 from impulso.scenario import ShockPath, VariablePath
 
@@ -60,13 +60,23 @@ class VARResultBase(ImpulsoBaseModel):
     `_guard_no_time_dim` check.
 
     Attributes:
-        idata: ArviZ InferenceData holding the result draws.
+        idata: InferenceData-schema container holding the result draws
+            (`arviz.InferenceData` on ArviZ 0, `xarray.DataTree` on ArviZ 1).
     """
 
-    idata: az.InferenceData = Field(repr=False)
+    idata: InferenceDataLike = Field(repr=False)
 
     # Empty default — subclasses with a `time`-aware median override it.
     _PRIMARY_KEY: ClassVar[str] = ""
+
+    def _pp(self) -> xr.Dataset:
+        """The `posterior_predictive` group as an `xarray.Dataset`.
+
+        Normalises away the container difference between the two ArviZ
+        lines; on ArviZ 1 the raw group is a `DataTree` node, not a Dataset.
+        Bind the result to a local when a method reads it more than once.
+        """
+        return get_group_dataset(self.idata, "posterior_predictive")
 
     @abstractmethod
     def median(self) -> pd.DataFrame:
@@ -106,7 +116,7 @@ class VARResultBase(ImpulsoBaseModel):
             raise NotImplementedError(
                 f"{type(self).__name__} did not declare _PRIMARY_KEY; the time-dim guard cannot be evaluated."
             )
-        if "time" in self.idata.posterior_predictive[key].dims:
+        if "time" in self._pp()[key].dims:
             cls_name = type(self).__name__
             raise NotImplementedError(
                 f"{cls_name}.median()/hdi()/to_dataframe() do not support "
@@ -122,7 +132,7 @@ class ForecastResult(VARResultBase):
     """Result from VAR forecasting.
 
     Attributes:
-        idata: ArviZ InferenceData with forecast draws.
+        idata: InferenceData-schema container with forecast draws.
         steps: Number of forecast steps.
         var_names: Names of forecasted variables.
         mode: ``"density"`` or ``"mean"`` — which forecast mode produced
@@ -135,20 +145,20 @@ class ForecastResult(VARResultBase):
 
     def median(self) -> pd.DataFrame:
         """Posterior median forecast."""
-        forecast = self.idata.posterior_predictive["forecast"]
+        forecast = self._pp()["forecast"]
         med = forecast.median(dim=("chain", "draw")).values
         return pd.DataFrame(med, columns=self.var_names)
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """HDI for forecast."""
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["forecast"]
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values, columns=self.var_names)
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values, columns=self.var_names)
+        lower_da, upper_da = hdi_bounds(self._pp()["forecast"], prob)
+        lower = pd.DataFrame(lower_da.values, columns=self.var_names)
+        upper = pd.DataFrame(upper_da.values, columns=self.var_names)
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert to long-format DataFrame."""
-        forecast = self.idata.posterior_predictive["forecast"]
+        forecast = self._pp()["forecast"]
         med = forecast.median(dim=("chain", "draw")).values
         df = pd.DataFrame(med, columns=self.var_names)
         df.index.name = "step"
@@ -165,7 +175,7 @@ class IRFResult(VARResultBase):
     """Result from impulse response function computation.
 
     Attributes:
-        idata: ArviZ InferenceData with IRF draws.
+        idata: InferenceData-schema container with IRF draws.
         horizon: Number of IRF horizons.
         var_names: Names of variables.
     """
@@ -183,7 +193,7 @@ class IRFResult(VARResultBase):
             `MultiIndex(['response', 'shock'])` on columns.
         """
         self._guard_no_time_dim()
-        irf = self.idata.posterior_predictive["irf"]
+        irf = self._pp()["irf"]
         return _wide_frame(irf.median(dim=("chain", "draw")), "horizon")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
@@ -194,9 +204,9 @@ class IRFResult(VARResultBase):
             labels of `median()`.
         """
         self._guard_no_time_dim()
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["irf"]
-        lower = _wide_frame(hdi_data.sel(hdi="lower"), "horizon")
-        upper = _wide_frame(hdi_data.sel(hdi="higher"), "horizon")
+        lower_da, upper_da = hdi_bounds(self._pp()["irf"], prob)
+        lower = _wide_frame(lower_da, "horizon")
+        upper = _wide_frame(upper_da, "horizon")
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
@@ -214,7 +224,7 @@ class DynamicMultiplierResult(VARResultBase):
     """Result from exogenous dynamic-multiplier computation.
 
     Attributes:
-        idata: ArviZ InferenceData with dynamic-multiplier draws.
+        idata: InferenceData-schema container with dynamic-multiplier draws.
         horizon: Highest horizon computed; the result spans 0..horizon.
         var_names: Names of the endogenous (response) variables.
         exog_names: Names of the exogenous (driver) variables.
@@ -237,7 +247,7 @@ class DynamicMultiplierResult(VARResultBase):
             `MultiIndex(['response', 'exog'])` on columns.
         """
         self._guard_no_time_dim()
-        dm = self.idata.posterior_predictive["dynamic_multiplier"]
+        dm = self._pp()["dynamic_multiplier"]
         return _wide_frame(dm.median(dim=("chain", "draw")), "horizon", col_dim="exog")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
@@ -248,9 +258,9 @@ class DynamicMultiplierResult(VARResultBase):
             labels of `median()`.
         """
         self._guard_no_time_dim()
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["dynamic_multiplier"]
-        lower = _wide_frame(hdi_data.sel(hdi="lower"), "horizon", col_dim="exog")
-        upper = _wide_frame(hdi_data.sel(hdi="higher"), "horizon", col_dim="exog")
+        lower_da, upper_da = hdi_bounds(self._pp()["dynamic_multiplier"], prob)
+        lower = _wide_frame(lower_da, "horizon", col_dim="exog")
+        upper = _wide_frame(upper_da, "horizon", col_dim="exog")
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
@@ -268,7 +278,7 @@ class FEVDResult(VARResultBase):
     """Result from forecast error variance decomposition.
 
     Attributes:
-        idata: ArviZ InferenceData with FEVD draws.
+        idata: InferenceData-schema container with FEVD draws.
         horizon: Number of FEVD horizons.
         var_names: Names of variables.
     """
@@ -286,7 +296,7 @@ class FEVDResult(VARResultBase):
             `MultiIndex(['response', 'shock'])` on columns.
         """
         self._guard_no_time_dim()
-        fevd = self.idata.posterior_predictive["fevd"]
+        fevd = self._pp()["fevd"]
         return _wide_frame(fevd.median(dim=("chain", "draw")), "horizon")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
@@ -297,9 +307,9 @@ class FEVDResult(VARResultBase):
             labels of `median()`.
         """
         self._guard_no_time_dim()
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["fevd"]
-        lower = _wide_frame(hdi_data.sel(hdi="lower"), "horizon")
-        upper = _wide_frame(hdi_data.sel(hdi="higher"), "horizon")
+        lower_da, upper_da = hdi_bounds(self._pp()["fevd"], prob)
+        lower = _wide_frame(lower_da, "horizon")
+        upper = _wide_frame(upper_da, "horizon")
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
@@ -324,7 +334,7 @@ class HistoricalDecompositionResult(VARResultBase):
     exactly for every posterior draw.
 
     Attributes:
-        idata: ArviZ InferenceData with decomposition draws.
+        idata: InferenceData-schema container with decomposition draws.
         var_names: Names of variables.
     """
 
@@ -342,12 +352,13 @@ class HistoricalDecompositionResult(VARResultBase):
                 (e.g. a hand-built result predating the propagated
                 decomposition).
         """
-        if "baseline" not in self.idata.posterior_predictive:
+        pp = self._pp()
+        if "baseline" not in pp:
             raise ValueError(
                 "This result carries no 'baseline' variable; it was not "
                 "produced by IdentifiedVAR.historical_decomposition."
             )
-        da = self.idata.posterior_predictive["baseline"]
+        da = pp["baseline"]
         med = da.median(dim=("chain", "draw")).transpose("time", "response")
         index = pd.DatetimeIndex(da.coords["time"].values, name="time")
         return pd.DataFrame(med.values, index=index, columns=self.var_names)
@@ -361,7 +372,7 @@ class HistoricalDecompositionResult(VARResultBase):
             decomposition time), with a `MultiIndex(['response', 'shock'])`
             on columns.
         """
-        hd = self.idata.posterior_predictive["hd"]
+        hd = self._pp()["hd"]
         return _wide_frame(hd.median(dim=("chain", "draw")), "time")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
@@ -371,9 +382,9 @@ class HistoricalDecompositionResult(VARResultBase):
             HDIResult whose `lower` / `upper` DataFrames mirror the shape and
             labels of `median()`.
         """
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["hd"]
-        lower = _wide_frame(hdi_data.sel(hdi="lower"), "time")
-        upper = _wide_frame(hdi_data.sel(hdi="higher"), "time")
+        lower_da, upper_da = hdi_bounds(self._pp()["hd"], prob)
+        lower = _wide_frame(lower_da, "time")
+        upper = _wide_frame(upper_da, "time")
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
@@ -398,7 +409,7 @@ class ConditionalForecastResult(VARResultBase):
     tail probability of the median `q`.
 
     Attributes:
-        idata: ArviZ InferenceData with the draws and statistics.
+        idata: InferenceData-schema container with the draws and statistics.
         steps: Number of forecast steps.
         var_names: Names of forecasted variables.
         mode: `"density"` or `"mean"`.
@@ -414,7 +425,7 @@ class ConditionalForecastResult(VARResultBase):
 
     def median(self) -> pd.DataFrame:
         """Posterior median conditional forecast (step-indexed)."""
-        forecast = self.idata.posterior_predictive["forecast"]
+        forecast = self._pp()["forecast"]
         med = forecast.median(dim=("chain", "draw")).values
         df = pd.DataFrame(med, columns=self.var_names)
         df.index.name = "step"
@@ -429,10 +440,9 @@ class ConditionalForecastResult(VARResultBase):
         Returns:
             HDIResult whose `lower` / `upper` DataFrames mirror `median()`.
         """
-        da = self.idata.posterior_predictive["forecast"]
-        hdi_data = az.hdi(da, hdi_prob=prob)["forecast"]
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values, columns=self.var_names)
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values, columns=self.var_names)
+        lower_da, upper_da = hdi_bounds(self._pp()["forecast"], prob)
+        lower = pd.DataFrame(lower_da.values, columns=self.var_names)
+        upper = pd.DataFrame(upper_da.values, columns=self.var_names)
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def plausibility(self, prob: float = 0.89) -> dict[str, float]:
@@ -453,13 +463,13 @@ class ConditionalForecastResult(VARResultBase):
             `tail_probability` (`P(chi^2_r >= median q)`; 1.0 with no
             restrictions).
         """
-        pp = self.idata.posterior_predictive
+        pp = self._pp()
         q = pp["plausibility"]
-        hdi_q = az.hdi(q, hdi_prob=prob)["plausibility"]
+        q_lower, q_upper = hdi_bounds(q, prob)
         return {
             "q_median": float(q.median()),
-            "q_hdi_lower": float(hdi_q.sel(hdi="lower")),
-            "q_hdi_upper": float(hdi_q.sel(hdi="higher")),
+            "q_hdi_lower": float(q_lower),
+            "q_hdi_upper": float(q_upper),
             "q_calibrated_median": float(pp["plausibility_calibrated"].median()),
             "n_restrictions": int(pp.attrs["n_restrictions"]),
             "tail_probability": float(pp.attrs["chi2_tail_of_median"]),
@@ -514,14 +524,14 @@ class CounterfactualResult(VARResultBase):
     parameter and identification uncertainty only.
 
     Attributes:
-        idata: ArviZ InferenceData with counterfactual draws + actual path.
+        idata: InferenceData-schema container with counterfactual draws + actual path.
         var_names: Names of variables.
     """
 
     var_names: list[str]
 
     def _time_index(self) -> pd.DatetimeIndex:
-        values = self.idata.posterior_predictive["counterfactual"].coords["time"].values
+        values = self._pp()["counterfactual"].coords["time"].values
         return pd.DatetimeIndex(values, name="time")
 
     def median(self) -> pd.DataFrame:
@@ -531,7 +541,7 @@ class CounterfactualResult(VARResultBase):
             DataFrame indexed by the returned window's `DatetimeIndex`
             with one column per variable.
         """
-        da = self.idata.posterior_predictive["counterfactual"]
+        da = self._pp()["counterfactual"]
         med = da.median(dim=("chain", "draw")).transpose("time", "variable")
         return pd.DataFrame(med.values, index=self._time_index(), columns=self.var_names)
 
@@ -544,11 +554,10 @@ class CounterfactualResult(VARResultBase):
         Returns:
             HDIResult whose `lower` / `upper` DataFrames mirror `median()`.
         """
-        da = self.idata.posterior_predictive["counterfactual"]
-        hdi_data = az.hdi(da, hdi_prob=prob)["counterfactual"]
+        lower_da, upper_da = hdi_bounds(self._pp()["counterfactual"], prob)
         index = self._time_index()
-        lower = pd.DataFrame(hdi_data.sel(hdi="lower").values, index=index, columns=self.var_names)
-        upper = pd.DataFrame(hdi_data.sel(hdi="higher").values, index=index, columns=self.var_names)
+        lower = pd.DataFrame(lower_da.values, index=index, columns=self.var_names)
+        upper = pd.DataFrame(upper_da.values, index=index, columns=self.var_names)
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def actual(self) -> pd.DataFrame:
@@ -557,7 +566,7 @@ class CounterfactualResult(VARResultBase):
         Returns:
             DataFrame shaped like `median()`.
         """
-        da = self.idata.posterior_predictive["actual"]
+        da = self._pp()["actual"]
         return pd.DataFrame(da.values, index=self._time_index(), columns=self.var_names)
 
     def difference(self) -> pd.DataFrame:
@@ -886,14 +895,23 @@ class GrangerCausalityResult(ImpulsoBaseModel):
             return None
         return float((self.norm_draws < self.rope).mean())
 
-    def _stacked(self) -> np.ndarray:
-        """Per-lag draws with the norm appended, shape `(C, D, p + 1)`.
+    def _stacked(self) -> xr.DataArray:
+        """Per-lag draws with the norm appended, as a `(chain, draw, term)` array.
 
-        Stacking lets one `az.hdi` call cover both, and keeps the array
-        three-dimensional — `az.hdi` reads a bare 2-D array as
-        `(draw, shape)` rather than `(chain, draw)` and warns about it.
+        Stacking lets one HDI call cover the per-lag coefficients and the
+        norm together. The dims are labelled rather than positional because
+        the two ArviZ lines disagree about which axes of a bare ndarray are
+        the sampling axes: ArviZ 0 reduces the leading `(chain, draw)` pair
+        while ArviZ 1 reduces only the trailing axis. `hdi_bounds` requires
+        the labels and reduces `chain`/`draw` explicitly.
         """
-        return np.concatenate([self.coef_draws, self.norm_draws[..., np.newaxis]], axis=-1)
+        stacked = np.concatenate([self.coef_draws, self.norm_draws[..., np.newaxis]], axis=-1)
+        return xr.DataArray(stacked, dims=["chain", "draw", "term"], name="strength")
+
+    def _stacked_hdi(self, prob: float) -> tuple[np.ndarray, np.ndarray]:
+        """Lower/upper HDI bounds over the stacked terms, each shape `(p + 1,)`."""
+        lower, upper = hdi_bounds(self._stacked(), prob)
+        return lower.values, upper.values
 
     def median(self) -> float:
         """Posterior median of the strength norm.
@@ -912,8 +930,8 @@ class GrangerCausalityResult(ImpulsoBaseModel):
         Returns:
             Tuple of `(lower, upper)` bounds, in the reporting units.
         """
-        lower, upper = np.asarray(az.hdi(self._stacked(), hdi_prob=prob))[-1]
-        return float(lower), float(upper)
+        lower, upper = self._stacked_hdi(prob)
+        return float(lower[-1]), float(upper[-1])
 
     def summary(self, prob: float = 0.89) -> pd.DataFrame:
         """Per-lag and overall posterior summary.
@@ -928,13 +946,12 @@ class GrangerCausalityResult(ImpulsoBaseModel):
             ROPE is a statement about the joint magnitude, not about any one
             lag.
         """
-        stacked = self._stacked()
-        bounds = np.asarray(az.hdi(stacked, hdi_prob=prob))
+        lower, upper = self._stacked_hdi(prob)
         frame = pd.DataFrame(
             {
-                "median": np.median(stacked, axis=(0, 1)),
-                "hdi_lower": bounds[:, 0],
-                "hdi_upper": bounds[:, 1],
+                "median": np.median(self._stacked().values, axis=(0, 1)),
+                "hdi_lower": lower,
+                "hdi_upper": upper,
             },
             index=pd.Index([*self.lag_labels, "norm"], name="term"),
         )
@@ -950,7 +967,7 @@ class VolatilityResult(VARResultBase):
     posterior log-volatility path.
 
     Attributes:
-        idata: InferenceData with 'h' in posterior.
+        idata: InferenceData-schema container with 'h' in posterior.
         series_name: Name of the fitted series.
         index: DatetimeIndex aligned with the fitted series.
     """
@@ -958,9 +975,9 @@ class VolatilityResult(VARResultBase):
     series_name: str
     index: pd.DatetimeIndex = Field(repr=False)
 
-    def _sigma_da(self):
+    def _sigma_da(self) -> xr.DataArray:
         """exp(h/2) DataArray over chains, draws, time."""
-        return np.exp(0.5 * self.idata.posterior["h"])
+        return np.exp(0.5 * get_group_dataset(self.idata, "posterior")["h"]).rename("sigma")
 
     def median(self) -> pd.DataFrame:
         """Posterior median of the conditional SD path."""
@@ -970,20 +987,9 @@ class VolatilityResult(VARResultBase):
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """Highest-density interval for the conditional SD path."""
-        import xarray as xr
-
-        sigma = self._sigma_da()
-        # az.hdi expects a Dataset
-        ds = xr.Dataset({"sigma": sigma})
-        hdi_data = az.hdi(ds, hdi_prob=prob)["sigma"]
-        lower = pd.DataFrame(
-            {self.series_name: hdi_data.sel(hdi="lower").values},
-            index=self.index,
-        )
-        upper = pd.DataFrame(
-            {self.series_name: hdi_data.sel(hdi="higher").values},
-            index=self.index,
-        )
+        lower_da, upper_da = hdi_bounds(self._sigma_da(), prob)
+        lower = pd.DataFrame({self.series_name: lower_da.values}, index=self.index)
+        upper = pd.DataFrame({self.series_name: upper_da.values}, index=self.index)
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:
@@ -1001,7 +1007,7 @@ class SVForecastResult(VARResultBase):
     """Density forecast from a univariate SV model.
 
     Attributes:
-        idata: InferenceData with 'forecast' in posterior_predictive.
+        idata: InferenceData-schema container with 'forecast' in posterior_predictive.
         series_name: Name of the forecast series.
         steps: Number of forecast steps.
         index: Forecast axis, normally supplied by `FittedSV.forecast` — a
@@ -1034,7 +1040,7 @@ class SVForecastResult(VARResultBase):
             DataFrame of median forecasts indexed by the forecast axis —
             calendar dates when available, otherwise step number.
         """
-        forecast = self.idata.posterior_predictive["forecast"]
+        forecast = self._pp()["forecast"]
         med = forecast.median(dim=("chain", "draw")).values
         return pd.DataFrame({self.series_name: med}, index=self._axis())
 
@@ -1048,10 +1054,10 @@ class SVForecastResult(VARResultBase):
             HDIResult with lower/upper DataFrames sharing the index of
             `median()`.
         """
-        hdi_data = az.hdi(self.idata.posterior_predictive, hdi_prob=prob)["forecast"]
+        lower_da, upper_da = hdi_bounds(self._pp()["forecast"], prob)
         axis = self._axis()
-        lower = pd.DataFrame({self.series_name: hdi_data.sel(hdi="lower").values}, index=axis)
-        upper = pd.DataFrame({self.series_name: hdi_data.sel(hdi="higher").values}, index=axis)
+        lower = pd.DataFrame({self.series_name: lower_da.values}, index=axis)
+        upper = pd.DataFrame({self.series_name: upper_da.values}, index=axis)
         return HDIResult(lower=lower, upper=upper, prob=prob)
 
     def to_dataframe(self) -> pd.DataFrame:

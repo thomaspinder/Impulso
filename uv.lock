@@ -178,6 +178,12 @@ wheels = [
 name = "arviz"
 version = "0.23.4"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform == 'darwin'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
     { name = "h5netcdf" },
     { name = "h5py" },
@@ -190,12 +196,83 @@ dependencies = [
     { name = "setuptools" },
     { name = "typing-extensions" },
     { name = "xarray" },
-    { name = "xarray-einstats", version = "0.9.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "xarray-einstats", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "xarray-einstats", version = "0.9.1", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f3/c9/9c853633715f972eecc20995763c6e3005a3afcdcf47e39d20cd1c2889cd/arviz-0.23.4.tar.gz", hash = "sha256:611be826995066036c9443ea98d11486c279ef3da3b6cdc5c0816fab434115b9", size = 1592968, upload-time = "2026-02-04T17:57:53.664Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/44/1f/227f9cb7edcd3e14ab05928f3db00e9d595c0f269c87bf35f565ce44941b/arviz-0.23.4-py3-none-any.whl", hash = "sha256:c46c7faf8a06abadc9b5b64000584062ecbc20c2298e2bd6dfba04bb01a684ca", size = 1673773, upload-time = "2026-02-04T17:57:51.778Z" },
+]
+
+[[package]]
+name = "arviz"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "arviz-base" },
+    { name = "arviz-plots" },
+    { name = "arviz-stats", extra = ["xarray"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/da/1a15d73964342f63a4459a4b42838ad793c12421e27339b621f5227bcf97/arviz-1.2.0.tar.gz", hash = "sha256:ce9d8233691e37dc4b57b670ac1da3cca0f9312280fb0d77e7cd743772d2895c", size = 8665, upload-time = "2026-06-12T17:41:14.283Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/37/e66d037fd935f40606fc5dc1c610d78653037dd62d656a25cead401d81dc/arviz-1.2.0-py3-none-any.whl", hash = "sha256:3b2b313b4b57ebb2e028c5237e4eacbd4f56084d0162128f8f1f42266c7cf515", size = 9153, upload-time = "2026-06-12T17:41:13.149Z" },
+]
+
+[[package]]
+name = "arviz-base"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lazy-loader" },
+    { name = "numpy" },
+    { name = "typing-extensions" },
+    { name = "xarray" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e6/d7/4db6e89b0cc5a26ce0e84accd5dd6ff43572eb32e9b46c577bd5d219ed6a/arviz_base-1.2.0.tar.gz", hash = "sha256:be06f9c15c53a951a971bef697e6b0a68497aae4d1670be065dd8f0482e9efca", size = 1410416, upload-time = "2026-06-12T15:54:46.517Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/d7/82e5f456d50b6accf06d137594282bf6984526fa1b329a061f7b91b123aa/arviz_base-1.2.0-py3-none-any.whl", hash = "sha256:a3f7023b665823068ff4b973bb6205eacc65f3c0a446cc099d7e5326b50f1ffc", size = 1427453, upload-time = "2026-06-12T15:54:44.805Z" },
+]
+
+[[package]]
+name = "arviz-plots"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "arviz-base" },
+    { name = "arviz-stats", extra = ["xarray"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6e/d4/738cd3abcc27d681e9876a897d7bab4aa1ad0321257e1a65d2cdc52849bd/arviz_plots-1.2.0.tar.gz", hash = "sha256:e1f462aa0ac02fb957aabcae2cfcbee9bc089a029c94dab83fa2ed02d02098f3", size = 158834, upload-time = "2026-06-12T17:12:10.83Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/06/85b6f3d07c8b0bd232c05c236188575074fcb9006174e5a5ca5b6dd12a9f/arviz_plots-1.2.0-py3-none-any.whl", hash = "sha256:2e16ed95ce6d6fbb171d60f7300f50c520ebeeb132be7539591a018076f66f16", size = 243949, upload-time = "2026-06-12T17:12:08.906Z" },
+]
+
+[[package]]
+name = "arviz-stats"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4c/97/fd555a4b16ac349f297c786dab1a3270b3540677b0222a84e517441eb338/arviz_stats-1.2.0.tar.gz", hash = "sha256:fc49e6e75f4fce953987a9bf17dc39950e1f12e7cd73f865257e5d1b6a5ee114", size = 157554, upload-time = "2026-06-12T16:20:11.552Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/8f/73f43d90534d49a4af4c8e35d5b60e2838435b0318f44262dc6fe2dd39d8/arviz_stats-1.2.0-py3-none-any.whl", hash = "sha256:f9084addeb1abdbab6e9816f0a063118bc4ff7c48ce9141a4dad20b0e41410ae", size = 183844, upload-time = "2026-06-12T16:20:10.191Z" },
+]
+
+[package.optional-dependencies]
+xarray = [
+    { name = "arviz-base" },
+    { name = "xarray" },
+    { name = "xarray-einstats", version = "0.10.0", source = { registry = "https://pypi.org/simple" } },
 ]
 
 [[package]]
@@ -1097,14 +1174,17 @@ name = "impulso"
 version = "0.0.11"
 source = { editable = "." }
 dependencies = [
-    { name = "arviz" },
+    { name = "arviz", version = "0.23.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "arviz", version = "1.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "beartype" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pydantic" },
-    { name = "pymc" },
+    { name = "pymc", version = "5.28.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "pymc", version = "6.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "scipy" },
+    { name = "xarray" },
 ]
 
 [package.optional-dependencies]
@@ -1112,7 +1192,8 @@ diagnostics = [
     { name = "statsmodels" },
 ]
 nutpie = [
-    { name = "nutpie" },
+    { name = "nutpie", version = "0.16.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "nutpie", version = "0.16.11", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 
 [package.dev-dependencies]
@@ -1120,7 +1201,8 @@ dev = [
     { name = "ipython" },
     { name = "ipywidgets" },
     { name = "jupyter" },
-    { name = "nutpie" },
+    { name = "nutpie", version = "0.16.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "nutpie", version = "0.16.11", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "prek" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1148,16 +1230,19 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arviz", specifier = ">=0.20" },
+    { name = "arviz", marker = "python_full_version < '3.12'", specifier = ">=0.20,<1" },
+    { name = "arviz", marker = "python_full_version >= '3.12'", specifier = ">=1.1,<2" },
     { name = "beartype", specifier = ">=0.18" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "nutpie", marker = "extra == 'nutpie'", specifier = ">=0.13" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pydantic", specifier = ">=2.0" },
-    { name = "pymc", specifier = ">=5.26.1" },
+    { name = "pymc", marker = "python_full_version < '3.12'", specifier = ">=5.26.1,<6" },
+    { name = "pymc", marker = "python_full_version >= '3.12'", specifier = ">=6,<7" },
     { name = "scipy", specifier = ">=1.10" },
     { name = "statsmodels", marker = "extra == 'diagnostics'", specifier = ">=0.14.6" },
+    { name = "xarray", specifier = ">=2024.11" },
 ]
 provides-extras = ["nutpie", "diagnostics"]
 
@@ -1711,6 +1796,18 @@ wheels = [
 ]
 
 [[package]]
+name = "lazy-loader"
+version = "0.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/ac/21a1f8aa3777f5658576777ea76bfb124b702c520bbe90edf4ae9915eafa/lazy_loader-0.5.tar.gz", hash = "sha256:717f9179a0dbed357012ddad50a5ad3d5e4d9a0b8712680d4e687f5e6e6ed9b3", size = 15294, upload-time = "2026-03-06T15:45:09.054Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/a1/8d812e53a5da1687abb10445275d41a8b13adb781bbf7196ddbcf8d88505/lazy_loader-0.5-py3-none-any.whl", hash = "sha256:ab0ea149e9c554d4ffeeb21105ac60bed7f3b4fd69b1d2360a4add51b170b005", size = 8044, upload-time = "2026-03-06T15:45:07.668Z" },
+]
+
+[[package]]
 name = "llvmlite"
 version = "0.46.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2240,9 +2337,15 @@ wheels = [
 name = "nutpie"
 version = "0.16.7"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform == 'darwin'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
     { name = "arro3-core" },
-    { name = "arviz" },
+    { name = "arviz", version = "0.23.4", source = { registry = "https://pypi.org/simple" } },
     { name = "obstore" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -2271,6 +2374,49 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/da/0c/5b9828bad8d4499a5e42d734d1f332a859ffd6a417acf530956be5496f2e/nutpie-0.16.7-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:88fcff61aed95f9abb8a45c3d2432da1e94c615e409a4d4c429699a353c85e1c", size = 8017940, upload-time = "2026-03-03T20:26:33.578Z" },
     { url = "https://files.pythonhosted.org/packages/df/d1/61146fbfaf2a5ab497530ae2cc01b95227637864d779704dfeca2d321b3c/nutpie-0.16.7-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:184d47c7cdad74611cd9f862cc6f0223a3b074f5d36f07eeac7c59c86f4d269f", size = 8672958, upload-time = "2026-03-03T20:26:44.001Z" },
     { url = "https://files.pythonhosted.org/packages/f7/5e/6f5e33594d7bc48f716123e8352de0435cfa2d410e78860b5c7fcea4009a/nutpie-0.16.7-cp314-cp314-win_amd64.whl", hash = "sha256:2ae97048dee6a85fa56f42892e9eadf2324a8586c64a45b9d7ce7400fb5f6079", size = 9116826, upload-time = "2026-03-03T20:27:10.812Z" },
+]
+
+[[package]]
+name = "nutpie"
+version = "0.16.11"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "arro3-core" },
+    { name = "arviz", version = "1.2.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "obstore" },
+    { name = "pandas" },
+    { name = "platformdirs" },
+    { name = "pyarrow" },
+    { name = "xarray" },
+    { name = "zarr" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fe/11/f53d7618c4e3c54a9d5c410ac42711499f5a2554c28a4b9f03c4d0439d5e/nutpie-0.16.11.tar.gz", hash = "sha256:e00bf6c004a345ca95d50a57aa794b1b6a2c39270987da131011e7f672589487", size = 721831, upload-time = "2026-06-30T14:29:49.531Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/28/f112ef823626cab9cf2359852dd52da47951b6102468a3f799c2f29809a1/nutpie-0.16.11-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:4c888815e35936a510570dc31bca00ad716aec035b8d5975b00fd056c2cb431b", size = 9792945, upload-time = "2026-06-30T14:29:42.345Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/9d/b6843a1b5c98b52024e671b0e11eb2e8583de016c5973f15eb5bff87a242/nutpie-0.16.11-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:33fca4a297b06881945c75bab0e6466d5b428d4fd7955c6f90c62f39fa277952", size = 9066723, upload-time = "2026-06-30T14:29:34.845Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/74/13203b2f76a95a5da04f194fa397b47501682b953582dcaac8539cd3a381/nutpie-0.16.11-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:fac130a35a9c044d1ec8dce909b7ffbecd17d0bc3498250be658abad12f0cdc9", size = 8518235, upload-time = "2026-06-30T14:29:19.786Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/8e/0796cf8c12799a1ea074171dbd97e875cc8a75af20b7600dc8744a54ea47/nutpie-0.16.11-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:39c383b2638368b20ce85319458ff914dab0bc5e87588ffec68879719e3c7dcf", size = 9198731, upload-time = "2026-06-30T14:29:27.506Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/25/b27fe3521b50254cb4841ad19508501388a963cc4bd3446e0e84f51fc9d4/nutpie-0.16.11-cp312-cp312-win_amd64.whl", hash = "sha256:5d6d501066e111ca021a55de03ac080122794b95750e32a62ef9fb3fae77bea0", size = 9716865, upload-time = "2026-06-30T14:29:51.407Z" },
+    { url = "https://files.pythonhosted.org/packages/00/04/5d6ae4432507c5e214028ff86983dd894985fcc002d208b0cb5c91b14f52/nutpie-0.16.11-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:946e8fa1e0c35dd5d90ac6a018639f7f0b9750918a103bf04c4922b39f6ad463", size = 9796609, upload-time = "2026-06-30T14:29:44.89Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/b9/efc6c43aca0fad920e6ea60f1b8c9bb6c47f4adcc5e5438a7d6c0c406cbe/nutpie-0.16.11-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:d8586bb001198b2944547ebcf7b60869af41629476478d3d015dc6ff05afcd20", size = 9072919, upload-time = "2026-06-30T14:29:37.638Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/78/5ae182d5e9bdbb0a83d55bf4c4c0241bf1b1d76cd8f454d64cb2f93edadf/nutpie-0.16.11-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0534b9ca2f840d1f5448d1abb7b00d109195e54e3c1b66fd48b204d741e6a3e5", size = 8522366, upload-time = "2026-06-30T14:29:22.334Z" },
+    { url = "https://files.pythonhosted.org/packages/12/0b/f772965ad238214ade1d7b0dcf017dd1320a3db007ac2d4f2a0933a14016/nutpie-0.16.11-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cf006a9f1372dd21147c0ca511702658ac094155b52223ac00ce1f17a800d5d8", size = 9201373, upload-time = "2026-06-30T14:29:30.05Z" },
+    { url = "https://files.pythonhosted.org/packages/70/42/a27209862624bcd96bbcf06ab2b09f7eedd9190a8094737ae5ec2d8cdc37/nutpie-0.16.11-cp313-cp313-win_amd64.whl", hash = "sha256:3c93116eae6a19d8436408a6b6745fd10c778707552bf3be4c3db4118f308c63", size = 9721668, upload-time = "2026-06-30T14:29:53.959Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/18/513b1f2bec678bf739447a155414760e374dc772e65510b057768de3c809/nutpie-0.16.11-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:d080abe9510591a4d52cc8095544d6bbc3ec6a54de76ed1771c212c7e6f1acfe", size = 9793255, upload-time = "2026-06-30T14:29:47.472Z" },
+    { url = "https://files.pythonhosted.org/packages/16/16/9ed76db7fd208c74dd9613ac2c0c9b062d409ae5176122cb904ace61abe2/nutpie-0.16.11-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:740c7b73591583f0383cd1cca63d36abd1d14a3ad2adb3afed07496b09cc4b54", size = 9070376, upload-time = "2026-06-30T14:29:39.939Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/0c/9f44539e11074cd2a366191fbf5b3c18764c122ac85d19b54e622b6bd4ae/nutpie-0.16.11-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:714759c5a6f2bd33e19c96412cedc4c29afe333c1023b8ccb0c7ba07ccbdd1a0", size = 8520110, upload-time = "2026-06-30T14:29:24.871Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/de/90fcb6511f06980c639e5c4ce905c4abb079ce3118758e4b0ce1aff910a4/nutpie-0.16.11-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:abf6a66c895ccaf884d33aec4093df8af1947c3ca01105bcdf4aaffaa0e89972", size = 9198390, upload-time = "2026-06-30T14:29:32.54Z" },
+    { url = "https://files.pythonhosted.org/packages/79/58/97c6c2976bb7a483cb8314ddbfbe298fd1957a5d128e70c71ba8e9f34c78/nutpie-0.16.11-cp314-cp314-win_amd64.whl", hash = "sha256:f6b7e49894882fb0d5949be3fdb14c4ec990c9f62ecbf3310060ee53ae8f3530", size = 9717171, upload-time = "2026-06-30T14:29:56.573Z" },
 ]
 
 [[package]]
@@ -2847,13 +2993,19 @@ wheels = [
 name = "pymc"
 version = "5.28.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform == 'darwin'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
-    { name = "arviz" },
+    { name = "arviz", version = "0.23.4", source = { registry = "https://pypi.org/simple" } },
     { name = "cachetools" },
     { name = "cloudpickle" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "pytensor" },
+    { name = "pytensor", version = "2.38.0", source = { registry = "https://pypi.org/simple" } },
     { name = "rich" },
     { name = "scipy" },
     { name = "threadpoolctl" },
@@ -2862,6 +3014,37 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c0/7b/b8ccacceb44ba06806611c2fd35e05429c051497f46d55f1f0ee61a6c442/pymc-5.28.0.tar.gz", hash = "sha256:cea264e72b1040399db1f33a4585ce45b7223eb81c29c299e7ed6e3e26ec2129", size = 506476, upload-time = "2026-02-21T09:38:22.551Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/07/18/93d9cd30ba5badf82defa8b88409b865ca5bc49add21a8ac8c22332438ac/pymc-5.28.0-py3-none-any.whl", hash = "sha256:4f153c121fae8713ebcfd473f0b127ae02d5dfd04dd7ce2c17652715c586fe45", size = 560725, upload-time = "2026-02-21T09:38:20.733Z" },
+]
+
+[[package]]
+name = "pymc"
+version = "6.2.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "arviz", version = "1.2.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "cachetools" },
+    { name = "cloudpickle" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pytensor", version = "3.2.4", source = { registry = "https://pypi.org/simple" } },
+    { name = "rich" },
+    { name = "scipy" },
+    { name = "threadpoolctl" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f2/62/cfbcf20c27a50489bf1156cf11f552e0138095e9b859afb4aa5150df34e1/pymc-6.2.0.tar.gz", hash = "sha256:ae6aafe14992cbabcf577026f0f1fa66f9876d0d216bf58cbf85a5ac6e537b64", size = 546261, upload-time = "2026-07-23T14:27:32.818Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/85/17cf7c824c239d9272d77308337b53c78a096d702c78ca77ded93ef975b4/pymc-6.2.0-py3-none-any.whl", hash = "sha256:b168d0ce7e55df947a01289425f038346445232cfc4d1dfdfa8f54b909e8bcc1", size = 600467, upload-time = "2026-07-23T14:27:31.068Z" },
 ]
 
 [[package]]
@@ -2889,6 +3072,12 @@ wheels = [
 name = "pytensor"
 version = "2.38.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform == 'darwin'",
+    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
     { name = "cons" },
     { name = "etuples" },
@@ -2919,6 +3108,44 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/d6/6b64622a9fdfd62fdcfc0175d130598987a9cb3c5155836062cee2521956/pytensor-2.38.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:c8ef7ba8b36b75b5c98a0cfb58228691eb881cf6a6f383cef5c49edd190849a9", size = 2186915, upload-time = "2026-02-19T15:13:51.065Z" },
     { url = "https://files.pythonhosted.org/packages/dd/19/f863f48915173749d95b1e4326b778aae83b3321e4327cddbd63ecdd5e56/pytensor-2.38.0-cp314-cp314-win_amd64.whl", hash = "sha256:baad995219b9bce10d46be4ebeecc53dbbe606f7930ec9582295c4ac6889d2ac", size = 1690834, upload-time = "2026-02-19T15:13:53.423Z" },
     { url = "https://files.pythonhosted.org/packages/1c/90/b8cb8f94bccb4fa705809099839e05aaff3f57261866b069d37bc0241b0f/pytensor-2.38.0-py2.py3-none-any.whl", hash = "sha256:4ff7834ddb4616019cc6bea5447b6799877762da97b6ac3c71bde8ab897c71a0", size = 1395755, upload-time = "2026-02-19T15:13:55.343Z" },
+]
+
+[[package]]
+name = "pytensor"
+version = "3.2.4"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "filelock" },
+    { name = "numba" },
+    { name = "numpy" },
+    { name = "scipy" },
+    { name = "setuptools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/29/4e/37b213744ce0b6728ecaada34642b05cc7ca686c0d14ece94155a2c0dace/pytensor-3.2.4.tar.gz", hash = "sha256:91b5d38c9d0162165544b29cbf2ae029427cab0a1c773ac42f687e41a86f6c67", size = 5199265, upload-time = "2026-08-02T07:54:37.598Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/c4/a9dd5d90e2fb283dd195cf092850a310d0aebe4f57a99d50a6f8d818f041/pytensor-3.2.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:6acedc6572b001ed35cb9b611d68518f0a95ca8087608262bca25870ae664620", size = 1677810, upload-time = "2026-08-02T07:54:17.241Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/64/8c1d0b9bae24c1e0e05e4c85adde8c86bc469c7f090b45a3f45d8237c46a/pytensor-3.2.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ef506643a041682b58326a506abe3ebe88221e350de95c1b5ca14f36cd24e951", size = 2182197, upload-time = "2026-08-02T07:54:18.983Z" },
+    { url = "https://files.pythonhosted.org/packages/94/3f/3981ae3c1814200db9cd58392eaec17a3d2f237dfbcad032451aef9b4c40/pytensor-3.2.4-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:7ac1375bb7787699b76a94f1c7a06637fa020b037ec2ef387c80cb6335e66a76", size = 2180161, upload-time = "2026-08-02T07:54:20.475Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/a0/06ce3a98c44c48fc27e32b657e8fea13750ac807fb35aecfa95dc97b2200/pytensor-3.2.4-cp312-cp312-win_amd64.whl", hash = "sha256:2bb80bfb27e6ab9c8ec1ac486b7bd97519836cf2a9a886e08d75a14bb4214a8b", size = 1669042, upload-time = "2026-08-02T07:54:21.892Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/73/0d839c161201cd6b751c306391022386d863d11b2fff6f23483bd2537ec4/pytensor-3.2.4-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:eeecea8c7bbeb6f767b3f6db9477779f0a7d2607b251c9cb8f74941913f2ece5", size = 1871155, upload-time = "2026-08-02T07:54:23.484Z" },
+    { url = "https://files.pythonhosted.org/packages/38/22/793cac42dae6939a5c0d49986195ec6cec760a884e13c84b75bc163a09fb/pytensor-3.2.4-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e755ffe0a9e5debbca0f13df629db322b240bd3981361ebd0f13898a8c7e2f4c", size = 2374612, upload-time = "2026-08-02T07:54:25.096Z" },
+    { url = "https://files.pythonhosted.org/packages/45/71/da42e44c40d6814f7c9cd2fc2811536d371be5e847f1bf7cd7a777fc47ee/pytensor-3.2.4-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:b1219d3207efc85f5dcd30f76e2d7b91422f4df70a634334e4866b3c5a3e255f", size = 2373165, upload-time = "2026-08-02T07:54:26.698Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/18/8211f489a0ee32df6d0bfec022b08f7b9550e52eebfb0372cac8b99c1318/pytensor-3.2.4-cp313-cp313-win_amd64.whl", hash = "sha256:7bd6c0d25fe4e8dc92ef91eb67cf2e814c06bbc3ebd16632b7fb732e93ede025", size = 1864316, upload-time = "2026-08-02T07:54:28.361Z" },
+    { url = "https://files.pythonhosted.org/packages/53/f8/ccc0c075b0e9f13fa3a3257eccf7a87a6a6ad59deb8e1cd8eb4dc43d7c41/pytensor-3.2.4-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:f358780d05e374996b5c705370df9cc4f44089816a9e7e42c53e7c2ac595afce", size = 1871995, upload-time = "2026-08-02T07:54:30.095Z" },
+    { url = "https://files.pythonhosted.org/packages/37/ba/4ac2da153186a158b0f96ec859f218846286a268cc8595307f7ac21fe635/pytensor-3.2.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:793d4975b08526da2da1c177a6aabd07c08e321bde5a11ac5f9fb9f51f3fa0db", size = 2368154, upload-time = "2026-08-02T07:54:31.53Z" },
+    { url = "https://files.pythonhosted.org/packages/02/66/8e0ded716562af386461562cfc91253c340db2e0fb2a7b41cbda749c1de7/pytensor-3.2.4-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:8a665777d554e2c9e1c38a44c733f37c6e59700664abd22d75691a6d61134f9d", size = 2367440, upload-time = "2026-08-02T07:54:33.272Z" },
+    { url = "https://files.pythonhosted.org/packages/59/35/8cb7102bb9b48af28d1bc4358ec3ad0854dd89a9effb9d31832c426e0d97/pytensor-3.2.4-cp314-cp314-win_amd64.whl", hash = "sha256:194d14518cb052295d7262ca5093335fdaa54506856564e1622a9f6519286070", size = 1866676, upload-time = "2026-08-02T07:54:34.708Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/4d/6107e18af80f4008b76e09ed6032ebe4c67a8484d60fb19b103ba73d5468/pytensor-3.2.4-py2.py3-none-any.whl", hash = "sha256:1befbb3755fdf78df1c9cb61fb0bf6f473e781ded6b80e2fd32b06b5983659fb", size = 1568323, upload-time = "2026-08-02T07:54:36.097Z" },
 ]
 
 [[package]]

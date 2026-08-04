@@ -8,6 +8,8 @@ bare-name univariate call.
 import numpy as np
 import xarray as xr
 
+from impulso._arviz_compat import get_group_dataset
+
 
 def _make_univariate_posterior(h_3d, sigma_eta):
     """Build a minimal univariate-shaped posterior for bare-name calls."""
@@ -256,7 +258,7 @@ class TestForecastLevelComposition:
         from impulso.sv.dynamics import AR1
         from impulso.sv.spec import StochasticVolatility
 
-        base = synthetic_sv_idata_2v.posterior
+        base = get_group_dataset(synthetic_sv_idata_2v, "posterior")
         n_chains, n_draws, _, n_vars = base["h"].shape
         posterior = base.drop_vars([f"v{i}_mu" for i in range(n_vars)])
         for i in range(n_vars):

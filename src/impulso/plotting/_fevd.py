@@ -25,7 +25,7 @@ def plot_fevd(
     Returns:
         Matplotlib Figure.
     """
-    fevd_da = result.idata.posterior_predictive["fevd"]
+    fevd_da = result._pp()["fevd"]
     med = fevd_da.median(dim=("chain", "draw"))
     n_vars = len(result.var_names)
     horizons = range(result.horizon + 1)

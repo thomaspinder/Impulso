@@ -78,7 +78,7 @@ def structural_shock_context(identified: IdentifiedVAR) -> tuple[np.ndarray, np.
     """
     from impulso._residuals import reduced_form_residuals
 
-    resid = reduced_form_residuals(identified.idata.posterior, identified.data, identified.n_lags)
+    resid = reduced_form_residuals(identified._posterior(), identified.data, identified.n_lags)
     per_t = identified.volatility.is_time_varying
     P = identified.shock_matrix(at="all" if per_t else None).values
     _require_finite_shock_matrix(P)
@@ -232,7 +232,7 @@ def counterfactual_paths(identified: IdentifiedVAR, edits: list[ShockPath]) -> n
     from impulso._linalg import lag_matrices
     from impulso._propagate import propagate
 
-    posterior = identified.idata.posterior
+    posterior = identified._posterior()
     n_lags = identified.n_lags
     P, eps, per_t = structural_shock_context(identified)
     eps_cf = apply_shock_edits(
@@ -370,7 +370,7 @@ def conditional_forecast_engine(
     from impulso._ma import compute_ma_phi
     from impulso._propagate import propagate
 
-    posterior = fitted.idata.posterior
+    posterior = fitted._posterior()
     B_draws = posterior["B"].values
     n_lags = fitted.n_lags
     n_chains, n_draws, n_vars, _ = B_draws.shape
@@ -381,7 +381,7 @@ def conditional_forecast_engine(
 
     # Deterministic path b: identically forecast()'s mean mode (consumes no RNG).
     b = fitted.forecast(steps, include_shock_uncertainty=False, exog_future=exog_future)
-    b_path = b.idata.posterior_predictive["forecast"].values  # (C, D, steps, n)
+    b_path = b._pp()["forecast"].values  # (C, D, steps, n)
 
     rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
     # Mean mode with no pins needs no volatility path and must consume no
@@ -592,7 +592,7 @@ def _forecast_shock_matrices(identified: IdentifiedVAR, steps: int, rng: np.rand
         ValueError: On a rotation-sampling scheme under time-varying
             volatility, or if any posterior draw's matrix carries a `NaN`.
     """
-    posterior = identified.idata.posterior
+    posterior = identified._posterior()
     if not identified.volatility.is_time_varying:
         P = identified.shock_matrix(at=None).values  # (C, D, n, n)
         P_path = np.broadcast_to(P[:, :, np.newaxis, :, :], (*P.shape[:2], steps, *P.shape[2:])).copy()
@@ -686,7 +686,7 @@ def structural_scenario_engine(
     from impulso._ma import compute_ma_phi
     from impulso._propagate import propagate
 
-    posterior = identified.idata.posterior
+    posterior = identified._posterior()
     B_draws = posterior["B"].values
     n_lags = identified.n_lags
     n_chains, n_draws, n_vars, _ = B_draws.shape

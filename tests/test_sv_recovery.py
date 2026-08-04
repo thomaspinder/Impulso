@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from scipy import stats
 
+from impulso._arviz_compat import get_group_dataset, hdi_bounds
 from impulso.samplers import NUTSSampler
 from impulso.sv.spec import StochasticVolatility
 
@@ -28,17 +29,14 @@ def test_rw_recovery(sv_data_rw, sv_series_rw):
     assert rho > 0.7, f"Spearman correlation {rho:.3f} < 0.7"
 
     # sigma_eta 89% HDI covers truth
-    import arviz as az
-
-    hdi = az.hdi(fitted.idata, hdi_prob=0.89)
-    lo = float(hdi["sigma_eta"].sel(hdi="lower"))
-    hi = float(hdi["sigma_eta"].sel(hdi="higher"))
+    posterior = get_group_dataset(fitted.idata, "posterior")
+    lo_da, hi_da = hdi_bounds(posterior["sigma_eta"], 0.89)
+    lo, hi = float(lo_da), float(hi_da)
     true_sigma = sv_series_rw["sigma_eta_true"]
     assert lo <= true_sigma <= hi, f"sigma_eta HDI [{lo:.3f}, {hi:.3f}] misses {true_sigma}"
 
     # Pointwise 89% HDI covers truth at >= 80% of time points
-    h_hdi = az.hdi(fitted.idata, hdi_prob=0.89)["h"].values  # (T, 2)
-    lo_h, hi_h = h_hdi[:, 0], h_hdi[:, 1]
+    lo_h, hi_h = (bound.values for bound in hdi_bounds(posterior["h"], 0.89))
     covered = ((lo_h <= sv_series_rw["h_true"]) & (sv_series_rw["h_true"] <= hi_h)).mean()
     assert covered >= 0.80, f"Coverage {covered:.2f} < 0.80"
 
@@ -83,13 +81,11 @@ def test_ar1_recovery(sv_series_ar1):
     rho, _ = stats.spearmanr(h_med, sv_series_ar1["h_true"])
     assert rho > 0.7, f"Spearman correlation {rho:.3f} < 0.7"
 
-    import arviz as az
-
-    hdi = az.hdi(fitted.idata, hdi_prob=0.89)
+    posterior = get_group_dataset(fitted.idata, "posterior")
     for key, truth in [
         ("phi", sv_series_ar1["phi_true"]),
         ("sigma_eta", sv_series_ar1["sigma_eta_true"]),
     ]:
-        lo = float(hdi[key].sel(hdi="lower"))
-        hi = float(hdi[key].sel(hdi="higher"))
+        lo_da, hi_da = hdi_bounds(posterior[key], 0.89)
+        lo, hi = float(lo_da), float(hi_da)
         assert lo <= truth <= hi, f"{key} HDI [{lo:.3f}, {hi:.3f}] misses {truth}"

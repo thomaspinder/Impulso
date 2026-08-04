@@ -10,13 +10,13 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 from matplotlib.figure import Figure
 
+from impulso._arviz_compat import make_idata
 from impulso._scenario import apply_shock_edits
 from impulso.data import VARData
 from impulso.fitted import FittedVAR
@@ -159,7 +159,7 @@ class TestExogAndMultiLag:
             index=pd.date_range("2023-01-02", periods=t, freq="W-MON"),
         )
         fitted = FittedVAR(
-            idata=az.InferenceData(posterior=posterior),
+            idata=make_idata(posterior=posterior),
             n_lags=n_lags,
             data=data,
             var_names=["y1", "y2"],

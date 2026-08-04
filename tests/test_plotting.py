@@ -1,6 +1,5 @@
 """Tests for plotting functions."""
 
-import arviz as az
 import matplotlib
 import numpy as np
 import xarray as xr
@@ -8,6 +7,7 @@ from matplotlib.figure import Figure
 
 matplotlib.use("Agg")
 
+from impulso._arviz_compat import make_idata
 from impulso.plotting import plot_fevd, plot_forecast, plot_historical_decomposition, plot_irf
 from impulso.results import FEVDResult, ForecastResult, HistoricalDecompositionResult, IRFResult
 
@@ -22,7 +22,7 @@ def _make_forecast_result(n_vars=2, steps=8) -> ForecastResult:
         coords={"variable": names},
         name="forecast",
     )
-    idata = az.InferenceData(posterior_predictive=xr.Dataset({"forecast": da}))
+    idata = make_idata(posterior_predictive=xr.Dataset({"forecast": da}))
     return ForecastResult.model_construct(idata=idata, steps=steps, var_names=names)
 
 
@@ -36,7 +36,7 @@ def _make_irf_result(n_vars=2, horizon=10) -> IRFResult:
         coords={"response": names, "shock": names, "horizon": np.arange(horizon + 1)},
         name="irf",
     )
-    idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": da}))
+    idata = make_idata(posterior_predictive=xr.Dataset({"irf": da}))
     return IRFResult.model_construct(idata=idata, horizon=horizon, var_names=names)
 
 
@@ -52,7 +52,7 @@ def _make_fevd_result(n_vars=2, horizon=10) -> FEVDResult:
         coords={"response": names, "shock": names},
         name="fevd",
     )
-    idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": da}))
+    idata = make_idata(posterior_predictive=xr.Dataset({"fevd": da}))
     return FEVDResult.model_construct(idata=idata, horizon=horizon, var_names=names)
 
 
@@ -67,7 +67,7 @@ def _make_hd_result(n_vars=2, T=20, shock_names=None) -> HistoricalDecomposition
         coords={"response": names, "shock": shocks},
         name="hd",
     )
-    idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": da}))
+    idata = make_idata(posterior_predictive=xr.Dataset({"hd": da}))
     return HistoricalDecompositionResult.model_construct(idata=idata, var_names=names)
 
 
@@ -177,7 +177,7 @@ def _make_sv_forecast_result(steps=12, index=None):
 
     rng = np.random.default_rng(0)
     forecast = rng.standard_normal((2, 50, steps))
-    idata = az.InferenceData(
+    idata = make_idata(
         posterior_predictive=xr.Dataset({"forecast": xr.DataArray(forecast, dims=["chain", "draw", "step"])})
     )
     return SVForecastResult(idata=idata, series_name="sim", steps=steps, index=index)

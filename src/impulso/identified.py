@@ -3,12 +3,12 @@
 import warnings
 from typing import TYPE_CHECKING, Literal
 
-import arviz as az
 import numpy as np
 import pandas as pd
 import xarray as xr
 from pydantic import Field
 
+from impulso._arviz_compat import InferenceDataLike, get_group_dataset, make_idata
 from impulso._base import ImpulsoBaseModel
 from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
@@ -34,7 +34,9 @@ class IdentifiedVAR(ImpulsoBaseModel):
     """Immutable structural VAR with identified shocks.
 
     Attributes:
-        idata: InferenceData with reduced-form posterior (B, intercept, L, ...).
+        idata: InferenceData-schema container with the reduced-form posterior
+            (B, intercept, L, ...) — `arviz.InferenceData` on ArviZ 0,
+            `xarray.DataTree` on ArviZ 1.
         n_lags: Lag order.
         data: Original VARData.
         var_names: Endogenous variable names.
@@ -51,7 +53,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             re-applied to a different Cholesky factor on demand.
     """
 
-    idata: az.InferenceData = Field(repr=False)
+    idata: InferenceDataLike = Field(repr=False)
     n_lags: int
     data: VARData
     var_names: list[str]
@@ -61,6 +63,17 @@ class IdentifiedVAR(ImpulsoBaseModel):
     # invariant attribute rule.
     error_dist: ErrorDistribution = Field(default_factory=Gaussian)  # ty: ignore[invalid-assignment]
     scheme: IdentificationScheme  # P3: needed for at= queries
+
+    def _posterior(self) -> xr.Dataset:
+        """The `posterior` group as an `xarray.Dataset`.
+
+        Identification schemes and volatility processes are written against
+        `xr.Dataset`; on ArviZ 1 the raw group is a `DataTree` node instead.
+        A new Dataset is built per call, so per-`t` loops must bind it to a
+        local once — both to avoid rebuilding it `T` times and to keep the
+        identity-keyed memo in `_PosteriorCache` hitting.
+        """
+        return get_group_dataset(self.idata, "posterior")
 
     @property
     def shock_names(self) -> list[str]:
@@ -103,6 +116,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             return cached
 
         shock_coords = self.shock_names
+        posterior = self._posterior()
 
         if at == "all":
             if not self.volatility.is_time_varying:
@@ -113,8 +127,8 @@ class IdentifiedVAR(ImpulsoBaseModel):
                     "time-invariant — use at=None or at='last'."
                 )
             T = self.data.endog.shape[0] - self.n_lags
-            L_path = self.volatility.cholesky_path(self.idata.posterior, T=T)
-            P_path = self._identify_per_t(L_path)
+            L_path = self.volatility.cholesky_path(posterior, T=T)
+            P_path = self._identify_per_t(L_path, posterior)
             result = xr.DataArray(
                 P_path,
                 dims=["chain", "draw", "time", "response", "shock"],
@@ -127,10 +141,8 @@ class IdentifiedVAR(ImpulsoBaseModel):
             )
         else:
             t = self._resolve_at(at)
-            L = self.volatility.cholesky_at(self.idata.posterior, t=t)
-            P = self.scheme.identify(
-                L, self.var_names, posterior=self.idata.posterior, data=self.data, n_lags=self.n_lags
-            )
+            L = self.volatility.cholesky_at(posterior, t=t)
+            P = self.scheme.identify(L, self.var_names, posterior=posterior, data=self.data, n_lags=self.n_lags)
             result = xr.DataArray(
                 P,
                 dims=["chain", "draw", "response", "shock"],
@@ -183,7 +195,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             "('all' must be handled by the caller before reaching _resolve_at.)"
         )
 
-    def _identify_per_t(self, L_path: np.ndarray) -> np.ndarray:
+    def _identify_per_t(self, L_path: np.ndarray, posterior: xr.Dataset) -> np.ndarray:
         """Apply `self.scheme.identify` per time slice.
 
         Iterates the per-t loop in Python — fine for Cholesky (vectorised
@@ -194,6 +206,11 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
         Args:
             L_path: `(C, D, T, n, n)` Cholesky factor path.
+            posterior: The posterior Dataset, passed in rather than re-read
+                per iteration so that every call shares one object — schemes
+                such as `ProxySVAR` and `LongRunRestriction` memoise on
+                posterior identity, and a per-iteration rebuild would turn
+                every lookup into a miss.
 
         Returns:
             `(C, D, T, n, n)` structural shock matrix path.
@@ -204,7 +221,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             P_path[:, :, t, :, :] = self.scheme.identify(
                 L_path[:, :, t, :, :],
                 self.var_names,
-                posterior=self.idata.posterior,
+                posterior=posterior,
                 data=self.data,
                 n_lags=self.n_lags,
             )
@@ -233,7 +250,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         Returns:
             IRFResult with IRF posterior draws.
         """
-        B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
+        B_draws = self._posterior()["B"].values  # (C, D, n, n*p)
         Phi_arr = self._ma_coefficients(B_draws, self.n_lags, horizon)
         P = self.shock_matrix(at=at)
 
@@ -264,7 +281,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
                 },
                 name="irf",
             )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"irf": irf_da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"irf": irf_da}))
         return IRFResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
     def _fevd_guard(self, fevd_arr: np.ndarray) -> np.ndarray:
@@ -346,7 +363,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         Returns:
             FEVDResult with FEVD posterior draws.
         """
-        B_draws = self.idata.posterior["B"].values  # (C, D, n, n*p)
+        B_draws = self._posterior()["B"].values  # (C, D, n, n*p)
         Phi_arr = self._ma_coefficients(B_draws, self.n_lags, horizon)
         P = self.shock_matrix(at=at)
 
@@ -383,7 +400,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
                 },
                 name="fevd",
             )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"fevd": fevd_da}))
         return FEVDResult(idata=idata, horizon=horizon, var_names=self.var_names)
 
     def historical_decomposition(
@@ -442,7 +459,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         from impulso._residuals import reduced_form_residuals
 
         n_lags = self.n_lags
-        posterior = self.idata.posterior
+        posterior = self._posterior()
         resid = reduced_form_residuals(posterior, self.data, n_lags)
 
         use_per_t = self.volatility.is_time_varying and at in (None, "all")
@@ -516,7 +533,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             coords={"response": self.var_names, "time": time_coord},
             name="baseline",
         )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"hd": hd_da, "baseline": baseline_da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"hd": hd_da, "baseline": baseline_da}))
         return HistoricalDecompositionResult(idata=idata, var_names=self.var_names)
 
     def counterfactual(
@@ -598,7 +615,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             coords={"variable": self.var_names, "time": time_coord},
             name="actual",
         )
-        idata = az.InferenceData(posterior_predictive=xr.Dataset({"counterfactual": cf_da, "actual": actual_da}))
+        idata = make_idata(posterior_predictive=xr.Dataset({"counterfactual": cf_da, "actual": actual_da}))
         return CounterfactualResult(idata=idata, var_names=self.var_names)
 
     def structural_scenario(
@@ -710,7 +727,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
             )
         if path_uncertainty not in ("none", "unconditional"):
             raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
-        posterior = self.idata.posterior
+        posterior = self._posterior()
         if self.data.exog is not None and "B_exog" not in posterior:
             raise ValueError(
                 "This IdentifiedVAR's data carries exogenous regressors the estimator "
@@ -755,7 +772,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         # the prescribed |v_S|^2 term carries no chi-squared law.
         ds.attrs["chi2_tail_of_median"] = float(chi2.sf(float(np.median(q_cond)), df=r)) if r else 1.0
         return ScenarioResult(
-            idata=az.InferenceData(posterior_predictive=ds),
+            idata=make_idata(posterior_predictive=ds),
             steps=steps,
             var_names=self.var_names,
             mode="density" if include_shock_uncertainty else "mean",
