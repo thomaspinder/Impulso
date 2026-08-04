@@ -9,7 +9,13 @@ requires-python = ">=3.11,<4.0"
 dependencies = [
     "numpy>=2.0",
     "pandas>=2.3.3",
-    "pydantic>=2.0",
+    # pydantic 2.0's pinned pydantic-core (2.0.1) has no wheels for Python
+    # >= 3.12 and its source build fails on modern interpreters
+    # (ForwardRef._evaluate signature change), so the floor is split by the
+    # same family boundary as PyMC/ArviZ below. 2.5 is the first release
+    # with official Python 3.12 support.
+    "pydantic>=2.0; python_version < '3.12'",
+    "pydantic>=2.5; python_version >= '3.12'",
     # PyMC and ArviZ must be pinned as a matched pair. PyMC 5 evaluates
     # `arviz.InferenceData` at import time, so it cannot import at all against
     # ArviZ >= 1 (which replaced InferenceData with xarray.DataTree); PyMC 6
@@ -23,7 +29,12 @@ dependencies = [
     # effective floor to 2024.11.
     "xarray>=2024.11",
     "matplotlib>=3.9",
-    "beartype>=0.18",
+    # 0.20 is the first release that resolves stringified forward references
+    # in third-party generic superclasses against their defining module.
+    # xarray's `Dataset(..., Mapping[Hashable, "DataArray"])` base trips the
+    # old behaviour: under 0.18/0.19 any beartype-checked function returning
+    # a non-empty Dataset raises BeartypeCallHintForwardRefException.
+    "beartype>=0.20",
     "scipy>=1.10",
 ]
 classifiers = [
