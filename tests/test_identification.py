@@ -172,7 +172,7 @@ class TestSignRestriction:
             n_rotations=100,
             random_seed=42,
         )
-        coords = sr._build_shock_coords(["my_shock"], n_vars=3)
+        coords = sr.shock_coords(n_vars=3)
         assert coords == ["my_shock", "unidentified_1", "unidentified_2"]
 
     def test_shock_coordinates_with_full_identification(self):
@@ -185,7 +185,7 @@ class TestSignRestriction:
             n_rotations=5000,
             random_seed=42,
         )
-        coords = sr._build_shock_coords(["s1", "s2"], n_vars=2)
+        coords = sr.shock_coords(n_vars=2)
         assert coords == ["s1", "s2"]
 
     def test_identify_multi_horizon_raises_without_B(self):
