@@ -1232,8 +1232,8 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arviz", marker = "python_full_version < '3.12'", specifier = ">=0.20,<1" },
-    { name = "arviz", marker = "python_full_version >= '3.12'", specifier = ">=1.1,<2" },
+    { name = "arviz", marker = "python_full_version < '3.12'", specifier = ">=0.22,<1" },
+    { name = "arviz", marker = "python_full_version >= '3.12'", specifier = ">=1.2,<2" },
     { name = "beartype", specifier = ">=0.20" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.0" },

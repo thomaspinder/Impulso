@@ -21,10 +21,13 @@ dependencies = [
     # ArviZ >= 1 (which replaced InferenceData with xarray.DataTree); PyMC 6
     # requires arviz>=1.1 and, transitively, Python >= 3.12. Declaring the two
     # families independently would let a resolver pick PyMC 5 + ArviZ 1.
+    # Matplotlib 3.11 removed the private `matplotlib.style.core` attribute.
+    # ArviZ 0.22 and 1.2 are the first releases in each family that use the
+    # public style API.
     "pymc>=5.26.1,<6; python_version < '3.12'",
-    "arviz>=0.20,<1; python_version < '3.12'",
+    "arviz>=0.22,<1; python_version < '3.12'",
     "pymc>=6,<7; python_version >= '3.12'",
-    "arviz>=1.1,<2; python_version >= '3.12'",
+    "arviz>=1.2,<2; python_version >= '3.12'",
     # DataTree became a public xarray API in 2024.10; arviz-base 1.1 raises the
     # effective floor to 2024.11.
     "xarray>=2024.11",
