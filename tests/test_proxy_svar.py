@@ -11,7 +11,7 @@ import xarray as xr
 
 from impulso._arviz_compat import make_idata
 from impulso.data import VARData
-from impulso.identification import _CACHE_MISS, ProxySVAR
+from impulso.identification import ProxySVAR
 
 
 def _make_svar_world(relevance_noise: float = 0.1, T: int = 400, seed: int = 3):
@@ -102,7 +102,7 @@ class TestProxySVARDiagnostics:
         data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
         scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
         scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        diag = scheme._last_diagnostics
+        diag = scheme.last_diagnostics
         assert diag["proxy_first_stage_f_median"] > 10.0
         assert diag["proxy_first_stage_f_q05"] <= diag["proxy_first_stage_f_median"]
 
@@ -114,7 +114,7 @@ class TestProxySVARDiagnostics:
         assert f_draws.shape == (2, 40)
         assert np.isclose(
             float(np.median(f_draws)),
-            scheme._last_diagnostics["proxy_first_stage_f_median"],
+            scheme.last_diagnostics["proxy_first_stage_f_median"],
         )
 
     def test_pure_noise_instrument_warns_weak(self):
@@ -124,7 +124,7 @@ class TestProxySVARDiagnostics:
         scheme = ProxySVAR(instrument=noise_instrument, policy_variable="y1")
         with pytest.warns(UserWarning, match="Weak instrument"):
             scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        assert scheme._last_diagnostics["proxy_first_stage_f_median"] < 10.0
+        assert scheme.last_diagnostics["proxy_first_stage_f_median"] < 10.0
 
 
 class TestProxySVARAlignment:
@@ -353,22 +353,8 @@ class TestProxySVARPipelineSlow:
         assert (da.isel(horizon=0).sel(response="y1") > 0).all()
 
 
-@pytest.fixture
-def residual_calls(monkeypatch):
-    """Count `_aligned_residuals` invocations — the expensive cache-missed step."""
-    calls: list[int] = []
-    original = ProxySVAR._aligned_residuals
-
-    def counting(self, posterior, data, n_lags):
-        calls.append(1)
-        return original(self, posterior, data, n_lags)
-
-    monkeypatch.setattr(ProxySVAR, "_aligned_residuals", counting)
-    return calls
-
-
 class TestProxySVARImpactCache:
-    def test_repeated_identify_same_context_hits_cache(self, residual_calls):
+    def test_repeated_identify_same_context_hits_cache(self):
         """Per-t identification (SV path) calls identify once per period
         with the same posterior/data — the impact direction must be
         computed once and reused, and results must be identical."""
@@ -376,26 +362,22 @@ class TestProxySVARImpactCache:
         scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
 
         P1 = scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        cached_d = scheme._impact_cache.get((idata.posterior, data), (1,))
-        assert cached_d is not _CACHE_MISS
+        assert scheme.last_diagnostics["proxy_impact_cache_hit"] == 0.0
 
         P2 = scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        assert scheme._impact_cache.get((idata.posterior, data), (1,)) is cached_d
-        assert residual_calls == [1]  # no recompute on the second call
+        assert scheme.last_diagnostics["proxy_impact_cache_hit"] == 1.0  # no recompute
         np.testing.assert_array_equal(P1, P2)
 
-    def test_cache_invalidated_by_new_context(self, residual_calls):
+    def test_cache_invalidated_by_new_context(self):
         data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
         data2, idata2, _P2, _instrument2, L2 = _make_svar_world(relevance_noise=0.05, seed=9)
         scheme = ProxySVAR(instrument=instrument, policy_variable="y1")
 
         scheme.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        d_first = scheme._impact_cache.get((idata.posterior, data), (1,))
         scheme.identify(L2, ["y1", "y2"], posterior=idata2.posterior, data=data2, n_lags=1)
-        assert scheme._impact_cache.get((idata2.posterior, data2), (1,)) is not d_first
-        assert len(residual_calls) == 2
+        assert scheme.last_diagnostics["proxy_impact_cache_hit"] == 0.0  # recomputed
 
-    def test_live_posterior_with_different_identity_misses(self, residual_calls):
+    def test_live_posterior_with_different_identity_misses(self):
         """A distinct-but-live posterior object must never hit the entry
         stored for another one, even with identical contents."""
         data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
@@ -406,11 +388,10 @@ class TestProxySVARImpactCache:
         assert first is not second
 
         scheme.identify(L, ["y1", "y2"], posterior=first, data=data, n_lags=1)
-        assert scheme._impact_cache.get((second, data), (1,)) is _CACHE_MISS
         scheme.identify(L, ["y1", "y2"], posterior=second, data=data, n_lags=1)
-        assert len(residual_calls) == 2
+        assert scheme.last_diagnostics["proxy_impact_cache_hit"] == 0.0  # identity, not content
 
-    def test_dead_posterior_forces_recompute(self, residual_calls):
+    def test_dead_posterior_forces_recompute(self):
         """Once the cached posterior is collected the weak reference dies,
         so the next lookup recomputes instead of trusting a recycled id()."""
         data, idata, _P_true, instrument, L = _make_svar_world(relevance_noise=0.05)
@@ -418,7 +399,7 @@ class TestProxySVARImpactCache:
 
         posterior = idata.posterior.copy()
         scheme.identify(L, ["y1", "y2"], posterior=posterior, data=data, n_lags=1)
-        assert len(residual_calls) == 1
+        assert scheme.last_diagnostics["proxy_impact_cache_hit"] == 0.0
 
         ref = weakref.ref(posterior)
         del posterior
@@ -426,9 +407,8 @@ class TestProxySVARImpactCache:
         assert ref() is None  # the cached referent really is gone
 
         fresh = idata.posterior.copy()
-        assert scheme._impact_cache.get((fresh, data), (1,)) is _CACHE_MISS
         scheme.identify(L, ["y1", "y2"], posterior=fresh, data=data, n_lags=1)
-        assert len(residual_calls) == 2
+        assert scheme.last_diagnostics["proxy_impact_cache_hit"] == 0.0
 
     def test_cache_hit_suppresses_the_weak_instrument_warning(self):
         """Warn-once semantics: the weak-instrument warning is raised on the
@@ -449,4 +429,5 @@ class TestProxySVARImpactCache:
         b = ProxySVAR(instrument=instrument, policy_variable="y1")
 
         a.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
-        assert b._impact_cache.get((idata.posterior, data), (1,)) is _CACHE_MISS
+        b.identify(L, ["y1", "y2"], posterior=idata.posterior, data=data, n_lags=1)
+        assert b.last_diagnostics["proxy_impact_cache_hit"] == 0.0  # b's cache was empty

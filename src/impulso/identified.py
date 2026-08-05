@@ -153,14 +153,10 @@ class IdentifiedVAR(ImpulsoBaseModel):
                 name="structural_shock_matrix",
             )
 
-        # Attach sign-restriction acceptance rate if available.
-        rate = getattr(self.scheme, "_last_acceptance_rate", None)
-        if isinstance(rate, float):
-            result.attrs["sign_restriction_acceptance_rate"] = rate
-
-        # Attach any scheme-specific diagnostics (e.g. ProxySVAR first-stage
-        # strength) the same way — identify() stashes them, we surface them.
-        diagnostics = getattr(self.scheme, "_last_diagnostics", None)
+        # Surface the scheme's identification diagnostics (acceptance rates,
+        # first-stage strength, cache-hit flags) — the seam's optional
+        # `last_diagnostics` capability; see CONTEXT.md.
+        diagnostics = getattr(self.scheme, "last_diagnostics", None)
         if diagnostics:
             result.attrs.update(diagnostics)
 

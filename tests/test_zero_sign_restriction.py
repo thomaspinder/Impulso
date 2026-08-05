@@ -207,7 +207,7 @@ class TestCholeskyDegeneracyAnchor:
         )
         P = scheme.identify(L, ["y1", "y2", "y3"])
 
-        assert scheme._last_diagnostics["zero_sign_acceptance_rate"] == 1.0
+        assert scheme.last_diagnostics["zero_sign_acceptance_rate"] == 1.0
         expected = np.abs(np.linalg.cholesky(sigma))
         max_dev = float(np.max(np.abs(np.abs(P) - expected)))
         assert max_dev < 1e-8, f"max deviation from |cholesky(Sigma)| = {max_dev:g}"
@@ -228,7 +228,7 @@ class TestCholeskyDegeneracyAnchor:
         )
         P = scheme.identify(L, ["y1", "y2", "y3"])
 
-        assert scheme._last_diagnostics["zero_sign_acceptance_rate"] == 1.0
+        assert scheme.last_diagnostics["zero_sign_acceptance_rate"] == 1.0
         np.testing.assert_allclose(P, np.linalg.cholesky(sigma), atol=1e-8)
 
 
@@ -263,7 +263,7 @@ class TestClosedFormAndInvariants:
         )
         P = scheme.identify(L, ["y1", "y2", "y3"])
         assert np.nanmax(np.abs(P[..., 1, 0])) < 1e-10
-        assert scheme._last_diagnostics["zero_sign_max_zero_violation"] < 1e-10
+        assert scheme.last_diagnostics["zero_sign_max_zero_violation"] < 1e-10
 
     def test_reproduces_sigma(self, synthetic_idata_3v):
         """P P' = Sigma on every accepted draw — Q is exactly orthogonal."""
@@ -389,8 +389,8 @@ class TestSignOnlyEquivalence:
         P_zs = zs.identify(L, ["y1", "y2"])
         P_sr = sr.identify(L, ["y1", "y2"])
 
-        rate_zs = zs._last_diagnostics["zero_sign_acceptance_rate"]
-        rate_sr = sr._last_acceptance_rate
+        rate_zs = zs.last_diagnostics["zero_sign_acceptance_rate"]
+        rate_sr = sr.last_diagnostics["sign_restriction_acceptance_rate"]
         assert abs(rate_zs - rate_sr) < 0.15
 
         for row in (0, 1):
@@ -424,8 +424,8 @@ class TestFailurePolicy:
         with pytest.warns(UserWarning, match="NaN"):
             P = scheme.identify(L, ["y1", "y2", "y3"])
         assert np.isnan(P).any()
-        assert scheme._last_diagnostics["zero_sign_failed_draws"] > 0
-        assert 0.0 <= scheme._last_diagnostics["zero_sign_acceptance_rate"] < 1.0
+        assert scheme.last_diagnostics["zero_sign_failed_draws"] > 0
+        assert 0.0 <= scheme.last_diagnostics["zero_sign_acceptance_rate"] < 1.0
 
     def test_raise_policy(self, synthetic_idata_3v):
         L = synthetic_idata_3v.posterior["L"].values
@@ -452,21 +452,21 @@ class TestFailurePolicy:
             random_seed=2,
         )
         scheme.identify(L, ["y1", "y2", "y3"])
-        assert set(scheme._last_diagnostics) == {
+        assert set(scheme.last_diagnostics) == {
             "zero_sign_acceptance_rate",
             "zero_sign_failed_draws",
             "zero_sign_failed_fraction",
             "zero_sign_mean_attempts",
             "zero_sign_max_zero_violation",
         }
-        assert scheme._last_diagnostics["zero_sign_mean_attempts"] >= 1.0
+        assert scheme.last_diagnostics["zero_sign_mean_attempts"] >= 1.0
 
     def test_does_not_set_sign_restriction_acceptance_rate(self, synthetic_idata_3v):
-        """The scheme must not attach the misnamed SignRestriction attr."""
+        """The scheme must not emit the SignRestriction-prefixed key."""
         L = synthetic_idata_3v.posterior["L"].values
         scheme = _quiet(shock_names=["s1", "s2"], zero_restrictions={"y2": ["s1"]}, n_rotations=10)
         scheme.identify(L, ["y1", "y2", "y3"])
-        assert getattr(scheme, "_last_acceptance_rate", None) is None
+        assert "sign_restriction_acceptance_rate" not in scheme.last_diagnostics
 
 
 # --------------------------------------------------------------------------
