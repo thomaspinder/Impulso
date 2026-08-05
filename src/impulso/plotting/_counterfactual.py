@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from impulso._arviz_compat import hdi_bounds
-
 if TYPE_CHECKING:
     from impulso.results import CounterfactualResult
 
@@ -29,12 +27,10 @@ def plot_counterfactual(
     Returns:
         Matplotlib Figure.
     """
-    pp = result._pp()
-    cf_da = pp["counterfactual"]
-    actual_da = pp["actual"]
-    med = cf_da.median(dim=("chain", "draw"))
-    hdi_lower, hdi_upper = hdi_bounds(cf_da, prob)
-    time = cf_da.coords["time"].values
+    med = result.median()
+    hdi = result.hdi(prob)
+    actual = result.actual()
+    time = med.index.values
     n_vars = len(result.var_names)
 
     if figsize is None:
@@ -46,18 +42,18 @@ def plot_counterfactual(
     fig.suptitle("Historical Counterfactual")
 
     for i, var in enumerate(result.var_names):
-        axes[i].plot(time, actual_da.sel(variable=var).values, color="black", linewidth=1.2, label="actual")
+        axes[i].plot(time, actual[var].values, color="black", linewidth=1.2, label="actual")
         axes[i].plot(
             time,
-            med.sel(variable=var).values,
+            med[var].values,
             color="C0",
             linewidth=1.2,
             label="counterfactual (median)",
         )
         axes[i].fill_between(
             time,
-            hdi_lower.sel(variable=var).values,
-            hdi_upper.sel(variable=var).values,
+            hdi.lower[var].values,
+            hdi.upper[var].values,
             color="C0",
             alpha=0.25,
             linewidth=0,

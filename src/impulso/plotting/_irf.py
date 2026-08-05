@@ -33,7 +33,7 @@ def plot_irf(
     fig.suptitle("Impulse Response Functions")
 
     horizons = range(result.horizon + 1)
-    shock_names = result._pp()["irf"].coords["shock"].values.tolist()
+    shock_names = result.shock_names
     for i, resp in enumerate(var_names):
         for j, shock in enumerate(shock_names[:n_vars]):
             ax = axes[i][j]

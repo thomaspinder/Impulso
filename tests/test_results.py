@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from impulso._arviz_compat import make_idata
 from impulso.results import (
+    ConditionalForecastResult,
     FEVDResult,
     ForecastResult,
     HDIResult,
@@ -16,6 +17,7 @@ from impulso.results import (
     LagOrderResult,
     VARResultBase,
 )
+from impulso.scenario import VariablePath
 
 
 class TestHDIResult:
@@ -209,6 +211,12 @@ class TestIRFResultMethods:
             assert list(frame.index) == list(range(11))
         assert (hdi.upper.values >= hdi.lower.values).all()
 
+    def test_shock_names_follow_shock_coord(self):
+        """shock_names reads the `shock` coordinate, not var_names."""
+        result = _make_irf_result(shocks=("supply", "demand"))
+        assert result.shock_names == ["supply", "demand"]
+        assert all(isinstance(s, str) for s in result.shock_names)
+
 
 class TestFEVDResultMethods:
     def test_median_shape_and_labels(self):
@@ -250,6 +258,12 @@ class TestFEVDResultMethods:
             assert frame.columns.names == ["response", "shock"]
             assert list(frame.index) == list(range(11))
         assert (hdi.upper.values >= hdi.lower.values).all()
+
+    def test_shock_names_follow_shock_coord(self):
+        """shock_names reads the `shock` coordinate, not var_names."""
+        result = _make_fevd_result(shocks=("supply", "demand"))
+        assert result.shock_names == ["supply", "demand"]
+        assert all(isinstance(s, str) for s in result.shock_names)
 
 
 class TestHistoricalDecompositionResultMethods:
@@ -299,3 +313,71 @@ class TestHistoricalDecompositionResultMethods:
             assert isinstance(frame.columns, pd.MultiIndex)
             assert frame.columns.names == ["response", "shock"]
         assert (hdi.upper.values >= hdi.lower.values).all()
+
+    def test_shock_names_follow_shock_coord(self):
+        """shock_names reads the `shock` coordinate, so a partially-identified
+        decomposition surfaces its `unidentified_remainder` column.
+        """
+        result = _make_hd_result(shocks=("target", "unidentified_remainder"))
+        assert result.shock_names == ["target", "unidentified_remainder"]
+
+    def test_deviation_is_median_of_shock_sum(self):
+        """deviation() is the median of the per-draw sum over shocks, with
+        the index and columns of the per-variable frames.
+        """
+        result = _make_hd_result(n_periods=24)
+        dev = result.deviation()
+        raw = result.idata.posterior_predictive["hd"]
+        expected = raw.sum("shock").median(dim=("chain", "draw")).transpose("time", "response")
+        assert isinstance(dev.index, pd.DatetimeIndex)
+        assert dev.index.name == "time"
+        assert list(dev.columns) == ["gdp", "inf"]
+        np.testing.assert_allclose(dev.values, expected.values)
+
+
+def _make_conditional_forecast_result(conditions=(), attrs=None, steps=4, n_vars=2):
+    rng = np.random.default_rng(45)
+    names = [f"y{i + 1}" for i in range(n_vars)]
+    data = rng.standard_normal((2, 50, steps, n_vars))
+    da = xr.DataArray(
+        data,
+        dims=["chain", "draw", "step", "variable"],
+        coords={"variable": names},
+        name="forecast",
+    )
+    ds = xr.Dataset({"forecast": da}, attrs=dict(attrs or {}))
+    idata = make_idata(posterior_predictive=ds)
+    return ConditionalForecastResult.model_construct(
+        idata=idata,
+        steps=steps,
+        var_names=names,
+        conditions=list(conditions),
+    )
+
+
+class TestConditionalForecastResultAccessors:
+    def test_n_restrictions_reads_dataset_attrs(self):
+        result = _make_conditional_forecast_result(attrs={"n_restrictions": 3})
+        assert result.n_restrictions == 3
+
+    def test_n_restrictions_defaults_to_zero_without_metadata(self):
+        """A hand-built result without plausibility attrs reports zero."""
+        result = _make_conditional_forecast_result()
+        assert result.n_restrictions == 0
+
+    def test_pinned_values_resolves_scalars_arrays_and_nans(self):
+        """A scalar broadcasts to every step; an array pins a leading run
+        with NaN entries left free; unconditioned variables map to [].
+        """
+        conditions = [
+            VariablePath(variable="y1", values=np.array([0.4, np.nan, -0.2])),
+            VariablePath(variable="y2", values=1.5),
+        ]
+        result = _make_conditional_forecast_result(conditions=conditions, steps=4)
+        pins = result.pinned_values()
+        assert pins["y1"] == [(1, 0.4), (3, -0.2)]
+        assert pins["y2"] == [(1, 1.5), (2, 1.5), (3, 1.5), (4, 1.5)]
+
+    def test_pinned_values_empty_without_conditions(self):
+        result = _make_conditional_forecast_result()
+        assert result.pinned_values() == {"y1": [], "y2": []}

@@ -6,8 +6,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
-from impulso._arviz_compat import hdi_bounds
-
 if TYPE_CHECKING:
     from impulso.results import ConditionalForecastResult
 
@@ -31,15 +29,11 @@ def plot_conditional_forecast(
     Returns:
         Matplotlib Figure.
     """
-    from impulso._scenario import resolve_variable_pins
-
-    pp = result._pp()
-    da = pp["forecast"]
-    med = da.median(dim=("chain", "draw"))
-    hdi_lower, hdi_upper = hdi_bounds(da, prob)
+    med = result.median()
+    hdi = result.hdi(prob)
     steps_axis = np.arange(1, result.steps + 1)
     n_vars = len(result.var_names)
-    pins = resolve_variable_pins(list(result.conditions), result.var_names, result.steps)
+    pins = result.pinned_values()
 
     if figsize is None:
         figsize = (12, 3 * n_vars)
@@ -48,30 +42,30 @@ def plot_conditional_forecast(
     if n_vars == 1:
         axes = [axes]
     title = "Conditional Forecast"
-    n_restrictions = int(pp.attrs.get("n_restrictions", 0))
+    n_restrictions = result.n_restrictions
     if n_restrictions:
-        q_cal = float(pp["plausibility_calibrated"].median())
+        q_cal = result.plausibility()["q_calibrated_median"]
         title += f" (calibrated plausibility q = {q_cal:.2f})"
     fig.suptitle(title)
 
     for i, var in enumerate(result.var_names):
         axes[i].plot(
             steps_axis,
-            med.isel(variable=i).values,
+            med[var].values,
             color="C0",
             linewidth=1.2,
             label="median",
         )
         axes[i].fill_between(
             steps_axis,
-            hdi_lower.isel(variable=i).values,
-            hdi_upper.isel(variable=i).values,
+            hdi.lower[var].values,
+            hdi.upper[var].values,
             color="C0",
             alpha=0.25,
             linewidth=0,
             label=f"{int(prob * 100)}% HDI",
         )
-        pinned = [(h + 1, value) for (j, h, value) in pins if j == i]
+        pinned = pins[var]
         if pinned:
             xs, ys = zip(*pinned, strict=True)
             axes[i].scatter(xs, ys, color="black", marker="x", s=30, zorder=3, label="pinned")

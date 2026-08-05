@@ -25,8 +25,7 @@ def plot_fevd(
     Returns:
         Matplotlib Figure.
     """
-    fevd_da = result._pp()["fevd"]
-    med = fevd_da.median(dim=("chain", "draw"))
+    med = result.median()
     n_vars = len(result.var_names)
     horizons = range(result.horizon + 1)
 
@@ -39,7 +38,7 @@ def plot_fevd(
     fig.suptitle("Forecast Error Variance Decomposition")
 
     for i, resp in enumerate(result.var_names):
-        shares = med.sel(response=resp).values  # (horizon+1, n_shocks)
+        shares = med[resp].values  # (horizon+1, n_shocks)
         axes[i].stackplot(horizons, shares.T, labels=result.var_names, alpha=0.8)
         axes[i].set_ylabel(resp)
         axes[i].set_ylim(0, 1)
