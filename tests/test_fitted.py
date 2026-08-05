@@ -1,5 +1,7 @@
 """Tests for FittedVAR."""
 
+from typing import ClassVar
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -190,18 +192,21 @@ class TestFittedVARVolatility:
 
 
 class TestSetIdentificationStrategyRoutesThroughSeam:
-    @pytest.mark.slow
-    def test_shock_matrix_triggers_cholesky_at(self, var_data_2v):
+    def test_shock_matrix_triggers_cholesky_at(self, synthetic_idata_2v, var_data_2v):
         """shock_matrix() queries volatility.cholesky_at lazily.
         set_identification_strategy no longer calls it eagerly."""
         from unittest.mock import MagicMock
 
         from impulso.identification import Cholesky
-        from impulso.samplers import NUTSSampler
-        from impulso.spec import VAR
+        from impulso.volatility import Constant
 
-        sampler = NUTSSampler(cores=1, chains=1, draws=20, tune=20, random_seed=0, nuts_sampler="pymc")
-        fitted = VAR(lags=1).fit(var_data_2v, sampler=sampler)
+        fitted = FittedVAR(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(),
+        )
         identified = fitted.set_identification_strategy(Cholesky(ordering=fitted.var_names))
 
         spy = MagicMock(wraps=identified.volatility)
@@ -210,11 +215,61 @@ class TestSetIdentificationStrategyRoutesThroughSeam:
         sm = identified.shock_matrix()
         spy.cholesky_at.assert_called_once()
 
-        # structural_shock_matrix no longer stored in the posterior.
+        # structural_shock_matrix is never stored in the posterior.
         assert "structural_shock_matrix" not in identified.idata.posterior
         assert sm.dims == ("chain", "draw", "response", "shock")
         assert list(sm.coords["response"].values) == fitted.var_names
         assert list(sm.coords["shock"].values) == fitted.var_names
+
+
+class TestSetIdentificationStrategyThreadsFields:
+    """Guard the FittedVAR -> IdentifiedVAR carry against silent defaults.
+
+    set_identification_strategy enumerates the carried fields by hand; a
+    field added to both models but forgotten there would silently sit at
+    its default on the IdentifiedVAR — the bug class that produced
+    TestErrorDistThreadsToFittedVAR on the spec path.
+    """
+
+    KNOWN_SHARED: ClassVar[set[str]] = {"idata", "n_lags", "data", "var_names", "volatility", "error_dist"}
+
+    def test_shared_field_set_is_known(self):
+        from impulso.identified import IdentifiedVAR
+
+        shared = set(FittedVAR.model_fields) & set(IdentifiedVAR.model_fields)
+        assert shared == self.KNOWN_SHARED, (
+            "FittedVAR and IdentifiedVAR gained a shared field: thread it in "
+            "set_identification_strategy, then extend KNOWN_SHARED and the "
+            "threading assertions below."
+        )
+
+    def test_every_shared_field_is_threaded(self, synthetic_idata_2v, var_data_2v):
+        from impulso.identification import Cholesky
+        from impulso.observation import StudentT
+        from impulso.volatility import Constant
+
+        fitted = FittedVAR(
+            idata=synthetic_idata_2v,
+            n_lags=1,
+            data=var_data_2v,
+            var_names=["y1", "y2"],
+            volatility=Constant(sigma_sd_beta=3.0),
+            # Non-default on purpose: a dropped carry would silently fall
+            # back to Gaussian, which is exactly what this test must catch.
+            error_dist=StudentT(nu=7.0),
+        )
+        identified = fitted.set_identification_strategy(Cholesky(ordering=["y1", "y2"]))
+        # Arbitrary-typed fields pass through Pydantic by reference, so a
+        # threaded field is the *same object*; plain containers (var_names)
+        # and scalars (n_lags) are copied during validation, so value
+        # equality is the honest predicate there.
+        identity_fields = {"idata", "data", "volatility", "error_dist"}
+        for name in sorted(self.KNOWN_SHARED):
+            got, want = getattr(identified, name), getattr(fitted, name)
+            if name in identity_fields:
+                assert got is want, f"field {name!r} not threaded"
+            else:
+                assert got == want, f"field {name!r} not threaded"
 
 
 class TestFittedVarSigmaDispatch:
