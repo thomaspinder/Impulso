@@ -21,6 +21,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% [markdown]
 # A vector autoregression (VAR) models multiple time series jointly, capturing how each
@@ -36,9 +37,12 @@ logging.getLogger("pytensor").setLevel(logging.ERROR)
 import arviz as az
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import VAR, VARData, select_lag_order
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## Simulate a small macro economy

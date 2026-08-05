@@ -21,6 +21,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% tags=["remove-cell"]
 import os
@@ -49,6 +50,7 @@ import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import (
     VAR,
@@ -60,6 +62,8 @@ from impulso import (
     select_lag_order,
 )
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## The data
@@ -83,11 +87,9 @@ labels = {
     "rate": "Federal Funds Rate (%)",
 }
 for ax, col in zip(axes, df.columns, strict=True):
-    ax.plot(df.index, df[col], linewidth=1, color="0.3")
+    ax.plot(df.index, df[col], linewidth=1, color=plotting.COLORS.body)
     ax.set_ylabel(labels[col], fontsize=9)
-    ax.grid(alpha=0.3)
-axes[0].set_title("U.S. Monetary Policy Data (1965-2007)")
-fig.tight_layout()
+_ = plotting.serif_title("U.S. Monetary Policy Data (1965-2007)", axes[0])
 
 # %%
 data = VARData.from_df(df, endog=["output", "prices", "rate"])
@@ -319,7 +321,6 @@ az.plot_trace(
     var_names=["B"],
     coords={"var": ["prices"], "coeff": ["L1.prices", "L2.prices"]},
 )
-plt.tight_layout()
 
 # %% [markdown]
 # ### The energy diagnostic
@@ -394,7 +395,6 @@ az.plot_rank(
     var_names=["B"],
     coords={"var": ["prices"], "coeff": ["L1.prices", "L2.prices"]},
 )
-plt.tight_layout()
 
 # %% [markdown]
 # :::{admonition} Going deeper
@@ -446,12 +446,10 @@ for i, (ax, name) in enumerate(zip(axes, data.endog_names, strict=True)):
         alpha=0.3,
         label="95% predictive band",
     )
-    ax.plot(time, observed[:, i], color="0.2", linewidth=0.8, label="observed")
+    ax.plot(time, observed[:, i], color=plotting.COLORS.ink, linewidth=0.8, label="observed")
     ax.set_ylabel(labels[name], fontsize=9)
-    ax.grid(alpha=0.3)
-axes[0].legend(loc="upper left", fontsize=8)
-axes[0].set_title("Posterior predictive check, one-step-ahead")
-fig.tight_layout()
+plotting.legend_right(axes[0])
+_ = plotting.serif_title("Posterior predictive check, one-step-ahead", axes[0])
 
 # %% [markdown]
 # In the full render the band covers about 95% of observations overall and per variable —

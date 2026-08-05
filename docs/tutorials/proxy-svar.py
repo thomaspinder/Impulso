@@ -36,6 +36,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% tags=["remove-cell"]
 import os
@@ -76,10 +77,13 @@ import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import VAR, VARData
 from impulso.identification import ProxySVAR
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## Data: OPEC announcements and monthly macro variables
@@ -114,8 +118,7 @@ data = VARData(
 fig, ax = plt.subplots(figsize=(10, 3))
 ax.plot(instrument.index, instrument.values, lw=0.8)
 ax.set_ylabel("Oil price expectation revision [%]")
-ax.set_title("Oil futures surprises around OPEC announcements")
-plt.tight_layout()
+plotting.serif_title("Oil futures surprises around OPEC announcements", ax)
 
 # %% [markdown]
 # The series is sparse with long stretches of zeros punctuated by isolated spikes. This is because OPEC does not announce a new production decision every month, and a month without an announcement contributes a zero rather than a missing value. When the proxy is positive, futures prices rose around that month's announcement, which Känzig reads as the market receiving adverse news about future supply: traders marked up the expected oil price because they expected less oil to be available. Negative values imply the inverse i.e., announcements that led the market to expect more future supply than it had previously priced in.
@@ -223,8 +226,14 @@ sm = ivar.shock_matrix()
 f_draws = scheme.first_stage(fitted.idata.posterior, data, n_lags=12).ravel()
 
 fig, ax = plt.subplots(figsize=(6, 3.2))
-ax.hist(f_draws, bins=40, color="C0", alpha=0.75)
-ax.axvline(10, color="k", ls="--", lw=1, label="F = 10 rule of thumb")
+ax.hist(f_draws, bins=40, color=plotting.COLORS.oxblood, alpha=0.75)
+ax.axvline(
+    10,
+    color=plotting.COLORS.ink,
+    ls="--",
+    lw=1,
+    label="F = 10 rule of thumb",
+)
 ax.axvline(
     np.median(f_draws),
     color="C1",
@@ -232,16 +241,15 @@ ax.axvline(
     label=f"posterior median = {np.median(f_draws):.1f}",
 )
 ax.set_xlabel("First-stage F")
-ax.set_title("Posterior of instrument relevance")
-ax.legend(fontsize=8)
-plt.tight_layout()
+plotting.serif_title("Posterior of instrument relevance", ax)
+plotting.legend_below(ax, per_row=2)
 
 # %% [markdown]
 # All of the posterior mass lies above the $F=10$ rule of thumb, which is reassuring about relevance but cannot settle the exclusion question. Further, the histogram is not a bootstrap of the announcement series, as the proxy is held fixed throughout, and the spread comes entirely from uncertainty about the fitted VAR. The distribution matters because identification is repeated for every draw. Each draw's impact vector is estimated from its own first stage, and the 10% normalisation divides by that draw's oil-price impact, so draws with a weak first stage push erratic responses into the credible bands. Because little of the mass sits below ten here, the bands in the next section can be read as economic uncertainty rather than as a symptom of weak identification.
 #
 # ## What follows adverse oil supply news?
 #
-# The figure overlays two analyses of the same six-variable system. Blue shows the Impulso posterior median with 68% and 90% credible intervals. Orange shows a local reproduction of Känzig's OLS point estimate and moving-block-bootstrap confidence bands, the resampling scheme that {cite:t}`jentschLunsford2019` recommend for proxy SVARs. The paper uses 10,000 bootstrap replications but in this notebook we use 1,000 to keep the compilation manageable. These intervals have different interpretations, so their widths should not be read as a contest between methods. The useful comparison is whether the estimated paths tell a similar economic story.
+# The figure overlays two analyses of the same six-variable system. The solid ledger accent shows the Impulso posterior median with 68% and 90% credible intervals. The dashed comparison shows a local reproduction of Känzig's OLS point estimate and moving-block-bootstrap confidence bands, the resampling scheme that {cite:t}`jentschLunsford2019` recommend for proxy SVARs. The paper uses 10,000 bootstrap replications but in this notebook we use 1,000 to keep the compilation manageable. These intervals have different interpretations, so their widths should not be read as a contest between methods. The useful comparison is whether the estimated paths tell a similar economic story.
 
 # %%
 irf_draws = irf.idata.posterior_predictive["irf"].sel(shock="oil_supply_news")
@@ -275,25 +283,27 @@ for j, (ax, name) in enumerate(zip(axes.ravel(), var_names_paper)):
     for lo, hi in (freq.bands68, freq.bands90):
         ax.plot(horizon, lo[:, j], color="C1", lw=0.8, ls=":")
         ax.plot(horizon, hi[:, j], color="C1", lw=0.8, ls=":")
-    ax.axhline(0, color="k", lw=0.6)
-    ax.set_title(name, fontsize=11)
+    ax.axhline(0, color=plotting.COLORS.hairline, lw=0.6)
+    plotting.serif_title(name, ax, fontsize=11)
     ax.set_xlim(0, 50)
     if j >= 3:
         ax.set_xlabel("Months")
     if j % 3 == 0:
         ax.set_ylabel("%")
-axes[0, 0].legend(fontsize=7, loc="upper right")
+axes[0, 0].legend()
 fig.suptitle(
-    "Response to an oil supply news shock raising the real oil price by 10%", y=1.0
+    "Response to an oil supply news shock raising the real oil price by 10%",
+    y=1.0,
+    fontfamily=plotting.SERIF_STACK,
+    fontweight=600,
 )
-plt.tight_layout()
 
 # %% [markdown]
 # The first three panels depict the central economic result that oil prices rises by construction. However, oil production changes little on impact and declines only later, whilst inventories begin to rise immediately. That is the timing predicted by news of a future shortfall whereby firms store oil before supply tightens. An unexpected shortfall today would instead force production down and inventories to be used. Because the model imposes none of these signs, the pattern is evidence in favour of the interpretation rather than a restatement of the identifying assumptions.
 #
 # The news also propagates beyond the oil market. World industrial production is nearly unchanged during the first year and then falls. U.S. industrial production declines sooner and more sharply, whilst the U.S. price level rises. In Känzig's estimates, a shock that raises the oil price by 10% eventually lowers world oil production by about 0.7%, raises inventories by 1.2%, lowers world and U.S. industrial production by 0.6% and 1%, and raises U.S. CPI by about 0.4%. The Impulso medians closely reproduce those magnitudes and dynamics.
 #
-# The two sets of bands also differ in width, and the difference changes with the horizon. Over the first year or two the blue credible intervals are markedly tighter than the orange bootstrap bands, but they widen steadily thereafter, and by month 50 the two are of comparable width, with the blue bands, if anything, the wider for world oil production. Both patterns follow from how each method handles parameter uncertainty. Each bootstrap replicate re-estimates the unregularised OLS system and the first-stage regression on resampled data, so noise in the 72 lag coefficients of every equation, and in the instrument's co-movement with the residuals, enters the orange bands from the first month. Impulso instead conditions on the observed proxy and shrinks the lag coefficients towards a random walk, so its short-horizon responses are tightly determined, and in the oil-price panel the impact is fixed at exactly 10% in every draw by the normalisation.
+# The two sets of bands also differ in width, and the difference changes with the horizon. Over the first year or two the Impulso credible intervals are markedly tighter than the bootstrap bands, but they widen steadily thereafter, and by month 50 the two are of comparable width, with the Impulso bands, if anything, the wider for world oil production. Both patterns follow from how each method handles parameter uncertainty. Each bootstrap replicate re-estimates the unregularised OLS system and the first-stage regression on resampled data, so noise in the 72 lag coefficients of every equation, and in the instrument's co-movement with the residuals, enters the comparison bands from the first month. Impulso instead conditions on the observed proxy and shrinks the lag coefficients towards a random walk, so its short-horizon responses are tightly determined, and in the oil-price panel the impact is fixed at exactly 10% in every draw by the normalisation.
 #
 # The clearest difference appears in U.S. CPI after about 30 months, where Impulso's posterior median decays more slowly than Känzig's point estimate, though the published path remains inside the 90% credible interval. Random-walk shrinkage of the persistent CPI series is a plausible explanation, but establishing it would require a prior-sensitivity exercise, and {cite:t}`giannoneLenzaPrimiceri2015` show how the tightness of such priors can itself be inferred from the data. The comparison here also covers only the paper's baseline external-instrument design. Känzig's checks for event-window noise and alternative specifications remain important evidence for the economic interpretation.
 #
@@ -366,8 +376,7 @@ t = sd_path.coords["time"].values
 ax.fill_between(t, sd_lo, sd_hi, alpha=0.3, color="C0")
 ax.plot(t, sd_med, color="C0", lw=1.2)
 ax.set_ylabel("% oil price impact")
-ax.set_title("One-standard-deviation oil supply news shock, period by period")
-plt.tight_layout()
+plotting.serif_title("One-standard-deviation oil supply news shock, period by period", ax)
 
 # %% tags=["remove-cell"]
 # Export the figure above as this page's social-card image (see the meta

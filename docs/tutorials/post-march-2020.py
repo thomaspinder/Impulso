@@ -70,6 +70,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% tags=["remove-cell"]
 import os
@@ -81,9 +82,12 @@ ci = os.environ.get("IMPULSO_DOCS_CI") == "1"
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
 from _post_march_2020 import conditional_forecast
+from qc_core import plotting
+
 from impulso import Cholesky, ConjugateVAR, NIWPrior, PandemicBreak, VARData
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## The data and the model panel
@@ -131,12 +135,21 @@ window = model_df.loc["2015-01-01":]
 fig, axes = plt.subplots(3, 3, figsize=(12, 8), sharex=True)
 for ax, name in zip(axes.ravel(), var_names):
     ax.plot(window.index, window[name].values, color="C0", lw=1.0)
-    ax.axvspan(pd.Timestamp("2020-03-01"), pd.Timestamp("2020-05-01"), color="C3", alpha=0.15)
-    ax.set_title(labels[name], fontsize=9)
+    ax.axvspan(
+        pd.Timestamp("2020-03-01"),
+        pd.Timestamp("2020-05-01"),
+        color=plotting.COLORS.oxblood_wash,
+        alpha=0.75,
+    )
+    plotting.serif_title(labels[name], ax, fontsize=9)
 for k in range(len(var_names), axes.size):
     axes.ravel()[k].axis("off")
-fig.suptitle("The seven-variable panel around the COVID-19 outbreak (2015 onward)", y=1.0)
-plt.tight_layout()
+fig.suptitle(
+    "The seven-variable panel around the COVID-19 outbreak (2015 onward)",
+    y=1.0,
+    fontfamily=plotting.SERIF_STACK,
+    fontweight=600,
+)
 
 # %% [markdown]
 # ## Fitting the pandemic VAR
@@ -187,20 +200,37 @@ scale_modes = {"s_march": 17, "s_april": 70, "s_may": 20}
 fig, axes = plt.subplots(2, 3, figsize=(12, 7))
 for ax, name in zip(axes.ravel(), panels):
     vals = post[name].values.ravel()
-    ax.hist(vals, bins=40, density=True, color="C0", alpha=0.75)
+    ax.hist(vals, bins=40, density=True, color=plotting.COLORS.oxblood, alpha=0.75)
     ax.axvline(np.median(vals), color="C1", lw=1.5, label=f"median = {np.median(vals):.2f}")
     if name in scale_modes:
-        ax.axvline(scale_modes[name], color="k", ls="--", lw=1, label=f"paper mode ≈ {scale_modes[name]}")
-    ax.set_title(titles[name], fontsize=10)
-    ax.legend(fontsize=8)
+        ax.axvline(
+            scale_modes[name],
+            color=plotting.COLORS.ink,
+            ls="--",
+            lw=1,
+            label=f"paper mode ≈ {scale_modes[name]}",
+        )
+    plotting.serif_title(titles[name], ax, fontsize=10)
+    ax.legend()
 # Overlay the Beta prior on rho to show the data barely update it.
 rho_prior = PandemicBreak(start=start).hyperparameter_priors()["rho"]
 xx = np.linspace(0.01, 0.99, 200)
-axes[1, 1].plot(xx, np.exp([rho_prior.logpdf(float(x)) for x in xx]), color="k", ls=":", lw=1.2, label="prior")
-axes[1, 1].legend(fontsize=8)
+axes[1, 1].plot(
+    xx,
+    np.exp([rho_prior.logpdf(float(x)) for x in xx]),
+    color=plotting.COLORS.ink,
+    ls=":",
+    lw=1.2,
+    label="prior",
+)
+axes[1, 1].legend()
 axes.ravel()[len(panels)].axis("off")
-fig.suptitle("Figure 1 — posteriors of the prior tightness and volatility break", y=1.0)
-plt.tight_layout()
+fig.suptitle(
+    "Figure 1 — posteriors of the prior tightness and volatility break",
+    y=1.0,
+    fontfamily=plotting.SERIF_STACK,
+    fontweight=600,
+)
 
 # %% [markdown]
 # ## The drop-the-pandemic-data baseline
@@ -264,13 +294,17 @@ for j, name in enumerate(var_names):
     ax.fill_between(h, q[0.16][:, j], q[0.84][:, j], color="C0", alpha=0.30, label="pandemic 68%")
     ax.plot(h, med_p[:, j], color="C0", lw=1.3, label="pandemic median")
     ax.plot(h, med_b[:, j], color="C1", ls="--", lw=1.3, label="drop-data median")
-    ax.axhline(0, color="k", lw=0.6)
-    ax.set_title(labels[name], fontsize=9)
+    ax.axhline(0, color=plotting.COLORS.hairline, lw=0.6)
+    plotting.serif_title(labels[name], ax, fontsize=9)
 for k in range(len(var_names), axes.size):
     axes.ravel()[k].axis("off")
-axes.ravel()[0].legend(fontsize=7, loc="upper right")
-fig.suptitle("Figure 2 — responses to a one-standard-deviation unemployment innovation", y=1.0)
-plt.tight_layout()
+axes.ravel()[0].legend()
+fig.suptitle(
+    "Figure 2 — responses to a one-standard-deviation unemployment innovation",
+    y=1.0,
+    fontfamily=plotting.SERIF_STACK,
+    fontweight=600,
+)
 
 # %% [markdown]
 # ## A conditional forecast for the recovery
@@ -359,17 +393,26 @@ def plot_conditional(cf, suptitle):
     for j, name in enumerate(var_names):
         ax = axes.ravel()[j]
         b = _panel_bands(cf, j, name)
-        ax.plot(context.index, _norm(context[name].values, name), color="0.4", lw=1.0)
+        ax.plot(
+            context.index,
+            _norm(context[name].values, name),
+            color=plotting.COLORS.muted,
+            lw=1.0,
+        )
         ax.fill_between(forecast_index, b["lo95"], b["hi95"], color="C0", alpha=0.15)
         ax.fill_between(forecast_index, b["lo68"], b["hi68"], color="C0", alpha=0.30)
         ax.plot(forecast_index, b["median"], color="C0", lw=1.3)
-        ax.axvline(pd.Timestamp("2020-05-01"), color="k", lw=0.6, ls=":")
-        ax.set_title(labels[name], fontsize=9)
+        ax.axvline(pd.Timestamp("2020-05-01"), color=plotting.COLORS.ink, lw=0.6, ls=":")
+        plotting.serif_title(labels[name], ax, fontsize=9)
         ax.set_ylim(_ylims[j])
     for k in range(len(var_names), axes.size):
         axes.ravel()[k].axis("off")
-    fig.suptitle(suptitle, y=1.0)
-    plt.tight_layout()
+    fig.suptitle(
+        suptitle,
+        y=1.0,
+        fontfamily=plotting.SERIF_STACK,
+        fontweight=600,
+    )
     return fig
 
 

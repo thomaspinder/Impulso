@@ -29,6 +29,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% tags=["remove-cell"]
 import os
@@ -41,9 +42,12 @@ import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso.samplers import NUTSSampler
 from impulso.sv import AR1, SVData, StochasticVolatility
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## Data
@@ -69,25 +73,22 @@ rolling_window = 12
 rolling_sd = inflation.rolling(rolling_window).std()
 
 fig, axes = plt.subplots(2, 1, figsize=(9, 5.5), sharex=True)
-axes[0].plot(inflation.index, inflation.values, linewidth=0.9, color="0.3")
-axes[0].axhline(0.0, color="grey", linewidth=0.5, linestyle="--")
+axes[0].plot(inflation.index, inflation.values, linewidth=0.9, color=plotting.COLORS.body)
+axes[0].axhline(0.0, color=plotting.COLORS.hairline, linewidth=0.5, linestyle="--")
 axes[0].set_ylabel("Inflation (% m/m)")
-axes[0].set_title("US CPI inflation since 1965")
-axes[0].grid(alpha=0.3)
+plotting.serif_title("US CPI inflation since 1965", axes[0])
 
 axes[1].plot(
     rolling_sd.index,
     rolling_sd.values,
     linewidth=1.0,
-    color="C0",
+    color=plotting.COLORS.oxblood,
     label=f"{rolling_window}-month rolling SD",
 )
 axes[1].set_ylabel("Rolling SD")
 axes[1].set_xlabel("Date")
-axes[1].legend(loc="upper right", fontsize=9)
-axes[1].grid(alpha=0.3)
+_ = axes[1].legend()
 
-fig.tight_layout()
 
 # %% [markdown]
 # The rolling standard deviation makes the regime shift obvious. Volatility is elevated in the 1970s, spikes around the early-1980s disinflation, and then settles into a much narrower band from the mid-1980s onward. A rolling window is a useful diagnostic but it is a crude estimator: the window is fixed, the weights are flat, and the implied volatility at date $t$ uses data from $t - 11$ through $t$ with no pooling toward a prior or adjacent periods. The SV model will give us a smoother, probabilistically coherent volatility path.
@@ -150,7 +151,6 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
 
 # %% mystnb={"figure": {"caption": "Posterior conditional SD of US CPI inflation from the random-walk SV fit.", "name": "vol-path"}}
 fig = fitted.volatility().plot()
-fig.tight_layout()
 
 # %% [markdown]
 # To see how the volatility path lines up with the macroeconomic narrative we overlay NBER recession dates that fall within the sample. These are the recessions dated by the NBER Business Cycle Dating Committee from 1965 onward.
@@ -169,8 +169,12 @@ nber_recessions = [
     ("2020-02", "2020-04"),
 ]
 for start, end in nber_recessions:
-    ax.axvspan(pd.to_datetime(start), pd.to_datetime(end), alpha=0.15, color="gray")
-fig.tight_layout()
+    ax.axvspan(
+        pd.to_datetime(start),
+        pd.to_datetime(end),
+        alpha=0.75,
+        color=plotting.COLORS.oxblood_wash,
+    )
 
 # %% [markdown]
 # The posterior volatility is elevated throughout the 1970s and peaks during the 1973-75 and 1980-82 recessions. From the mid-1980s onward the conditional SD drops to roughly a third of its 1970s level — the Great Moderation signature that a constant-variance model could not capture — with only mild bumps around the 1990-91 and 2001 recessions. The 2007-09 financial crisis produces a visible uptick, and the 2020 COVID shock and the post-2021 inflation surge push the conditional SD back toward levels not seen since the early 1980s.
@@ -179,30 +183,28 @@ fig.tight_layout()
 #
 # How does the SV posterior compare with the naive 12-month rolling estimator we plotted earlier? We overlay them on the same axes.
 
-# %% mystnb={"figure": {"caption": "Posterior median conditional SD from the SV model (blue) versus a 12-month rolling SD (grey).", "name": "vol-vs-rolling"}}
+# %% mystnb={"figure": {"caption": "Posterior median conditional SD from the SV model in the ledger accent versus a muted 12-month rolling SD.", "name": "vol-vs-rolling"}}
 posterior_sd = fitted.volatility().median()
 
 fig, ax = plt.subplots(figsize=(9, 4))
 ax.plot(
     rolling_sd.index,
     rolling_sd.values,
-    color="0.55",
+    color=plotting.COLORS.muted,
     linewidth=1.0,
     label=f"{rolling_window}-month rolling SD",
 )
 ax.plot(
     posterior_sd.index,
     posterior_sd["inflation"].values,
-    color="C0",
+    color=plotting.COLORS.oxblood,
     linewidth=1.5,
     label="SV posterior median SD",
 )
 ax.set_ylabel("Conditional SD")
 ax.set_xlabel("Date")
-ax.legend(loc="upper right", fontsize=9)
-ax.grid(alpha=0.3)
-ax.set_title("SV posterior SD vs rolling SD — US CPI inflation")
-fig.tight_layout()
+plotting.legend_below(ax, per_row=2)
+_ = plotting.serif_title("SV posterior SD vs rolling SD — US CPI inflation", ax)
 
 # %% [markdown]
 # Both estimators agree on the overall shape: high in the 1970s and early 1980s, low from the mid-1980s onward. The SV posterior is visibly smoother and avoids the sharp step changes the rolling estimator produces when a single unusual month enters or leaves the window. The posterior also pools information across the full sample through the random-walk prior on $h_t$, whereas the rolling SD uses only the most recent 12 observations.
@@ -239,7 +241,6 @@ else:
 
 fitted_ar1 = StochasticVolatility(dynamics=AR1()).fit(data, sampler=sampler_ar1)
 fig_ar1 = fitted_ar1.volatility().plot()
-fig_ar1.tight_layout()
 
 # %% [markdown]
 # The AR(1) volatility path should look qualitatively similar to the random-walk version on the bulk of the sample. The two disagree mostly at the tails, where the AR(1) prior pulls the path toward $\alpha$ while the random walk lets it drift. Inspecting the posterior of $\phi$ is the quickest way to decide whether that mean reversion is informative: if the mass sits very close to 1, the two specifications are almost indistinguishable.
@@ -251,7 +252,6 @@ fig_ar1.tight_layout()
 # %% mystnb={"figure": {"caption": "12-step density forecast from the random-walk SV model.", "name": "sv-forecast"}}
 forecast = fitted.forecast(steps=12)
 fig_fcst = forecast.plot()
-fig_fcst.tight_layout()
 
 # %% [markdown]
 # In principle the fan should widen with horizon: $\mathrm{Var}(h_{T+h}\mid h_T,\sigma_\eta) = h\,\sigma_\eta^2$ grows linearly in $h$, and $\mathrm{Var}(y_{T+h})$ inherits an $\exp(0.5\, h\, \sigma_\eta^2)$ factor on top of $\exp(h_T)$. In practice the visible widening here is modest: the posterior $\sigma_\eta$ for monthly CPI inflation is small, so over twelve steps the forward-dispersion factor on the conditional SD is only a few percent, and the bulk of the fan width comes from posterior uncertainty in $h_T$ itself rather than from forward dispersion. Pushing the horizon out further, or using a series with a larger $\sigma_\eta$, makes the geometric growth easier to see.

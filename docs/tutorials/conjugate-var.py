@@ -49,6 +49,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% tags=["remove-cell"]
 import os
@@ -63,9 +64,12 @@ import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import Cholesky, ConjugateVAR, MinnesotaPrior, NIWPrior, VAR, VARData, compare_evidence
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## Data: a German climate–energy system
@@ -93,11 +97,9 @@ raw = pd.read_csv("data/berlin_climate.csv", index_col="date", parse_dates=True)
 fig, axes = plt.subplots(4, 1, figsize=(9, 6), sharex=True)
 units = {"temperature": "°C", "radiation": "MJ/m²", "wind": "km/h", "precipitation": "mm/day"}
 for ax, col in zip(axes, raw.columns, strict=True):
-    ax.plot(raw.index, raw[col], linewidth=0.7, color="0.3")
+    ax.plot(raw.index, raw[col], linewidth=0.7, color=plotting.COLORS.body)
     ax.set_ylabel(f"{col}\n({units[col]})", fontsize=8)
-    ax.grid(alpha=0.3)
-axes[0].set_title("Berlin climate — raw monthly means (1980–2024)")
-fig.tight_layout()
+_ = plotting.serif_title("Berlin climate — raw monthly means (1980–2024)", axes[0])
 
 # %% [markdown]
 # The raw series are overwhelmingly *seasonal* — a VAR fit on them would spend its
@@ -115,12 +117,10 @@ anomalies.describe().round(2)
 # %% mystnb={"figure": {"caption": "Standardised monthly anomalies — the seasonal cycle removed. This is what the VAR sees.", "name": "climate-anomalies"}} tags=["remove-input"]
 fig, axes = plt.subplots(4, 1, figsize=(9, 6), sharex=True)
 for ax, col in zip(axes, anomalies.columns, strict=True):
-    ax.plot(anomalies.index, anomalies[col], linewidth=0.6, color="C0")
-    ax.axhline(0, color="0.6", linewidth=0.8)
+    ax.plot(anomalies.index, anomalies[col], linewidth=0.6, color=plotting.COLORS.oxblood)
+    ax.axhline(0, color=plotting.COLORS.hairline, linewidth=0.8)
     ax.set_ylabel(col, fontsize=8)
-    ax.grid(alpha=0.3)
-axes[0].set_title("Berlin climate — standardised anomalies")
-fig.tight_layout()
+_ = plotting.serif_title("Berlin climate — standardised anomalies", axes[0])
 
 # %% [markdown]
 # ## Fitting the conjugate VAR
@@ -210,7 +210,12 @@ irf_nuts = fitted_nuts.set_identification_strategy(Cholesky(ordering=ordering)).
 
 # %% mystnb={"figure": {"caption": "Conjugate-VAR impulse responses (Cholesky). Column shock → row response, over 24 months.", "name": "irf-conjugate"}} tags=["remove-input"]
 fig = irf_conjugate.plot()
-_ = fig.suptitle("Conjugate VAR — impulse responses", y=1.02)
+_ = fig.suptitle(
+    "Conjugate VAR — impulse responses",
+    y=1.02,
+    fontfamily=plotting.SERIF_STACK,
+    fontweight=600,
+)
 
 # %% [markdown]
 # Now overlay the two estimators on the same axes. If the conjugate VAR is a legitimate
@@ -234,11 +239,10 @@ for ax, (shock, response) in zip(axes, pairs, strict=True):
         horizons, median, low, high = irf_band(result, shock, response)
         ax.plot(horizons, median, color=color, label=label)
         ax.fill_between(horizons, low, high, color=color, alpha=0.2)
-    ax.axhline(0, color="0.6", linewidth=0.8)
-    ax.set_title(f"{shock} shock → {response}")
+    ax.axhline(0, color=plotting.COLORS.hairline, linewidth=0.8)
+    plotting.serif_title(f"{shock} shock → {response}", ax)
     ax.set_xlabel("months")
-    ax.legend(fontsize=8)
-fig.tight_layout()
+    ax.legend()
 
 # %% [markdown]
 # The two estimators tell the same structural story: a positive radiation (sunshine) shock

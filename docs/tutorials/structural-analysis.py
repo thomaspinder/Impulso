@@ -22,6 +22,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% [markdown]
 # A reduced-form VAR tells you that variables move together, but not *why*. Structural
@@ -40,10 +41,13 @@ logging.getLogger("pytensor").setLevel(logging.ERROR)
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import VAR, VARData, select_lag_order
 from impulso.identification import Cholesky
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## Load and rescale
@@ -107,7 +111,7 @@ for col in df.columns:
     anomalies[col] = y - fitted
 
 # %% [markdown]
-# The left column below shows each raw series with its fitted seasonal cycle overlaid in red; the
+# The left column below shows each raw series with its fitted seasonal cycle overlaid in the ledger accent; the
 # right column shows the resulting anomalies. Notice how the annual swing in temperature (roughly
 # ±10°C) dominates the raw series but is absent from the anomalies, leaving only the day-to-day
 # fluctuations driven by passing weather systems.
@@ -117,19 +121,24 @@ fig, axes = plt.subplots(4, 2, figsize=(10, 7), sharex="col")
 units = {"pressure": "hPa", "wind": "m/s", "temperature": "C", "humidity": "%"}
 
 for i, col in enumerate(df.columns):
-    axes[i, 0].plot(df.index, df[col], linewidth=0.4, color="0.4", label="observed")
-    axes[i, 0].plot(df.index, climatology[col], color="C3", linewidth=1.5, label="climatology")
+    axes[i, 0].plot(df.index, df[col], linewidth=0.4, color=plotting.COLORS.body, label="observed")
+    axes[i, 0].plot(
+        df.index,
+        climatology[col],
+        color=plotting.COLORS.oxblood,
+        linewidth=1.5,
+        label="climatology",
+    )
     axes[i, 0].set_ylabel(f"{col} ({units[col]})")
     if i == 0:
-        axes[i, 0].legend(fontsize=8)
-        axes[i, 0].set_title("Raw + seasonal fit")
+        axes[i, 0].legend()
+        plotting.serif_title("Raw + seasonal fit", axes[i, 0])
 
-    axes[i, 1].plot(df.index, anomalies[col], linewidth=0.4, color="C0")
-    axes[i, 1].axhline(0, color="0.5", linewidth=0.5, linestyle="--")
+    axes[i, 1].plot(df.index, anomalies[col], linewidth=0.4, color=plotting.COLORS.oxblood)
+    axes[i, 1].axhline(0, color=plotting.COLORS.hairline, linewidth=0.5, linestyle="--")
     if i == 0:
-        axes[i, 1].set_title("Anomalies")
+        plotting.serif_title("Anomalies", axes[i, 1])
 
-fig.tight_layout()
 
 # %% [markdown]
 # ## Build the VAR dataset
@@ -252,7 +261,7 @@ hd = identified.historical_decomposition()
 hd.plot()
 
 # %% [markdown]
-# Each panel shows the propagated median contribution of each structural shock as stacked bars, with the black line marking the posterior median of the variable's total deviation from its deterministic baseline — by construction, the per-draw contributions sum exactly to that deviation. The bars need not visually reach the line: bars are per-shock medians while the line is the median of their sum, so a gap between them signals posterior uncertainty about *which* shock to credit, not a failure of the decomposition. The attribution pattern mirrors the FEVD. Each variable's deviations are dominated by its own colour — pressure almost entirely so, wind with a visible blue undercurrent from pressure (the mechanical link between pressure gradients and wind speed), temperature mostly self-driven through surface heat storage, and humidity the most mixed panel, with pressure and temperature contributions reflecting frontal passages and the Clausius–Clapeyron effect. Because contributions propagate through the lag dynamics, a large synoptic event keeps contributing for several days after it strikes rather than being booked to a single day, and reading across panels for the same period shows how one event travels down the causal chain from pressure to humidity.
+# Each panel shows the propagated median contribution of each structural shock as stacked bars, with the black line marking the posterior median of the variable's total deviation from its deterministic baseline — by construction, the per-draw contributions sum exactly to that deviation. The bars need not visually reach the line: bars are per-shock medians while the line is the median of their sum, so a gap between them signals posterior uncertainty about *which* shock to credit, not a failure of the decomposition. The attribution pattern mirrors the FEVD. Each variable's deviations are dominated by its own colour — pressure almost entirely so, wind with a contrasting undercurrent from pressure (the mechanical link between pressure gradients and wind speed), temperature mostly self-driven through surface heat storage, and humidity the most mixed panel, with pressure and temperature contributions reflecting frontal passages and the Clausius–Clapeyron effect. Because contributions propagate through the lag dynamics, a large synoptic event keeps contributing for several days after it strikes rather than being booked to a single day, and reading across panels for the same period shows how one event travels down the causal chain from pressure to humidity.
 #
 # ## Summary
 #
