@@ -39,6 +39,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% tags=["remove-cell"]
 import os
@@ -51,10 +52,13 @@ import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import VAR, VARData, select_lag_order
 from impulso.identification import Cholesky, SignRestriction
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## Data
@@ -90,12 +94,10 @@ labels = {
 }
 
 for ax, col in zip(axes, df.columns, strict=True):
-    ax.plot(df.index, df[col], linewidth=1, color="0.3")
+    ax.plot(df.index, df[col], linewidth=1, color=plotting.COLORS.body)
     ax.set_ylabel(labels[col], fontsize=9)
-    ax.grid(alpha=0.3)
 
-axes[0].set_title("U.S. Monetary Policy VAR - Raw Data (1965-2007)")
-fig.tight_layout()
+_ = plotting.serif_title("U.S. Monetary Policy VAR - Raw Data (1965-2007)", axes[0])
 
 # %% [markdown]
 # ## Reduced-form VAR estimation
@@ -173,7 +175,12 @@ identified_chol_a = fitted.set_identification_strategy(Cholesky(ordering=orderin
 
 irf_chol_a = identified_chol_a.impulse_response(horizon=48)
 fig = irf_chol_a.plot()
-fig.suptitle("Cholesky IRFs -- Ordering A: Output, Prices, Rate", y=1.02)
+fig.suptitle(
+    "Cholesky IRFs -- Ordering A: Output, Prices, Rate",
+    y=1.02,
+    fontfamily=plotting.SERIF_STACK,
+    fontweight=600,
+)
 
 # %% [markdown]
 # The 3x3 grid above shows every shock-response pair. The panel of figures may be read as "column shock causes row response." Focussing on the third column, the rate shock, we note that because output and CPI enter as $100 \times \log$, a one-unit change in those series is approximately a one-percentage-point change.
@@ -237,16 +244,16 @@ for i, resp in enumerate(response_vars):
             color=colour,
         )
 
-    ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
+    ax.axhline(0, color=plotting.COLORS.hairline, linewidth=0.5, linestyle="--")
     ax.set_ylabel(response_labels[resp])
     if i == 0:
-        ax.legend(fontsize=9, title="Ordering")
-        ax.set_title(
-            "Response to Contractionary Monetary Policy Shock — Cholesky Orderings"
+        ax.legend(title="Ordering")
+        plotting.serif_title(
+            "Response to Contractionary Monetary Policy Shock — Cholesky Orderings",
+            ax,
         )
 
 axes[-1].set_xlabel("Months")
-fig.tight_layout()
 
 # %% [markdown]
 # Let's breakdown the different interpretations that can be drawn from the three orderings. Overall, orderings A and B produce *identical* impulse responses. This is not a coincidence. In both orderings, the federal funds rate sits in position 3 (last), so the monetary policy shock is the third column of the lower-triangular $B_0$, which depends only on the Cholesky factor's third column. Swapping output and prices in positions 1 and 2 changes the output shock and the price shock, but leaves the monetary policy shock untouched. This is a useful structural insight: ordering sensitivity for a given shock depends on *where that shock's variable sits in the ordering*, not on the full permutation. The monetary policy shock only changes when the rate moves to a different position, as in ordering C.
@@ -327,14 +334,13 @@ for i, resp in enumerate(response_vars):
         label="68% HDI" if i == 0 else None,
     )
     ax.plot(horizons, med_vals, color="C0", linewidth=2, label="Median" if i == 0 else None)
-    ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
+    ax.axhline(0, color=plotting.COLORS.hairline, linewidth=0.5, linestyle="--")
     ax.set_ylabel(response_labels[resp])
     if i == 0:
-        ax.legend(fontsize=8)
+        ax.legend()
 
-axes[0].set_title("Response to Contractionary MP Shock — Sign Restrictions (h=6)")
+plotting.serif_title("Response to Contractionary MP Shock — Sign Restrictions (h=6)", axes[0])
 axes[-1].set_xlabel("Months")
-fig.tight_layout()
 
 # %% [markdown]
 # The three panels above show how each variable responds to the identified monetary policy shock under sign restrictions with $h = 6$.
@@ -385,14 +391,13 @@ for i, resp in enumerate(response_vars):
 
         ax.plot(horizons, med_vals, color=colour, label=f"h={h}", linewidth=1.5)
 
-    ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
+    ax.axhline(0, color=plotting.COLORS.hairline, linewidth=0.5, linestyle="--")
     ax.set_ylabel(response_labels[resp])
     if i == 0:
-        ax.legend(fontsize=9, title="Restriction horizon")
-        ax.set_title("Response to Contractionary MP Shock -- Sign Restrictions")
+        ax.legend(title="Restriction horizon")
+        plotting.serif_title("Response to Contractionary MP Shock -- Sign Restrictions", ax)
 
 axes[-1].set_xlabel("Months")
-fig.tight_layout()
 
 # %% [markdown]
 # The three restriction horizons produce median responses that are qualitatively similar but quantitatively different.
@@ -484,14 +489,13 @@ for i, resp in enumerate(response_vars):
         label="Sign Restrictions (h=6)",
     )
 
-    ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
+    ax.axhline(0, color=plotting.COLORS.hairline, linewidth=0.5, linestyle="--")
     ax.set_ylabel(response_labels[resp])
     if i == 0:
-        ax.legend(fontsize=9)
-        ax.set_title("Monetary Policy Shock: Cholesky vs Sign Restrictions")
+        ax.legend()
+        plotting.serif_title("Monetary Policy Shock: Cholesky vs Sign Restrictions", ax)
 
 axes[-1].set_xlabel("Months")
-fig.tight_layout()
 
 # %% tags=["remove-input"]
 
@@ -519,7 +523,7 @@ pd.DataFrame(band_rows)
 #
 # Three things stand out:
 #
-# 1. **The price puzzle disappears under sign restrictions, but not because it was resolved.** Under a Cholesky restriction, prices rise persistently after a contractionary shock, reaching about +0.35 over 48 months. Under sign restrictions (red dashed), prices fall to about -0.20 and stay there. However, we must remember that we *imposed* that prices cannot rise. The sign restriction model cannot produce a price puzzle because we forbade it. Whether this is appropriate depends on how confident you are in the restriction. If you believe prices should fall after a monetary contraction, sign restrictions enforce that belief. If you want to let the data tell you whether prices rise or fall, you need to leave prices unrestricted too, at which point the identification becomes very weak.
+# 1. **The price puzzle disappears under sign restrictions, but not because it was resolved.** Under a Cholesky restriction, prices rise persistently after a contractionary shock, reaching about +0.35 over 48 months. Under sign restrictions (dashed), prices fall to about -0.20 and stay there. However, we must remember that we *imposed* that prices cannot rise. The sign restriction model cannot produce a price puzzle because we forbade it. Whether this is appropriate depends on how confident you are in the restriction. If you believe prices should fall after a monetary contraction, sign restrictions enforce that belief. If you want to let the data tell you whether prices rise or fall, you need to leave prices unrestricted too, at which point the identification problem is not solved.
 # 2. **The output responses agree on the sign but disagree on the magnitude and timing.** Both approaches show output declining after a contractionary monetary shock. Under Cholesky, the decline is larger (about -0.7 at 48 months) and more persistent. Under sign restrictions, the decline is shallower (about -0.3) and preceded by a brief initial increase. The sign restriction credible band is much wider, spanning from +0.5 to -0.7 in the first year. The Cholesky band is tighter (roughly $\pm$ 0.2 around the median). The question for the researcher: is the tighter Cholesky band reflecting genuine precision, or is it false confidence from zero restrictions that may not hold?
 # 3. **The rate shock itself is calibrated differently.** The Cholesky monetary policy shock is about twice the size of the sign restriction shock on impact (roughly 0.6 vs 0.3 percentage points). This is a normalisation difference, not a substantive one: the two approaches extract different objects from the same residuals. A "one standard deviation monetary policy shock" means something different under each scheme because the structural decomposition $B_0$ is different -- and since the shocks are normalised to unit variance ($\varepsilon_t \sim N(0, I)$), the *scale* of a "one standard deviation" shock depends entirely on the columns of $B_0$. This matters for comparing magnitudes across identification strategies: the output decline looks larger under Cholesky, but part of that is because the shock itself is larger. Ideally, one would normalise both shocks to, say, a 1-percentage-point impact on the federal funds rate before comparing the output responses. We leave the standard one-standard-deviation normalisation here for consistency with the literature, but the reader should keep this caveat in mind when interpreting the side-by-side comparison above.
 #

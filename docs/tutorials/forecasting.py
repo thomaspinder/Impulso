@@ -22,6 +22,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% [markdown]
 # Conventional VARs produce point forecasts. A Bayesian VAR produces a full posterior predictive distribution over future paths. This means every forecast comes with calibrated uncertainty — wide bands when the model is unsure, narrow when the data are informative.
@@ -29,11 +30,15 @@ logging.getLogger("pytensor").setLevel(logging.ERROR)
 # That uncertainty has two sources: the model's coefficients are only estimated, and the system is hit by a fresh random shock every period. `forecast()` includes both by default. The [section below](#what-the-bands-include) shows why leaving the shocks out — as much VAR tooling implicitly does — understates uncertainty, badly so at short horizons.
 
 # %%
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import VAR, VARData
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## Setup
@@ -116,8 +121,6 @@ density_hdi = density_fcast.hdi(prob=0.89)
 # Plotting both 89% bands on the same axes shows the gap. The narrow inner band is parameter uncertainty alone; the wider band is the full predictive.
 
 # %%
-import matplotlib.pyplot as plt
-
 horizons = range(1, 9)
 fig, axes = plt.subplots(1, n_vars, figsize=(12, 4), squeeze=False)
 
@@ -132,12 +135,11 @@ for i, name in enumerate(data.endog_names):
         horizons, mean_hdi.lower[name], mean_hdi.upper[name],
         alpha=0.5, color="C1", label="parameter only",
     )
-    ax.plot(horizons, med, color="black", lw=1)
-    ax.set_title(name)
+    ax.plot(horizons, med, color=plotting.COLORS.ink, lw=1)
+    plotting.serif_title(name, ax)
     ax.set_xlabel("horizon")
 
-axes[0][0].legend(loc="upper left", fontsize=8)
-fig.tight_layout()
+_ = plotting.legend_below(axes[0][0], per_row=2)
 
 # %% [markdown]
 # The understatement is worst at the shortest horizons. At `h=1`, parameter uncertainty is small — the data pin the coefficients down — so a mean-only band is almost invisible, yet the true one-step forecast still carries the full shock variance. The ratio of band widths makes this concrete:

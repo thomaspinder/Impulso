@@ -21,6 +21,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% tags=["remove-cell"]
 import os
@@ -41,9 +42,12 @@ ci = os.environ.get("IMPULSO_DOCS_CI") == "1"
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import VAR, MinnesotaPrior, VARData
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## The problem: a VAR runs out of data fast
@@ -63,15 +67,25 @@ T_ref = 200
 
 fig, ax = plt.subplots(figsize=(7, 4))
 for p, style in zip([1, 2, 4, 8], ["-", "--", "-.", ":"], strict=True):
-    ax.plot(n_grid, n_grid**2 * p + n_grid, style, color="crimson", label=f"coefficients, $p={p}$")
-ax.plot(n_grid, n_grid * T_ref, color="0.3", linewidth=2, label=f"data points ($nT$, $T={T_ref}$)")
+    ax.plot(
+        n_grid,
+        n_grid**2 * p + n_grid,
+        style,
+        color=plotting.COLORS.oxblood,
+        label=f"coefficients, $p={p}$",
+    )
+ax.plot(
+    n_grid,
+    n_grid * T_ref,
+    color=plotting.COLORS.body,
+    linewidth=2,
+    label=f"data points ($nT$, $T={T_ref}$)",
+)
 ax.set_yscale("log")
 ax.set_xlabel("number of variables $n$")
 ax.set_ylabel("count (log scale)")
-ax.set_title("Parameters grow quadratically, data does not")
-ax.legend(fontsize=8, loc="lower right")
-ax.grid(alpha=0.3)
-fig.tight_layout()
+plotting.serif_title("Parameters grow quadratically, data does not", ax)
+_ = plotting.legend_right(ax)
 
 # %% [markdown]
 # An 8-variable VAR(8) has 520 coefficients against 1,600 data points. Ordinary least
@@ -193,7 +207,7 @@ for ax, key, title, cmap in [
     im = ax.imshow(arr, cmap=cmap, vmin=-vmax if key == "B_mu" else 0, vmax=vmax, aspect="auto")
     ax.set_xticks(range(12), col_labels, fontsize=6)
     ax.set_yticks(range(3), names, fontsize=8)
-    ax.set_title(title, fontsize=10)
+    plotting.serif_title(title, ax, fontsize=10)
     ax.set_ylabel("equation")
     for i in range(3):
         for j in range(12):
@@ -206,10 +220,9 @@ for ax, key, title, cmap in [
                 ha="center",
                 va="center",
                 fontsize=5.5,
-                color="white" if luminance < 0.5 else "black",
+                color=plotting.COLORS.paper if luminance < 0.5 else plotting.COLORS.ink,
             )
     fig.colorbar(im, ax=ax, fraction=0.025)
-fig.tight_layout()
 
 # %% [markdown]
 # The left panel is the random walk: a one wherever a variable meets its own first lag,
@@ -232,20 +245,32 @@ for decay, style in [("harmonic", "-"), ("geometric", "--")]:
     sd = MinnesotaPrior(decay=decay).build_priors(n_vars=3, n_lags=8)["B_sigma"]
     own = sd[0, (lags - 1) * 3 + 0]  # equation 0, own variable, each lag
     cross = sd[0, (lags - 1) * 3 + 1]  # equation 0, another variable, each lag
-    ax.plot(lags, own, style, marker="o", color="crimson", label=f"own lags, {decay}")
-    ax.plot(lags, cross, style, marker="s", color="0.35", label=f"cross lags, {decay}")
+    ax.plot(
+        lags,
+        own,
+        style,
+        marker="o",
+        color=plotting.COLORS.oxblood,
+        label=f"own lags, {decay}",
+    )
+    ax.plot(
+        lags,
+        cross,
+        style,
+        marker="s",
+        color=plotting.COLORS.muted,
+        label=f"cross lags, {decay}",
+    )
 ax.set_yscale("log")
 ax.set_xlabel("lag $l$")
 ax.set_ylabel(r"prior standard deviation $s_{ij}^{(l)}$ (log scale)")
-ax.set_title(r"Lag decay at $\lambda = 0.1$, $\kappa = 0.5$")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3)
-fig.tight_layout()
+plotting.serif_title(r"Lag decay at $\lambda = 0.1$, $\kappa = 0.5$", ax)
+_ = plotting.legend_right(ax)
 
 # %% [markdown]
-# The constant vertical gap between the red and grey curves is `cross_shrinkage`: a factor of
+# The constant vertical gap between the accent and muted curves is `cross_shrinkage`: a factor of
 # $\kappa = 0.5$ applied uniformly across lags. Setting `cross_shrinkage=0`
-# collapses the grey curves to zero and turns the VAR into $n$ independent autoregressions —
+# collapses the muted curves to zero and turns the VAR into $n$ independent autoregressions —
 # useful as a forecasting benchmark, useless for structural work, since a variable that cannot
 # respond to another variable's lags has no dynamic transmission to identify.
 #
@@ -263,21 +288,19 @@ def normal_pdf(x, mu, sd):
 
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 3.6), sharex=True)
-for lam, colour in zip([0.05, 0.1, 0.5], ["#7f1d1d", "crimson", "#f4a3a3"], strict=True):
+for lam, colour in zip([0.05, 0.1, 0.5], plotting.palette(3), strict=True):
     sd = MinnesotaPrior(tightness=lam).build_priors(n_vars=3, n_lags=4)["B_sigma"]
     axes[0].plot(grid, normal_pdf(grid, 1.0, sd[0, 0]), color=colour, label=rf"$\lambda = {lam}$")
     axes[1].plot(grid, normal_pdf(grid, 0.0, sd[0, 1]), color=colour, label=rf"$\lambda = {lam}$")
-axes[0].axvline(1.0, color="0.5", linestyle=":", linewidth=1)
-axes[1].axvline(0.0, color="0.5", linestyle=":", linewidth=1)
-axes[0].set_title(r"own first lag $\beta_{ii}^{(1)}$ (prior mean 1)", fontsize=10)
-axes[1].set_title(r"cross first lag $\beta_{ij}^{(1)}$ (prior mean 0)", fontsize=10)
+axes[0].axvline(1.0, color=plotting.COLORS.hairline, linestyle=":", linewidth=1)
+axes[1].axvline(0.0, color=plotting.COLORS.hairline, linestyle=":", linewidth=1)
+plotting.serif_title(r"own first lag $\beta_{ii}^{(1)}$ (prior mean 1)", axes[0], fontsize=10)
+plotting.serif_title(r"cross first lag $\beta_{ij}^{(1)}$ (prior mean 0)", axes[1], fontsize=10)
 for ax in axes:
     ax.set_xlabel("coefficient value")
-    ax.legend(fontsize=8)
-    ax.grid(alpha=0.3)
+    ax.legend()
     ax.set_ylabel("prior density")
 # Panels use independent vertical scales; compare the widths, not the heights.
-fig.tight_layout()
 
 # %% [markdown]
 # At $\lambda = 0.05$ the own first-lag coefficient is confined to roughly $[0.85, 1.15]$
@@ -355,7 +378,7 @@ pd.DataFrame(
 # doubles every period. {numref}`minnesota-prior-predictive` shows what that difference means
 # for simulated data.
 
-# %% mystnb={"figure": {"caption": "Prior predictive paths for the first variable of a 3-variable VAR(4), 15 draws per panel, 120 periods each. Red paths come from draws with spectral radius below 1.1 (near-unit-root); grey paths from more explosive draws, most of which leave the frame within a few periods. Tight shrinkage implies plausible macroeconomic series; loose shrinkage implies almost nothing that resembles data.", "name": "minnesota-prior-predictive"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Prior predictive paths for the first variable of a 3-variable VAR(4), 15 draws per panel, 120 periods each. Accent paths come from draws with spectral radius below 1.1 (near-unit-root); muted paths from more explosive draws, most of which leave the frame within a few periods. Tight shrinkage implies plausible macroeconomic series; loose shrinkage implies almost nothing that resembles data.", "name": "minnesota-prior-predictive"}} tags=["remove-input"]
 fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), sharey=True)
 sim_rng = np.random.default_rng(7)
 for ax, lam in zip(axes, lambdas, strict=True):
@@ -366,16 +389,18 @@ for ax, lam in zip(axes, lambdas, strict=True):
         ax.plot(
             path[:, 0],
             linewidth=0.9,
-            color="crimson" if calm else "0.55",
+            color=plotting.COLORS.oxblood if calm else plotting.COLORS.muted,
             alpha=0.85 if calm else 0.6,
         )
     ax.set_ylim(-40, 40)
-    ax.axhline(0, color="0.4", linewidth=0.8)
-    ax.set_title(rf"$\lambda = {lam}$ — {(radii > 1.1).mean():.0%} of draws above radius 1.1", fontsize=9)
+    ax.axhline(0, color=plotting.COLORS.hairline, linewidth=0.8)
+    plotting.serif_title(
+        rf"$\lambda = {lam}$ — {(radii > 1.1).mean():.0%} of draws above radius 1.1",
+        ax,
+        fontsize=9,
+    )
     ax.set_xlabel("period")
-    ax.grid(alpha=0.3)
-axes[0].set_ylabel("simulated $y_{1,t}$")
-fig.tight_layout()
+_ = axes[0].set_ylabel("simulated $y_{1,t}$")
 
 # %% [markdown]
 # This is the argument for shrinkage stated in the units you care about. A loose prior is not
@@ -470,21 +495,27 @@ scores.round(4)
 fig, axes = plt.subplots(1, 2, figsize=(11, 4))
 
 for col, colour, marker in [
-    ("coefficient RMSE", "crimson", "o"),
-    ("one-step forecast RMSE", "0.3", "s"),
+    ("coefficient RMSE", plotting.COLORS.oxblood, "o"),
+    ("one-step forecast RMSE", plotting.COLORS.muted, "s"),
 ]:
     axes[0].plot(scores.index, scores[col] / scores[col].min(), marker=marker, color=colour, label=col)
-axes[0].axvline(0.1, color="0.6", linestyle=":", linewidth=1)
-axes[0].text(0.105, axes[0].get_ylim()[1] * 0.95, "Impulso default", fontsize=7, color="0.4", va="top")
+axes[0].axvline(0.1, color=plotting.COLORS.hairline, linestyle=":", linewidth=1)
+axes[0].text(
+    0.105,
+    axes[0].get_ylim()[1] * 0.95,
+    "Impulso default",
+    fontsize=7,
+    color=plotting.COLORS.muted,
+    va="top",
+)
 axes[0].set_xscale("log")
 axes[0].set_xlabel(r"tightness $\lambda$ (log scale)")
 axes[0].set_ylabel("error, relative to best on grid")
-axes[0].set_title("Too tight and too loose both hurt", fontsize=10)
-axes[0].legend(fontsize=8)
-axes[0].grid(alpha=0.3)
+plotting.serif_title("Too tight and too loose both hurt", axes[0], fontsize=10)
+axes[0].legend()
 
 tracked = [(0, 0, "gdp on gdp(-1)"), (1, 1, "infl on infl(-1)"), (2, 2, "rate on rate(-1)"), (2, 1, "rate on infl(-1)")]
-for (i, j, label), colour in zip(tracked, ["crimson", "#1f4e79", "#2e7d32", "#b8860b"], strict=True):
+for (i, j, label), colour in zip(tracked, plotting.palette(4), strict=True):
     axes[1].plot(
         TIGHTNESS_GRID,
         [posterior_means[lam][0][i, j] for lam in TIGHTNESS_GRID],
@@ -496,10 +527,8 @@ for (i, j, label), colour in zip(tracked, ["crimson", "#1f4e79", "#2e7d32", "#b8
 axes[1].set_xscale("log")
 axes[1].set_xlabel(r"tightness $\lambda$ (log scale)")
 axes[1].set_ylabel("posterior mean coefficient")
-axes[1].set_title("Shrinkage pulls toward the random walk", fontsize=10)
-axes[1].legend(fontsize=7)
-axes[1].grid(alpha=0.3)
-fig.tight_layout()
+plotting.serif_title("Shrinkage pulls toward the random walk", axes[1], fontsize=10)
+_ = axes[1].legend()
 
 # %% [markdown]
 # Both error curves are U-shaped, and that is the whole story in one picture. Move left and

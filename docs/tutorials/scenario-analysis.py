@@ -54,6 +54,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pytensor").setLevel(logging.ERROR)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% tags=["remove-cell"]
 import os
@@ -65,10 +66,13 @@ ci = os.environ.get("IMPULSO_DOCS_CI") == "1"
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from qc_core import plotting
 
 from impulso import VAR, VARData, ShockPath, VariablePath
 from impulso.identification import Cholesky
 from impulso.samplers import NUTSSampler
+
+plotting.use_ledger_style()
 
 # %% [markdown]
 # ## Data and model

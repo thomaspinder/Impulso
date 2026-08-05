@@ -4,8 +4,11 @@
 
 ```python
 import pandas as pd
+from qc_core import plotting
 from impulso import VAR, VARData
 from impulso.identification import Cholesky
+
+plotting.use_ledger_style()
 
 # Load data
 df = pd.read_csv("macro_data.csv", index_col="date", parse_dates=True)
