@@ -22,6 +22,7 @@ from impulso._arviz_compat import make_idata
 from impulso._base import ImpulsoBaseModel
 from impulso._conjugate import split_intercept
 from impulso._conjugate_sampler import select_and_sample
+from impulso._posterior import COEFFICIENTS, INTERCEPT
 from impulso.conjugate_volatility import ConjugateVolatility
 from impulso.data import VARData
 from impulso.evidence import ModelEvidence, _response_digest
@@ -154,8 +155,8 @@ class ConjugateVAR(ImpulsoBaseModel):
 
         # Add a singleton chain dimension (Metropolis / direct draws = single chain).
         posterior_vars: dict[str, tuple[list[str], object]] = {
-            "B": (["chain", "draw", "var", "coeff"], b_lags[None]),
-            "intercept": (["chain", "draw", "var"], intercept[None]),
+            COEFFICIENTS: (["chain", "draw", "var", "coeff"], b_lags[None]),
+            INTERCEPT: (["chain", "draw", "var"], intercept[None]),
             "L": (["chain", "draw", "var1", "var2"], result["L"][None]),
         }
         for name, arr in result["hyperparameters"].items():

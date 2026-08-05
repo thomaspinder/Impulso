@@ -10,6 +10,7 @@ from pydantic import Field, PrivateAttr, model_validator
 from impulso._base import ImpulsoModel
 from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
+from impulso._posterior import COEFFICIENTS, coefficient_draws
 from impulso.identification._shared import pad_shock_coords
 
 if TYPE_CHECKING:
@@ -400,13 +401,13 @@ class ZeroSignRestriction(ImpulsoModel):
         """
         if self.restriction_horizon == 0:
             return None
-        if posterior is None or "B" not in posterior:
+        if posterior is None or COEFFICIENTS not in posterior:
             raise ValueError(
                 "restriction_horizon > 0 requires the full posterior with 'B' "
                 "(VAR coefficients). Pass the fit's posterior group as an xarray.Dataset "
                 "to identify() — FittedVAR.set_identification_strategy(...) does this for you."
             )
-        return posterior["B"].values
+        return coefficient_draws(posterior)
 
     def _compile_layout(self, var_names: list[str], n_vars: int) -> _ZeroSignLayout:
         """Resolve names to indices and fix the construction order, once per call.

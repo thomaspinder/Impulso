@@ -8,6 +8,7 @@ from pydantic import Field, model_validator
 
 from impulso._arviz_compat import InferenceDataLike
 from impulso._base import ImpulsoBaseModel
+from impulso._posterior import COEFFICIENTS, EXOG_COEFFICIENTS, INTERCEPT
 from impulso.data import VARData, _format_names
 from impulso.observation import Gaussian, StudentT
 from impulso.priors import MinnesotaPrior
@@ -339,8 +340,9 @@ class VAR(ImpulsoBaseModel):
 
         # Coordinates make the posterior self-describing: `B` comes back labelled
         # by variable and by "L<lag>.<variable>" coefficient instead of positional
-        # `B_dim_0` / `B_dim_1`. Names match ConjugateVAR's posterior so both
-        # estimators agree. `coeff` is lag-major to mirror the X_lag hstack above.
+        # `B_dim_0` / `B_dim_1`. Variable names come from `impulso._posterior` —
+        # the schema ConjugateVAR constructs against too, so both estimators
+        # agree. `coeff` is lag-major to mirror the X_lag hstack above.
         coords: dict[str, object] = {
             "var": data.endog_names,
             "var1": data.endog_names,
@@ -354,11 +356,11 @@ class VAR(ImpulsoBaseModel):
         # Build PyMC model
         with pm.Model(coords=coords) as model:
             # Intercept
-            intercept = pm.Normal("intercept", mu=0, sigma=1, dims="var")
+            intercept = pm.Normal(INTERCEPT, mu=0, sigma=1, dims="var")
 
             # VAR coefficients with Minnesota prior
             B = pm.Normal(
-                "B",
+                COEFFICIENTS,
                 mu=prior_params["B_mu"],
                 sigma=prior_params["B_sigma"],
                 dims=("var", "coeff"),
@@ -369,7 +371,7 @@ class VAR(ImpulsoBaseModel):
             # happen to be measured in (#192).
             if X_exog is not None:
                 B_exog = pm.Normal(
-                    "B_exog",
+                    EXOG_COEFFICIENTS,
                     mu=0,
                     sigma=_exog_prior_sigma(y, X_exog, self.exog_prior_scale, data.exog_names),
                     dims=("var", "exog"),

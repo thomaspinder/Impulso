@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from impulso._posterior import coefficient_draws, exog_coefficient_draws, has_exog_block, intercept_draws
+
 if TYPE_CHECKING:
     import xarray as xr
 
@@ -40,8 +42,8 @@ def fitted_values(posterior: "xr.Dataset", data: "VARData", n_lags: int) -> np.n
         Conditional-mean array of shape `(chains, draws, T - n_lags, n_vars)`,
         time-aligned with `data.index[n_lags:]`.
     """
-    B_draws = posterior["B"].values  # (C, D, n, n*p)
-    intercept_draws = posterior["intercept"].values  # (C, D, n)
+    B_draws = coefficient_draws(posterior)  # (C, D, n, n*p)
+    intercept_draws_arr = intercept_draws(posterior)  # (C, D, n)
 
     y = data.endog  # (T, n)
     T = y.shape[0]
@@ -50,9 +52,9 @@ def fitted_values(posterior: "xr.Dataset", data: "VARData", n_lags: int) -> np.n
         [y[n_lags - lag : T - lag] for lag in range(1, n_lags + 1)],
         axis=1,
     )  # (T-p, n*p)
-    y_hat = intercept_draws[:, :, np.newaxis, :] + np.einsum("cdij,tj->cdti", B_draws, x_lag)
-    if data.exog is not None and "B_exog" in posterior:
-        y_hat = y_hat + np.einsum("cdij,tj->cdti", posterior["B_exog"].values, data.exog[n_lags:])
+    y_hat = intercept_draws_arr[:, :, np.newaxis, :] + np.einsum("cdij,tj->cdti", B_draws, x_lag)
+    if data.exog is not None and has_exog_block(posterior):
+        y_hat = y_hat + np.einsum("cdij,tj->cdti", exog_coefficient_draws(posterior), data.exog[n_lags:])
     return y_hat
 
 

@@ -6,10 +6,18 @@ import numpy as np
 import xarray as xr
 from pydantic import Field
 
-from impulso._arviz_compat import InferenceDataLike, get_group_dataset, make_idata
+from impulso._arviz_compat import InferenceDataLike, make_idata
 from impulso._base import ImpulsoBaseModel
 from impulso._linalg import lag_matrices, sigma_from_cholesky
 from impulso._ma import compute_ma_phi
+from impulso._posterior import (
+    COEFFICIENTS,
+    EXOG_COEFFICIENTS,
+    coefficient_draws,
+    has_exog_block,
+    intercept_draws,
+    posterior_dataset,
+)
 from impulso.data import VARData
 from impulso.evidence import ModelEvidence
 from impulso.observation import Gaussian
@@ -78,16 +86,13 @@ class FittedVAR(ImpulsoBaseModel):
     evidence: ModelEvidence | None = Field(default=None, repr=False)
 
     def _posterior(self) -> xr.Dataset:
-        """The `posterior` group as an `xarray.Dataset`.
+        """The `posterior` group as an `xarray.Dataset`; see `impulso._posterior.posterior_dataset`.
 
-        On ArviZ 1 the raw group is a `DataTree` node rather than a Dataset,
-        which would violate the `xr.Dataset` contract every volatility,
-        error-distribution, and identification implementation is written
-        against. Methods that use the posterior more than once — or hand it
-        to a memoising helper — must bind this to a local first, because a
-        fresh Dataset is built on each call.
+        A fresh Dataset is built on each call, so methods that use the
+        posterior more than once — or hand it to a memoising helper — must
+        bind this to a local first.
         """
-        return get_group_dataset(self.idata, "posterior")
+        return posterior_dataset(self.idata)
 
     @property
     def has_exog(self) -> bool:
@@ -97,12 +102,12 @@ class FittedVAR(ImpulsoBaseModel):
     @property
     def coefficients(self) -> np.ndarray:
         """Posterior draws of B coefficient matrices."""
-        return self._posterior()["B"].values
+        return coefficient_draws(self._posterior())
 
     @property
     def intercepts(self) -> np.ndarray:
         """Posterior draws of intercept vectors."""
-        return self._posterior()["intercept"].values
+        return intercept_draws(self._posterior())
 
     def sigma(self) -> np.ndarray:
         """Posterior draws of the structural-shock scale matrix Σ.
@@ -251,7 +256,7 @@ class FittedVAR(ImpulsoBaseModel):
         from impulso._residuals import fitted_values
 
         posterior = self._posterior()
-        if self.data.exog is not None and "B_exog" not in posterior:
+        if self.data.exog is not None and not has_exog_block(posterior):
             raise ValueError(
                 "This FittedVAR's data carries exogenous regressors the estimator "
                 "never consumed (no B_exog in the posterior); refit with an "
@@ -343,7 +348,7 @@ class FittedVAR(ImpulsoBaseModel):
                     (n_chains, n_draws, n_vars), rng, posterior
                 )
             u = np.einsum("cdhij,cdhj->cdhi", L_path, eps)
-            A = lag_matrices(posterior["B"].values, self.n_lags)
+            A = lag_matrices(coefficient_draws(posterior), self.n_lags)
             forecasts = forecasts + propagate(A, u, np.zeros((self.n_lags, n_vars)))
 
         mode = "density" if include_shock_uncertainty else "mean"
@@ -546,15 +551,15 @@ class FittedVAR(ImpulsoBaseModel):
         posterior = self._posterior()
         # Guard on the posterior, not on `has_exog`: an estimator may carry
         # exogenous data it never actually consumed.
-        if "B_exog" not in posterior:
+        if not has_exog_block(posterior):
             raise ValueError(
                 "This FittedVAR has no B_exog in its posterior, so no dynamic "
                 "multiplier is defined. Fit a VAR with exogenous regressors "
                 "(VARData(..., exog=...)) using an estimator that supports them."
             )
 
-        B_da = posterior["B"]
-        B_exog_da = posterior["B_exog"]
+        B_da = posterior[COEFFICIENTS]
+        B_exog_da = posterior[EXOG_COEFFICIENTS]
         # Hand-built posteriors may order dims arbitrarily. Realign by name
         # when the canonical labels are present; otherwise trust the
         # positional (chain, draw, var, coeff/exog) convention.

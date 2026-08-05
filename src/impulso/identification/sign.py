@@ -9,6 +9,7 @@ from pydantic import Field, PrivateAttr
 from impulso._base import ImpulsoModel
 from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
+from impulso._posterior import COEFFICIENTS, coefficient_draws
 from impulso.identification._shared import pad_shock_coords
 
 if TYPE_CHECKING:
@@ -92,13 +93,13 @@ class SignRestriction(ImpulsoModel):
         B_all: np.ndarray | None = None
         n_lags = 0
         if self.restriction_horizon > 0:
-            if posterior is None or "B" not in posterior:
+            if posterior is None or COEFFICIENTS not in posterior:
                 raise ValueError(
                     "restriction_horizon > 0 requires the full posterior with 'B' "
                     "(VAR coefficients). Pass the fit's posterior group as an xarray.Dataset "
                     "to identify() — FittedVAR.set_identification_strategy(...) does this for you."
                 )
-            B_all = posterior["B"].values
+            B_all = coefficient_draws(posterior)
             n_lags = B_all.shape[-1] // n_vars
 
         P = np.full((n_chains, n_draws, n_vars, n_vars), np.nan)
