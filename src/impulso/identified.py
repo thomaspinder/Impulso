@@ -453,6 +453,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         """
         from impulso._propagate import propagate, propagate_contributions
         from impulso._residuals import reduced_form_residuals
+        from impulso._scenario import resolve_output_window
 
         n_lags = self.n_lags
         posterior = self._posterior()
@@ -495,8 +496,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         baseline = propagate(A, forcing, self.data.endog[:n_lags])
 
         idx = self.data.index[n_lags:]
-        t_start = idx.searchsorted(start) if start is not None else 0
-        t_end = idx.searchsorted(end, side="right") if end is not None else len(idx)
+        t_start, t_end = resolve_output_window(idx, start, end)
         hd = hd[:, :, t_start:t_end]
         baseline = baseline[:, :, t_start:t_end]
 
@@ -587,14 +587,13 @@ class IdentifiedVAR(ImpulsoBaseModel):
             CounterfactualResult carrying the counterfactual draws and the
             actual path over the same window.
         """
-        from impulso._scenario import counterfactual_paths
+        from impulso._scenario import counterfactual_paths, resolve_output_window
 
         n_lags = self.n_lags
         y_cf = counterfactual_paths(self, list(shocks))
 
         idx = self.data.index[n_lags:]
-        t_start = idx.searchsorted(start) if start is not None else 0
-        t_end = idx.searchsorted(end, side="right") if end is not None else len(idx)
+        t_start, t_end = resolve_output_window(idx, start, end)
         y_cf = y_cf[:, :, t_start:t_end]
         actual = self.data.endog[n_lags:][t_start:t_end]
 
@@ -706,7 +705,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         """
         from scipy.stats import chi2
 
-        from impulso._scenario import structural_scenario_engine
+        from impulso._scenario import resolve_exog_future, structural_scenario_engine
 
         if self.error_dist.is_heavy_tailed:
             raise NotImplementedError(
@@ -724,21 +723,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         if path_uncertainty not in ("none", "unconditional"):
             raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
         posterior = self._posterior()
-        if self.data.exog is not None and "B_exog" not in posterior:
-            raise ValueError(
-                "This IdentifiedVAR's data carries exogenous regressors the estimator "
-                "never consumed (no B_exog in the posterior); refit with an estimator "
-                "that supports them before scenario analysis."
-            )
-        if exog_future is not None:
-            if "B_exog" not in posterior:
-                raise ValueError("exog_future provided but the posterior carries no B_exog.")
-            exog_future = np.asarray(exog_future, dtype=float)
-            n_exog = posterior["B_exog"].shape[-1]
-            if exog_future.shape != (steps, n_exog):
-                raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {exog_future.shape}.")
-        if self.data.exog is not None and exog_future is None:
-            raise ValueError("exog_future is required when the model includes exogenous variables")
+        exog_future = resolve_exog_future(posterior, self.data, steps, exog_future)
 
         paths, q, q_cond, q_cal, r = structural_scenario_engine(
             self,

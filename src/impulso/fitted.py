@@ -315,55 +315,36 @@ class FittedVAR(ImpulsoBaseModel):
             Mean mode consumes no randomness and is therefore identical
             across error distributions.
         """
+        from impulso._propagate import propagate
+        from impulso._scenario import deterministic_forecast_path, resolve_exog_future
         from impulso.results import ForecastResult
 
-        if self.has_exog and exog_future is None:
-            raise ValueError("exog_future is required when model includes exogenous variables")
-        if not self.has_exog and exog_future is not None:
-            raise ValueError("exog_future provided but model has no exogenous variables")
-
-        rng = np.random.default_rng(seed) if not isinstance(seed, np.random.Generator) else seed
-
         posterior = self._posterior()
-        B_draws = posterior["B"].values  # (C, D, n_vars, n_vars*n_lags)
-        intercept_draws = posterior["intercept"].values  # (C, D, n_vars)
-        n_chains, n_draws, n_vars, _ = B_draws.shape
+        exog_arr = resolve_exog_future(posterior, self.data, steps, exog_future)
+        rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
 
-        # Density mode: get forecast Cholesky path for shock innovations.
+        # Density mode: get the forecast Cholesky path FIRST, then the
+        # per-step innovations — the seam's RNG stream order (ADR-0007).
         L_path = None
         if include_shock_uncertainty:
-            if rng is None:
-                rng = np.random.default_rng()
-            L_path = self.volatility.forecast_cholesky_path(
-                posterior,
-                steps=steps,
-                rng=rng,
-            )  # (C, D, steps, n_vars, n_vars)
+            L_path = self.volatility.forecast_cholesky_path(posterior, steps=steps, rng=rng)  # (C, D, steps, n, n)
 
-        y_hist = self.data.endog[-self.n_lags :]
-        y_buffer = np.broadcast_to(y_hist, (n_chains, n_draws, self.n_lags, n_vars)).copy()
+        forecasts = deterministic_forecast_path(posterior, self.data, self.n_lags, steps, exog_arr)
 
-        forecasts = np.zeros((n_chains, n_draws, steps, n_vars))
-
-        for h in range(steps):
-            x_lag = np.concatenate([y_buffer[:, :, -(lag + 1), :] for lag in range(self.n_lags)], axis=-1)
-            y_new = intercept_draws + np.einsum("cdij,cdj->cdi", B_draws, x_lag)
-
-            if self.has_exog and exog_future is not None:
-                B_exog = posterior["B_exog"].values
-                y_new = y_new + np.einsum("cdij,j->cdi", B_exog, exog_future[h])
-
-            # Density mode: add shock innovation L_h @ eps, with eps drawn
-            # from the error-distribution seam (standardised: identity scale
-            # under Gaussian, nu/(nu-2)·I under Student-t).
-            if L_path is not None:
-                L_h = L_path[:, :, h, :, :]  # (C, D, n_vars, n_vars)
-                eps = self.error_dist.draw_standardised_innovations((n_chains, n_draws, n_vars), rng, posterior)
-                shock = np.einsum("cdij,cdj->cdi", L_h, eps)
-                y_new = y_new + shock
-
-            forecasts[:, :, h, :] = y_new
-            y_buffer = np.concatenate([y_buffer[:, :, 1:, :], y_new[:, :, np.newaxis, :]], axis=2)
+        if L_path is not None:
+            n_chains, n_draws, _, n_vars = forecasts.shape
+            # Innovations from the error-distribution seam (standardised:
+            # identity scale under Gaussian, nu/(nu-2)·I under Student-t),
+            # drawn per step in stream order, then propagated through the
+            # shared lag recursion as a deviation from the baseline.
+            eps = np.empty((n_chains, n_draws, steps, n_vars))
+            for h in range(steps):
+                eps[:, :, h, :] = self.error_dist.draw_standardised_innovations(
+                    (n_chains, n_draws, n_vars), rng, posterior
+                )
+            u = np.einsum("cdhij,cdhj->cdhi", L_path, eps)
+            A = lag_matrices(posterior["B"].values, self.n_lags)
+            forecasts = forecasts + propagate(A, u, np.zeros((self.n_lags, n_vars)))
 
         mode = "density" if include_shock_uncertainty else "mean"
         forecast_da = xr.DataArray(
@@ -463,7 +444,7 @@ class FittedVAR(ImpulsoBaseModel):
         """
         from scipy.stats import chi2
 
-        from impulso._scenario import conditional_forecast_engine
+        from impulso._scenario import conditional_forecast_engine, resolve_exog_future
         from impulso.results import ConditionalForecastResult
 
         if self.error_dist.is_heavy_tailed:
@@ -481,19 +462,7 @@ class FittedVAR(ImpulsoBaseModel):
         if path_uncertainty not in ("none", "unconditional"):
             raise ValueError(f"path_uncertainty must be 'none' or 'unconditional', got {path_uncertainty!r}")
         posterior = self._posterior()
-        if self.data.exog is not None and "B_exog" not in posterior:
-            raise ValueError(
-                "This FittedVAR's data carries exogenous regressors the estimator "
-                "never consumed (no B_exog in the posterior); refit with an "
-                "estimator that supports them before forecasting."
-            )
-        if exog_future is not None:
-            if "B_exog" not in posterior:
-                raise ValueError("exog_future provided but the posterior carries no B_exog.")
-            exog_future = np.asarray(exog_future, dtype=float)
-            n_exog = posterior["B_exog"].shape[-1]
-            if exog_future.shape != (steps, n_exog):
-                raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {exog_future.shape}.")
+        exog_future = resolve_exog_future(posterior, self.data, steps, exog_future)
 
         paths, q, q_cal, r = conditional_forecast_engine(
             self,

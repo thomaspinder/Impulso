@@ -1,10 +1,11 @@
-"""Scenario-analysis engine — in-sample layers.
+"""Scenario-analysis engine — the shared forecast- and in-sample layers.
 
-Owns the shared machinery behind `IdentifiedVAR.counterfactual`: back out
-realised structural shocks per posterior draw, apply `ShockPath` edits, and
-re-propagate through the lag recursion (ADR-0005). The forecast-side
-constrain/solve layers (conditional forecasts, structural scenarios) build
-on the same conventions and arrive with those methods.
+Owns the machinery behind `IdentifiedVAR.counterfactual` (back out realised
+structural shocks, apply `ShockPath` edits, re-propagate) and the
+forecast-side resolve/constrain/solve layers (ADR-0005): exogenous-input
+resolution, the shared deterministic baseline, and the ADPRR three-way
+partition solve (`_stacked_shock_solve`) that `conditional_forecast_engine`
+and `structural_scenario_engine` are two entry points into.
 """
 
 from __future__ import annotations
@@ -16,7 +17,9 @@ import numpy as np
 
 if TYPE_CHECKING:
     import pandas as pd
+    import xarray as xr
 
+    from impulso.data import VARData
     from impulso.fitted import FittedVAR
     from impulso.identified import IdentifiedVAR
     from impulso.scenario import ShockPath, VariablePath
@@ -212,6 +215,24 @@ def _resolve_values(edit: ShockPath, window_len: int) -> np.ndarray:
     return window_vals
 
 
+def resolve_output_window(
+    index: pd.DatetimeIndex,
+    start: pd.Timestamp | None,
+    end: pd.Timestamp | None,
+) -> tuple[int, int]:
+    """Slice bounds for restricting a *returned* in-sample window.
+
+    Deliberately lenient where the edit-window resolver
+    (`_resolve_window`) raises: output slicing is presentation, not a
+    model statement, so an empty window yields an empty result and
+    out-of-range bounds clamp silently. Shared by
+    `historical_decomposition` and `counterfactual`.
+    """
+    t0 = int(index.searchsorted(start)) if start is not None else 0
+    t1 = int(index.searchsorted(end, side="right")) if end is not None else len(index)
+    return t0, t1
+
+
 def counterfactual_paths(identified: IdentifiedVAR, edits: list[ShockPath]) -> np.ndarray:
     """Re-simulate the estimation sample with edited structural shocks.
 
@@ -256,7 +277,98 @@ def counterfactual_paths(identified: IdentifiedVAR, edits: list[ShockPath]) -> n
     return propagate(A, forcing, identified.data.endog[:n_lags])
 
 
-# --- forecast-side layers (conditional forecasts; ADR-0005 layers 2-3) ---
+# --- forecast-side layers (resolve / constrain / solve; ADR-0005) ---
+
+
+def resolve_exog_future(
+    posterior: xr.Dataset,
+    data: VARData,
+    steps: int,
+    exog_future: np.ndarray | None,
+) -> np.ndarray | None:
+    """Validate and coerce the future exogenous path — the one owner.
+
+    Two facts drive the checks: whether the data carries an exogenous
+    block (`data.exog`) and whether the estimator consumed one
+    (`"B_exog" in posterior`). A fit whose data has exog the estimator
+    never consumed cannot forecast; a fit with an exogenous block
+    requires the future path; a posterior carrying `B_exog` without
+    `data.exog` (hand-built posteriors) may still receive one. The shape
+    check reads `n_exog` off the posterior — the object the forcing
+    actually uses.
+
+    Args:
+        posterior: The posterior group as an `xarray.Dataset`.
+        data: The `VARData` used at fit time.
+        steps: Forecast horizon.
+        exog_future: Future exogenous values, shape `(steps, n_exog)`,
+            or `None`.
+
+    Returns:
+        The validated float array, or `None` when the model has no
+        exogenous block.
+
+    Raises:
+        ValueError: On a never-consumed exogenous block, a missing or
+            unexpected `exog_future`, or a shape mismatch.
+    """
+    has_exog = data.exog is not None
+    consumed = "B_exog" in posterior
+    if has_exog and not consumed:
+        raise ValueError(
+            "This fit's data carries exogenous regressors the estimator never "
+            "consumed (no B_exog in the posterior); refit with an estimator "
+            "that supports them before forecasting."
+        )
+    if exog_future is None:
+        if has_exog:
+            raise ValueError("exog_future is required when the model includes exogenous variables")
+        return None
+    if not consumed:
+        raise ValueError("exog_future provided but the posterior carries no B_exog.")
+    exog_arr = np.asarray(exog_future, dtype=float)
+    n_exog = posterior["B_exog"].shape[-1]
+    if exog_arr.shape != (steps, n_exog):
+        raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {exog_arr.shape}.")
+    return exog_arr
+
+
+def deterministic_forecast_path(
+    posterior: xr.Dataset,
+    data: VARData,
+    n_lags: int,
+    steps: int,
+    exog_future: np.ndarray | None,
+) -> np.ndarray:
+    """Mean forecast path — the deterministic baseline every forecast-side method shares.
+
+    Forcing = intercept + exogenous contributions, propagated from the
+    last `n_lags` observations through the shared lag recursion
+    (ADR-0005's propagate layer). `forecast()`'s mean mode and both
+    forecast-side engines all call this one function. Consumes no
+    randomness.
+
+    Args:
+        posterior: The posterior group as an `xarray.Dataset`.
+        data: The `VARData` used at fit time.
+        n_lags: Lag order.
+        steps: Forecast horizon.
+        exog_future: Validated future exogenous path
+            (see `resolve_exog_future`), or `None`.
+
+    Returns:
+        Mean paths of shape `(C, D, steps, n)`.
+    """
+    from impulso._linalg import lag_matrices
+    from impulso._propagate import propagate
+
+    intercept = posterior["intercept"].values
+    n_chains, n_draws, n_vars = intercept.shape
+    forcing = np.broadcast_to(intercept[:, :, np.newaxis, :], (n_chains, n_draws, steps, n_vars)).copy()
+    if exog_future is not None:
+        forcing += np.einsum("cdij,hj->cdhi", posterior["B_exog"].values, exog_future)
+    A = lag_matrices(posterior["B"].values, n_lags)
+    return propagate(A, forcing, data.endog[-n_lags:])
 
 
 def resolve_variable_pins(
@@ -328,29 +440,26 @@ def conditional_forecast_engine(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """Waggoner-Zha conditional forecast via the stacked-shock solve.
 
-    The forecast stack is `Y = b + M E` with `E` the stacked future
-    structural shocks; a pin on `(variable i, step h)` contributes the
-    constraint row `e'_{i,h} M` with rhs `value - b_{i,h}`. `M` is never
-    materialised — only the `r` constraint rows are built, from the MA
-    coefficients and the volatility process's forecast Cholesky path
-    (block `(h, s) = Phi_{h-s} L_{T+s}`; the observable-space answer is
-    invariant to the orthogonalisation, so the raw volatility factor is
-    the correct `P` here).
+    The degenerate case of the ADPRR three-way partition
+    (`_stacked_shock_solve`): no prescribed shocks, every shock
+    adjusting. The structural coordinate path is the volatility
+    process's raw forecast Cholesky factor — the observable-space answer
+    is invariant to the orthogonalisation, so no identification scheme
+    is involved.
 
-    Modes: hard pins (`path_uncertainty="none"`) draw
-    `E = xi - C'(CC')^{-1}(C xi - cbar)` so conditions hold pathwise;
-    `path_uncertainty="unconditional"` draws `E = mu* + xi` (ADPRR
-    `Omega_f = DD'`: conditions restrict the mean, bands keep their
-    unconditional width). Mean mode propagates `mu*`.
+    Modes: hard pins (`path_uncertainty="none"`) hold pathwise on every
+    draw; `path_uncertainty="unconditional"` restricts the mean while
+    bands keep their unconditional width (ADPRR `Omega_f = DD'`). Mean
+    mode propagates the conditional mean shocks.
 
     RNG contract (matched-seed nesting with `forecast()`): one
     `forecast_cholesky_path` call, then per-step `standard_normal((C, D, n))`
-    draws in step order.
+    draws in step order. Mean mode with no pins consumes no randomness.
 
     Plausibility per draw: `q = cbar'(CC')^{-1} cbar` — the squared
     Mahalanobis distance of the pinned values from their unconditional
-    law (`chi^2_r` reference when all shocks adjust) — plus the
-    ADPRR-calibrated `q_cal = (1 + sqrt(1 - exp(-q / (n*steps)))) / 2`.
+    law (`chi^2_r` reference, since all shocks adjust) — plus the
+    ADPRR-calibrated `q_cal`.
 
     Args:
         fitted: The fitted reduced-form VAR.
@@ -366,22 +475,12 @@ def conditional_forecast_engine(
         per-draw plausibility `q` and calibrated `q_cal` `(C, D)`, and the
         number of binding restrictions `r`.
     """
-    from impulso._linalg import lag_matrices
-    from impulso._ma import compute_ma_phi
-    from impulso._propagate import propagate
-
     posterior = fitted._posterior()
     B_draws = posterior["B"].values
-    n_lags = fitted.n_lags
-    n_chains, n_draws, n_vars, _ = B_draws.shape
-    d_total = steps * n_vars
+    n_vars = B_draws.shape[2]
 
     pins = resolve_variable_pins(conditions, fitted.var_names, steps)
-    r = len(pins)
-
-    # Deterministic path b: identically forecast()'s mean mode (consumes no RNG).
-    b = fitted.forecast(steps, include_shock_uncertainty=False, exog_future=exog_future)
-    b_path = b._pp()["forecast"].values  # (C, D, steps, n)
+    b_path = deterministic_forecast_path(posterior, fitted.data, fitted.n_lags, steps, exog_future)
 
     rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
     # Mean mode with no pins needs no volatility path and must consume no
@@ -389,51 +488,23 @@ def conditional_forecast_engine(
     # rows need L; under time-varying volatility that conditions on one
     # simulated path per draw (documented on the method).
     L_path = None
-    if include_shock_uncertainty or r:
+    if include_shock_uncertainty or pins:
         L_path = fitted.volatility.forecast_cholesky_path(posterior, steps=steps, rng=rng)  # (C, D, steps, n, n)
 
-    E_mean = np.zeros((n_chains, n_draws, d_total))
-    q = np.zeros((n_chains, n_draws))
-    C_rows = None
-    G = None
-    cbar = None
-    if r:
-        Phi = compute_ma_phi(lag_matrices(B_draws, n_lags), steps - 1)  # (C, D, steps, n, n)
-        C_rows, G, cbar = _constraint_system(pins, b_path, Phi, L_path, n_vars, d_total)
-        alpha = np.linalg.solve(G, cbar[..., np.newaxis])[..., 0]  # (C, D, r)
-        E_mean = np.einsum("cdrk,cdr->cdk", C_rows, alpha)
-        q = np.einsum("cdr,cdr->cd", cbar, alpha)
-
-    if include_shock_uncertainty:
-        xi = np.empty((n_chains, n_draws, steps, n_vars))
-        # Gaussian by construction: the Waggoner-Zha / ADPRR solves below are
-        # Gaussian conditioning results. Heavy-tailed error distributions are
-        # rejected upstream in FittedVAR.conditional_forecast, so this does
-        # NOT route through the error_dist seam the way forecast() does.
-        for h in range(steps):  # per-step draws, forecast()'s stream order
-            xi[:, :, h, :] = rng.standard_normal((n_chains, n_draws, n_vars))
-        xi_flat = xi.reshape(n_chains, n_draws, d_total)
-        if r and path_uncertainty == "none":
-            residual = np.einsum("cdrk,cdk->cdr", C_rows, xi_flat) - cbar
-            beta = np.linalg.solve(G, residual[..., np.newaxis])[..., 0]
-            E = xi_flat - np.einsum("cdrk,cdr->cdk", C_rows, beta)
-        elif r:
-            E = E_mean + xi_flat
-        else:
-            E = xi_flat
-    else:
-        E = E_mean
-
-    if L_path is None:
-        paths = b_path  # mean mode, no pins: the deterministic path itself
-    else:
-        eps = E.reshape(n_chains, n_draws, steps, n_vars)
-        u = np.einsum("cdhij,cdhj->cdhi", L_path, eps)
-        A = lag_matrices(B_draws, n_lags)
-        deviation = propagate(A, u, np.zeros((n_lags, n_vars)))
-        paths = b_path + deviation
-
-    return paths, q, _calibrate_q(q, r, path_uncertainty, d_total), r
+    paths, q, _q_cond, q_cal, r = _stacked_shock_solve(
+        b_path=b_path,
+        S_path=L_path,
+        B_draws=B_draws,
+        n_lags=fitted.n_lags,
+        steps=steps,
+        pins=pins,
+        prescriptions=[],
+        adjusting_idx=list(range(n_vars)),
+        include_shock_uncertainty=include_shock_uncertainty,
+        rng=rng,
+        path_uncertainty=path_uncertainty,
+    )
+    return paths, q, q_cal, r
 
 
 def _constraint_system(
@@ -443,15 +514,13 @@ def _constraint_system(
     L_path: np.ndarray,
     n_vars: int,
     d_total: int,
-    warn_on_ill_conditioning: bool = True,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Build the constraint rows `C`, Gram matrix `CC'`, and rhs `cbar`.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build the constraint rows `C` and rhs `cbar`.
 
     Row `k` for pin `(i, h, value)` holds block `(Phi_{h-s} L_{T+s})[i, :]`
     at stacked positions `s*n..(s+1)*n` for `s <= h`; the rhs is
-    `value - b_{i,h}`. Warns when `CC'` is nearly singular unless the
-    caller solves a column-restricted system and runs its own check on
-    the restricted Gram (`warn_on_ill_conditioning=False`).
+    `value - b_{i,h}`. Conditioning of the solve is checked downstream on
+    the adjusting-column Gram matrix in `_absorb_conditions`.
     """
     n_chains, n_draws = b_path.shape[:2]
     r = len(pins)
@@ -462,34 +531,7 @@ def _constraint_system(
         for s in range(h + 1):
             block = np.einsum("cdk,cdkl->cdl", Phi[:, :, h - s, i, :], L_path[:, :, s])
             C_rows[:, :, k, s * n_vars : (s + 1) * n_vars] = block
-    G = np.einsum("cdrk,cdsk->cdrs", C_rows, C_rows)
-    if warn_on_ill_conditioning and np.max(np.linalg.cond(G)) > 1e8:
-        # stacklevel targets the public caller of conditional_forecast
-        # (user -> conditional_forecast -> engine -> here -> warn).
-        warnings.warn(
-            "The pinned-path constraint system is nearly redundant (condition "
-            "number of CC' exceeds 1e8) — near-duplicate pins inflate the "
-            "conditional adjustment and the plausibility statistic without "
-            "tripping an exact-rank error.",
-            UserWarning,
-            stacklevel=4,
-        )
-    return C_rows, G, cbar
-
-
-def _calibrate_q(q: np.ndarray, r: int, path_uncertainty: str, d_total: int) -> np.ndarray:
-    """ADPRR-calibrated plausibility `q_cal` on `[0.5, 1]`.
-
-    Finite only under `Omega_f = DD'` (`path_uncertainty="unconditional"`,
-    where the divergence collapses to `z = q/2`). Under hard pins the
-    divergence is analytically infinite and ADPRR's calibrated statistic
-    sits at its ceiling of 1; with no restrictions it floors at 0.5.
-    """
-    if r == 0:
-        return np.full_like(q, 0.5)
-    if path_uncertainty == "unconditional":
-        return (1.0 + np.sqrt(1.0 - np.exp(-q / d_total))) / 2.0
-    return np.ones_like(q)
+    return C_rows, cbar
 
 
 # --- structural scenarios (three-way partition; ADR-0005 layer 3) ---
@@ -663,13 +705,13 @@ def structural_scenario_engine(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """ADPRR structural scenario via the three-way partition solve.
 
-    Stacked shock entries split into `D` (prescribed — substituted at
-    their `ShockPath` values, never constraint rows), `A` (adjusting
-    entries not in `D` — absorb the `VariablePath` conditions), and `F`
-    (free — retain unconditional draws). Per free-block draw the solve is
-    `C_A E_A = cbar - C_D v_S - C_F eps_F` with the conditional-Gaussian
-    resolution of under-determination; feasibility is checked once at
-    validation (counting) and per draw (numerical rank of `C_A`).
+    Resolves the condition vocabulary against the scheme's shock
+    coordinates, builds the deterministic baseline and the
+    scheme-identified structural path, and hands the partition to
+    `_stacked_shock_solve`. `conditional_forecast_engine` is the same
+    solve with no prescriptions and every shock adjusting, so the
+    adjusting=all / no-prescriptions case matches a conditional forecast
+    draw-for-draw under a shared seed.
 
     Plausibility per draw: `q = ctilde'(C_A C_A')^{-1} ctilde + |v_S|^2`
     — the prescribed shocks' own magnitude registers even though they are
@@ -682,21 +724,13 @@ def structural_scenario_engine(
         part of the plausibility (the `chi^2_r`-referenced quantity —
         the prescribed `|v_S|^2` term has no chi-squared reference).
     """
-    from impulso._linalg import lag_matrices
-    from impulso._ma import compute_ma_phi
-    from impulso._propagate import propagate
-
     posterior = identified._posterior()
     B_draws = posterior["B"].values
-    n_lags = identified.n_lags
-    n_chains, n_draws, n_vars, _ = B_draws.shape
-    d_total = steps * n_vars
     shock_names = identified.shock_names
 
     pins = resolve_variable_pins(conditions, identified.var_names, steps)
     prescriptions = resolve_shock_prescriptions(shocks, shock_names, steps)
     adjusting_idx = _resolve_adjusting(adjusting, shock_names)
-    r = len(pins)
 
     if any(v != 0.0 for (_, _, v) in prescriptions) and getattr(identified.scheme, "scale", None) is not None:
         # stacklevel targets the public caller of structural_scenario
@@ -711,6 +745,77 @@ def structural_scenario_engine(
             stacklevel=3,
         )
 
+    b_path = deterministic_forecast_path(posterior, identified.data, identified.n_lags, steps, exog_future)
+    rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+    P_path = _forecast_shock_matrices(identified, steps, rng)
+
+    return _stacked_shock_solve(
+        b_path=b_path,
+        S_path=P_path,
+        B_draws=B_draws,
+        n_lags=identified.n_lags,
+        steps=steps,
+        pins=pins,
+        prescriptions=prescriptions,
+        adjusting_idx=adjusting_idx,
+        include_shock_uncertainty=include_shock_uncertainty,
+        rng=rng,
+        path_uncertainty=path_uncertainty,
+    )
+
+
+def _stacked_shock_solve(
+    *,
+    b_path: np.ndarray,
+    S_path: np.ndarray | None,
+    B_draws: np.ndarray,
+    n_lags: int,
+    steps: int,
+    pins: list[tuple[int, int, float]],
+    prescriptions: list[tuple[int, int, float]],
+    adjusting_idx: list[int],
+    include_shock_uncertainty: bool,
+    rng: np.random.Generator,
+    path_uncertainty: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+    """The ADPRR three-way partition solve — the one forecast-side engine.
+
+    Stacked shock entries split into `D` (prescribed — substituted at
+    their `ShockPath` values, never constraint rows), `A` (adjusting
+    entries not in `D` — absorb the `VariablePath` conditions), and `F`
+    (free — retain unconditional draws). Per free-block draw the solve is
+    `C_A E_A = cbar - C_D v_S - C_F eps_F` with the conditional-Gaussian
+    resolution of under-determination; feasibility is checked once by
+    counting (`_scenario_feasibility`) and per draw by numerical rank
+    (`_absorb_conditions`). The solved shocks are mapped through `S_path`
+    and their deviation propagated onto the deterministic baseline.
+
+    `S_path` is the structural coordinate path: the scheme-identified `P`
+    for structural scenarios, the raw volatility Cholesky factor `L` for
+    conditional forecasts (rotation-invariant in observable space), or
+    `None` for the no-randomness mean mode with no conditions, which
+    returns the baseline unchanged.
+
+    Draws ξ per step in `forecast()`'s stream order, so the degenerate
+    cases nest draw-for-draw under a shared seed.
+
+    Returns:
+        Tuple `(paths, q, q_cond, q_cal, r)`.
+    """
+    from impulso._linalg import lag_matrices
+    from impulso._ma import compute_ma_phi
+    from impulso._propagate import propagate
+
+    n_chains, n_draws, _, n_vars = b_path.shape
+    d_total = steps * n_vars
+    r = len(pins)
+
+    if S_path is None:
+        # Mean mode, no conditions, no prescriptions: the deterministic
+        # path itself (forecast()'s mean-mode contract).
+        q = np.zeros((n_chains, n_draws))
+        return b_path, q, q.copy(), _calibrate_scenario_q(q, 0, 0, path_uncertainty, d_total), 0
+
     flat = lambda j, h: h * n_vars + j
     D_entries = {(j, h) for (j, h, _) in prescriptions}
     entries_A = [(j, h) for h in range(steps) for j in adjusting_idx if (j, h) not in D_entries]
@@ -719,31 +824,19 @@ def structural_scenario_engine(
     D_flat = [flat(j, h) for (j, h, _) in prescriptions]
     F_flat = sorted(set(range(d_total)) - set(A_flat) - set(D_flat))
     v_S = np.array([v for (_, _, v) in prescriptions])
-
-    # Deterministic path b (mean recursion from the last observed lags).
-    intercept = posterior["intercept"].values
-    forcing = np.broadcast_to(intercept[:, :, np.newaxis, :], (n_chains, n_draws, steps, n_vars)).copy()
-    if exog_future is not None:
-        forcing += np.einsum("cdij,hj->cdhi", posterior["B_exog"].values, exog_future)
     A_lags = lag_matrices(B_draws, n_lags)
-    b_path = propagate(A_lags, forcing, identified.data.endog[-n_lags:])
-
-    rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
-    P_path = _forecast_shock_matrices(identified, steps, rng)
 
     # One per-step innovation grid in forecast()'s stream order — the ξ
-    # source for the free block AND the adjusting-block solve, so the
-    # adjusting=all / no-prescriptions case matches conditional_forecast
-    # draw-for-draw under a shared seed.
+    # source for the free block AND the adjusting-block solve.
     eps_flat = np.zeros((n_chains, n_draws, d_total))
     xi_flat = None
     if include_shock_uncertainty:
         xi = np.empty((n_chains, n_draws, steps, n_vars))
         # Gaussian by construction: the Waggoner-Zha / ADPRR solves are
-        # Gaussian conditioning results. Heavy-tailed error distributions are
-        # rejected upstream in IdentifiedVAR.structural_scenario, so this does
-        # NOT route through the error_dist seam the way forecast() does.
-        for h in range(steps):
+        # Gaussian conditioning results. Heavy-tailed error distributions
+        # are rejected upstream in the public methods, so this does NOT
+        # route through the error_dist seam the way forecast() does.
+        for h in range(steps):  # per-step draws, forecast()'s stream order
             xi[:, :, h, :] = rng.standard_normal((n_chains, n_draws, n_vars))
         xi_flat = xi.reshape(n_chains, n_draws, d_total)
         if F_flat:
@@ -754,7 +847,7 @@ def structural_scenario_engine(
     q_cond = np.zeros((n_chains, n_draws))
     if r:
         Phi = compute_ma_phi(A_lags, steps - 1)
-        C_rows, _, cbar = _constraint_system(pins, b_path, Phi, P_path, n_vars, d_total, warn_on_ill_conditioning=False)
+        C_rows, cbar = _constraint_system(pins, b_path, Phi, S_path, n_vars, d_total)
         q_cond = _absorb_conditions(C_rows, cbar, eps_flat, xi_flat, A_flat, D_flat, F_flat, v_S, path_uncertainty)
     elif xi_flat is not None and A_flat:
         # No conditions: adjusting entries are simply free.
@@ -763,7 +856,7 @@ def structural_scenario_engine(
     q = q_cond + float(v_S @ v_S) if prescriptions else q_cond
 
     eps = eps_flat.reshape(n_chains, n_draws, steps, n_vars)
-    u = np.einsum("cdhij,cdhj->cdhi", P_path, eps)
+    u = np.einsum("cdhij,cdhj->cdhi", S_path, eps)
     deviation = propagate(A_lags, u, np.zeros((n_lags, n_vars)))
     paths = b_path + deviation
 
@@ -808,15 +901,15 @@ def _absorb_conditions(
         )
     G_A = np.einsum("cdrk,cdsk->cdrs", C_A, C_A)
     if np.max(np.linalg.cond(G_A)) > 1e8:
-        # stacklevel targets the public caller of structural_scenario
-        # (user -> structural_scenario -> engine -> here -> warn).
+        # stacklevel targets the public caller (user -> conditional_forecast /
+        # structural_scenario -> engine -> _stacked_shock_solve -> here -> warn).
         warnings.warn(
             "The adjusting-block constraint system is nearly redundant (condition "
             "number of C_A C_A' exceeds 1e8) — nearly-collinear condition loadings "
             "on the adjusting shocks inflate the conditional adjustment and the "
             "plausibility statistic without tripping the rank check.",
             UserWarning,
-            stacklevel=4,
+            stacklevel=5,
         )
     alpha = np.linalg.solve(G_A, ctilde[..., np.newaxis])[..., 0]
     E_A_mean = np.einsum("cdrk,cdr->cdk", C_A, alpha)
