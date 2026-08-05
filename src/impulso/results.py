@@ -127,6 +127,41 @@ class VARResultBase(ImpulsoBaseModel):
                 f"single-time {key.upper()}."
             )
 
+    def _wide_median(self, key: str, row_dim: str, col_dim: str = "shock") -> pd.DataFrame:
+        """Posterior median of `_pp()[key]` as a wide DataFrame.
+
+        Args:
+            key: Name of the variable in the `posterior_predictive` group.
+            row_dim: Dimension to use as the frame index.
+            col_dim: Dimension pairing with `response` on the columns.
+
+        Returns:
+            DataFrame indexed by `row_dim` with a
+            `MultiIndex(['response', col_dim])` on columns.
+        """
+        da = self._pp()[key]
+        return _wide_frame(da.median(dim=("chain", "draw")), row_dim, col_dim=col_dim)
+
+    def _wide_hdi(self, key: str, prob: float, row_dim: str, col_dim: str = "shock") -> HDIResult:
+        """HDI of `_pp()[key]` as wide lower/upper DataFrames.
+
+        Args:
+            key: Name of the variable in the `posterior_predictive` group.
+            prob: Probability mass for the HDI.
+            row_dim: Dimension to use as the frame index.
+            col_dim: Dimension pairing with `response` on the columns.
+
+        Returns:
+            HDIResult whose `lower` / `upper` DataFrames mirror the shape
+            and labels of `_wide_median(key, row_dim, col_dim)`.
+        """
+        lower_da, upper_da = hdi_bounds(self._pp()[key], prob)
+        return HDIResult(
+            lower=_wide_frame(lower_da, row_dim, col_dim=col_dim),
+            upper=_wide_frame(upper_da, row_dim, col_dim=col_dim),
+            prob=prob,
+        )
+
 
 class ForecastResult(VARResultBase):
     """Result from VAR forecasting.
@@ -185,6 +220,11 @@ class IRFResult(VARResultBase):
     horizon: int
     var_names: list[str]
 
+    @property
+    def shock_names(self) -> list[str]:
+        """Names of the structural shocks, in the order of the `shock` coordinate."""
+        return [str(s) for s in self._pp()["irf"].coords["shock"].values]
+
     def median(self) -> pd.DataFrame:
         """Posterior median IRF.
 
@@ -193,8 +233,7 @@ class IRFResult(VARResultBase):
             `MultiIndex(['response', 'shock'])` on columns.
         """
         self._guard_no_time_dim()
-        irf = self._pp()["irf"]
-        return _wide_frame(irf.median(dim=("chain", "draw")), "horizon")
+        return self._wide_median("irf", "horizon")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """HDI for IRF.
@@ -204,10 +243,7 @@ class IRFResult(VARResultBase):
             labels of `median()`.
         """
         self._guard_no_time_dim()
-        lower_da, upper_da = hdi_bounds(self._pp()["irf"], prob)
-        lower = _wide_frame(lower_da, "horizon")
-        upper = _wide_frame(upper_da, "horizon")
-        return HDIResult(lower=lower, upper=upper, prob=prob)
+        return self._wide_hdi("irf", prob, "horizon")
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert IRF to DataFrame (passthrough to `median()`)."""
@@ -247,8 +283,7 @@ class DynamicMultiplierResult(VARResultBase):
             `MultiIndex(['response', 'exog'])` on columns.
         """
         self._guard_no_time_dim()
-        dm = self._pp()["dynamic_multiplier"]
-        return _wide_frame(dm.median(dim=("chain", "draw")), "horizon", col_dim="exog")
+        return self._wide_median("dynamic_multiplier", "horizon", col_dim="exog")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """HDI for the dynamic multiplier.
@@ -258,10 +293,7 @@ class DynamicMultiplierResult(VARResultBase):
             labels of `median()`.
         """
         self._guard_no_time_dim()
-        lower_da, upper_da = hdi_bounds(self._pp()["dynamic_multiplier"], prob)
-        lower = _wide_frame(lower_da, "horizon", col_dim="exog")
-        upper = _wide_frame(upper_da, "horizon", col_dim="exog")
-        return HDIResult(lower=lower, upper=upper, prob=prob)
+        return self._wide_hdi("dynamic_multiplier", prob, "horizon", col_dim="exog")
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert the dynamic multiplier to a DataFrame (passthrough to `median()`)."""
@@ -288,6 +320,11 @@ class FEVDResult(VARResultBase):
     horizon: int
     var_names: list[str]
 
+    @property
+    def shock_names(self) -> list[str]:
+        """Names of the structural shocks, in the order of the `shock` coordinate."""
+        return [str(s) for s in self._pp()["fevd"].coords["shock"].values]
+
     def median(self) -> pd.DataFrame:
         """Posterior median FEVD.
 
@@ -296,8 +333,7 @@ class FEVDResult(VARResultBase):
             `MultiIndex(['response', 'shock'])` on columns.
         """
         self._guard_no_time_dim()
-        fevd = self._pp()["fevd"]
-        return _wide_frame(fevd.median(dim=("chain", "draw")), "horizon")
+        return self._wide_median("fevd", "horizon")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """HDI for FEVD.
@@ -307,10 +343,7 @@ class FEVDResult(VARResultBase):
             labels of `median()`.
         """
         self._guard_no_time_dim()
-        lower_da, upper_da = hdi_bounds(self._pp()["fevd"], prob)
-        lower = _wide_frame(lower_da, "horizon")
-        upper = _wide_frame(upper_da, "horizon")
-        return HDIResult(lower=lower, upper=upper, prob=prob)
+        return self._wide_hdi("fevd", prob, "horizon")
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert FEVD to DataFrame (passthrough to `median()`)."""
@@ -339,6 +372,32 @@ class HistoricalDecompositionResult(VARResultBase):
     """
 
     var_names: list[str]
+
+    @property
+    def shock_names(self) -> list[str]:
+        """Names of the shock contributions, in the order of the `shock` coordinate.
+
+        Partially-identified decompositions include the
+        `unidentified_remainder` column.
+        """
+        return [str(s) for s in self._pp()["hd"].coords["shock"].values]
+
+    def deviation(self) -> pd.DataFrame:
+        """Posterior median of the total deviation from the deterministic baseline.
+
+        Median of the per-draw sum of contributions over shocks, so it
+        matches `data - baseline()` exactly; because median-of-sum differs
+        from sum-of-medians, it need not equal `median()` summed over the
+        shock column level.
+
+        Returns:
+            DataFrame indexed by the same `DatetimeIndex` as `median()`,
+            with one column per variable.
+        """
+        da = self._pp()["hd"]
+        med = da.sum("shock").median(dim=("chain", "draw")).transpose("time", "response")
+        index = pd.DatetimeIndex(da.coords["time"].values, name="time")
+        return pd.DataFrame(med.values, index=index, columns=self.var_names)
 
     def baseline(self) -> pd.DataFrame:
         """Posterior median of the deterministic baseline path.
@@ -372,8 +431,7 @@ class HistoricalDecompositionResult(VARResultBase):
             decomposition time), with a `MultiIndex(['response', 'shock'])`
             on columns.
         """
-        hd = self._pp()["hd"]
-        return _wide_frame(hd.median(dim=("chain", "draw")), "time")
+        return self._wide_median("hd", "time")
 
     def hdi(self, prob: float = 0.89) -> HDIResult:
         """HDI for historical decomposition.
@@ -382,10 +440,7 @@ class HistoricalDecompositionResult(VARResultBase):
             HDIResult whose `lower` / `upper` DataFrames mirror the shape and
             labels of `median()`.
         """
-        lower_da, upper_da = hdi_bounds(self._pp()["hd"], prob)
-        lower = _wide_frame(lower_da, "time")
-        upper = _wide_frame(upper_da, "time")
-        return HDIResult(lower=lower, upper=upper, prob=prob)
+        return self._wide_hdi("hd", prob, "time")
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert historical decomposition to DataFrame (passthrough to `median()`)."""
@@ -474,6 +529,40 @@ class ConditionalForecastResult(VARResultBase):
             "n_restrictions": int(pp.attrs["n_restrictions"]),
             "tail_probability": float(pp.attrs["chi2_tail_of_median"]),
         }
+
+    @property
+    def n_restrictions(self) -> int:
+        """Number of binding restrictions recorded on the result.
+
+        Returns:
+            The `n_restrictions` Dataset attribute, or 0 when the result
+            carries no plausibility metadata (e.g. a hand-built result).
+        """
+        return int(self._pp().attrs.get("n_restrictions", 0))
+
+    def pinned_values(self) -> dict[str, list[tuple[int, float]]]:
+        """Resolved pinned values per variable.
+
+        Resolves the echoed `conditions` against the forecast grid the
+        same way the sampler did: a scalar broadcasts to every step, an
+        array pins a leading run of steps, and `NaN` entries stay free.
+
+        Returns:
+            Dict mapping each variable name to its `(step, value)` pins
+            with 1-based steps, in condition order; variables without
+            pins map to an empty list.
+
+        Raises:
+            ValueError: On unknown variables, scalar-NaN conditions,
+                over-length arrays, or duplicate pins.
+        """
+        from impulso._scenario import resolve_variable_pins
+
+        pins = resolve_variable_pins(list(self.conditions), self.var_names, self.steps)
+        resolved: dict[str, list[tuple[int, float]]] = {name: [] for name in self.var_names}
+        for var_idx, step_idx, value in pins:
+            resolved[self.var_names[var_idx]].append((step_idx + 1, value))
+        return resolved
 
     def to_dataframe(self) -> pd.DataFrame:
         """Conditional-forecast posterior median as a DataFrame (passthrough to `median()`)."""

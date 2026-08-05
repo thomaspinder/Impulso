@@ -32,12 +32,11 @@ def plot_historical_decomposition(
     Returns:
         Matplotlib Figure.
     """
-    hd_da = result._pp()["hd"]
-    med = hd_da.median(dim=("chain", "draw"))
-    deviation = hd_da.sum("shock").median(dim=("chain", "draw"))
-    shock_names = [str(s) for s in hd_da.coords["shock"].values]
+    med = result.median()
+    deviation = result.deviation()
+    shock_names = result.shock_names
     n_vars = len(result.var_names)
-    T = med.sizes["time"]
+    T = len(med.index)
 
     if figsize is None:
         figsize = (12, 3 * n_vars)
@@ -49,7 +48,7 @@ def plot_historical_decomposition(
 
     time_idx = range(T)
     for i, resp in enumerate(result.var_names):
-        panel = med.sel(response=resp).values  # (T, n_shocks)
+        panel = med[resp].values  # (T, n_shocks)
         bottom_pos = None
         bottom_neg = None
         for j, shock in enumerate(shock_names):
@@ -75,7 +74,7 @@ def plot_historical_decomposition(
                 bottom_neg += neg
         axes[i].plot(
             time_idx,
-            deviation.sel(response=resp).values,
+            deviation[resp].values,
             color="black",
             linewidth=1.1,
             label="deviation from baseline",
