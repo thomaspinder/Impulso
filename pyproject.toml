@@ -49,9 +49,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://thomaspinder.github.io/impulso/"
+Homepage = "https://thomaspinder.github.io/Impulso/"
 Repository = "https://github.com/thomaspinder/impulso"
-Documentation = "https://thomaspinder.github.io/impulso/"
+Documentation = "https://thomaspinder.github.io/Impulso/"
 
 [project.optional-dependencies]
 nutpie = ["nutpie>=0.13"]

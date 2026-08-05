@@ -111,7 +111,7 @@ fevd.plot()
 
 ## Documentation
 
-Full documentation, tutorials, and API reference: [https://thomaspinder.github.io/impulso](https://thomaspinder.github.io/impulso)
+Full documentation, tutorials, and API reference: [https://thomaspinder.github.io/Impulso](https://thomaspinder.github.io/Impulso)
 
 ## Development
 
