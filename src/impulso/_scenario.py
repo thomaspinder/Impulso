@@ -15,6 +15,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from impulso._posterior import (
+    EXOG_COEFFICIENTS,
+    coefficient_draws,
+    exog_coefficient_draws,
+    has_exog_block,
+    intercept_draws,
+)
+
 if TYPE_CHECKING:
     import pandas as pd
     import xarray as xr
@@ -265,15 +273,15 @@ def counterfactual_paths(identified: IdentifiedVAR, edits: list[ShockPath]) -> n
     )
     u_cf = np.einsum("cdtij,cdtj->cdti", P, eps_cf) if per_t else np.einsum("cdij,cdtj->cdti", P, eps_cf)
 
-    intercept = posterior["intercept"].values  # (C, D, n)
+    intercept = intercept_draws(posterior)  # (C, D, n)
     n_chains, n_draws, n_vars = intercept.shape
     T_eff = u_cf.shape[2]
     forcing = np.broadcast_to(intercept[:, :, np.newaxis, :], (n_chains, n_draws, T_eff, n_vars)).copy()
-    if identified.data.exog is not None and "B_exog" in posterior:
-        forcing += np.einsum("cdij,tj->cdti", posterior["B_exog"].values, identified.data.exog[n_lags:])
+    if identified.data.exog is not None and has_exog_block(posterior):
+        forcing += np.einsum("cdij,tj->cdti", exog_coefficient_draws(posterior), identified.data.exog[n_lags:])
     forcing += u_cf
 
-    A = lag_matrices(posterior["B"].values, n_lags)
+    A = lag_matrices(coefficient_draws(posterior), n_lags)
     return propagate(A, forcing, identified.data.endog[:n_lags])
 
 
@@ -290,7 +298,7 @@ def resolve_exog_future(
 
     Two facts drive the checks: whether the data carries an exogenous
     block (`data.exog`) and whether the estimator consumed one
-    (`"B_exog" in posterior`). A fit whose data has exog the estimator
+    (`has_exog_block(posterior)`). A fit whose data has exog the estimator
     never consumed cannot forecast; a fit with an exogenous block
     requires the future path; a posterior carrying `B_exog` without
     `data.exog` (hand-built posteriors) may still receive one. The shape
@@ -313,7 +321,7 @@ def resolve_exog_future(
             unexpected `exog_future`, or a shape mismatch.
     """
     has_exog = data.exog is not None
-    consumed = "B_exog" in posterior
+    consumed = has_exog_block(posterior)
     if has_exog and not consumed:
         raise ValueError(
             "This fit's data carries exogenous regressors the estimator never "
@@ -327,7 +335,7 @@ def resolve_exog_future(
     if not consumed:
         raise ValueError("exog_future provided but the posterior carries no B_exog.")
     exog_arr = np.asarray(exog_future, dtype=float)
-    n_exog = posterior["B_exog"].shape[-1]
+    n_exog = posterior[EXOG_COEFFICIENTS].shape[-1]
     if exog_arr.shape != (steps, n_exog):
         raise ValueError(f"exog_future must have shape ({steps}, {n_exog}), got {exog_arr.shape}.")
     return exog_arr
@@ -362,12 +370,12 @@ def deterministic_forecast_path(
     from impulso._linalg import lag_matrices
     from impulso._propagate import propagate
 
-    intercept = posterior["intercept"].values
+    intercept = intercept_draws(posterior)
     n_chains, n_draws, n_vars = intercept.shape
     forcing = np.broadcast_to(intercept[:, :, np.newaxis, :], (n_chains, n_draws, steps, n_vars)).copy()
     if exog_future is not None:
-        forcing += np.einsum("cdij,hj->cdhi", posterior["B_exog"].values, exog_future)
-    A = lag_matrices(posterior["B"].values, n_lags)
+        forcing += np.einsum("cdij,hj->cdhi", exog_coefficient_draws(posterior), exog_future)
+    A = lag_matrices(coefficient_draws(posterior), n_lags)
     return propagate(A, forcing, data.endog[-n_lags:])
 
 
@@ -476,7 +484,7 @@ def conditional_forecast_engine(
         number of binding restrictions `r`.
     """
     posterior = fitted._posterior()
-    B_draws = posterior["B"].values
+    B_draws = coefficient_draws(posterior)
     n_vars = B_draws.shape[2]
 
     pins = resolve_variable_pins(conditions, fitted.var_names, steps)
@@ -725,7 +733,7 @@ def structural_scenario_engine(
         the prescribed `|v_S|^2` term has no chi-squared reference).
     """
     posterior = identified._posterior()
-    B_draws = posterior["B"].values
+    B_draws = coefficient_draws(posterior)
     shock_names = identified.shock_names
 
     pins = resolve_variable_pins(conditions, identified.var_names, steps)

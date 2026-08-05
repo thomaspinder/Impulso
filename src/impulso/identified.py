@@ -8,10 +8,17 @@ import pandas as pd
 import xarray as xr
 from pydantic import Field
 
-from impulso._arviz_compat import InferenceDataLike, get_group_dataset, make_idata
+from impulso._arviz_compat import InferenceDataLike, make_idata
 from impulso._base import ImpulsoBaseModel
 from impulso._linalg import lag_matrices
 from impulso._ma import compute_ma_phi
+from impulso._posterior import (
+    coefficient_draws,
+    exog_coefficient_draws,
+    has_exog_block,
+    intercept_draws,
+    posterior_dataset,
+)
 from impulso.data import VARData
 from impulso.observation import Gaussian
 from impulso.protocols import ErrorDistribution, IdentificationScheme, VolatilityProcess
@@ -65,15 +72,13 @@ class IdentifiedVAR(ImpulsoBaseModel):
     scheme: IdentificationScheme  # P3: needed for at= queries
 
     def _posterior(self) -> xr.Dataset:
-        """The `posterior` group as an `xarray.Dataset`.
+        """The `posterior` group as an `xarray.Dataset`; see `impulso._posterior.posterior_dataset`.
 
-        Identification schemes and volatility processes are written against
-        `xr.Dataset`; on ArviZ 1 the raw group is a `DataTree` node instead.
         A new Dataset is built per call, so per-`t` loops must bind it to a
         local once — both to avoid rebuilding it `T` times and to keep the
         identity-keyed memo in `_PosteriorCache` hitting.
         """
-        return get_group_dataset(self.idata, "posterior")
+        return posterior_dataset(self.idata)
 
     @property
     def shock_names(self) -> list[str]:
@@ -246,7 +251,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         Returns:
             IRFResult with IRF posterior draws.
         """
-        B_draws = self._posterior()["B"].values  # (C, D, n, n*p)
+        B_draws = coefficient_draws(self._posterior())  # (C, D, n, n*p)
         Phi_arr = self._ma_coefficients(B_draws, self.n_lags, horizon)
         P = self.shock_matrix(at=at)
 
@@ -359,7 +364,7 @@ class IdentifiedVAR(ImpulsoBaseModel):
         Returns:
             FEVDResult with FEVD posterior draws.
         """
-        B_draws = self._posterior()["B"].values  # (C, D, n, n*p)
+        B_draws = coefficient_draws(self._posterior())  # (C, D, n, n*p)
         Phi_arr = self._ma_coefficients(B_draws, self.n_lags, horizon)
         P = self.shock_matrix(at=at)
 
@@ -484,15 +489,15 @@ class IdentifiedVAR(ImpulsoBaseModel):
             structural_resid = np.einsum("cdij,cdtj->cdti", P_inv, resid)
             impact = P[:, :, np.newaxis, :, :] * structural_resid[:, :, :, np.newaxis, :]
 
-        A = lag_matrices(posterior["B"].values, n_lags)
+        A = lag_matrices(coefficient_draws(posterior), n_lags)
         hd = propagate_contributions(A, impact)
 
-        intercept = posterior["intercept"].values  # (C, D, n)
+        intercept = intercept_draws(posterior)  # (C, D, n)
         n_chains, n_draws, n_vars = intercept.shape
         T_eff = resid.shape[2]
         forcing = np.broadcast_to(intercept[:, :, np.newaxis, :], (n_chains, n_draws, T_eff, n_vars)).copy()
-        if self.data.exog is not None and "B_exog" in posterior:
-            forcing += np.einsum("cdij,tj->cdti", posterior["B_exog"].values, self.data.exog[n_lags:])
+        if self.data.exog is not None and has_exog_block(posterior):
+            forcing += np.einsum("cdij,tj->cdti", exog_coefficient_draws(posterior), self.data.exog[n_lags:])
         baseline = propagate(A, forcing, self.data.endog[:n_lags])
 
         idx = self.data.index[n_lags:]

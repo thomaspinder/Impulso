@@ -8,6 +8,7 @@ from pydantic import Field, PrivateAttr, model_validator
 
 from impulso._base import ImpulsoModel
 from impulso._linalg import lag_matrices
+from impulso._posterior import COEFFICIENTS, coefficient_draws
 from impulso.identification._cache import _CACHE_MISS, _PosteriorCache
 
 if TYPE_CHECKING:
@@ -283,7 +284,7 @@ class LongRunRestriction(ImpulsoModel):
                 `on_undefined="raise"` and some draw is undefined.
         """
         del data  # unused
-        if posterior is None or "B" not in posterior:
+        if posterior is None or COEFFICIENTS not in posterior:
             raise ValueError(
                 "LongRunRestriction.identify requires the full posterior with 'B' (the VAR lag "
                 "coefficients): the long-run multiplier C(1) = (I - sum_j A_j)^-1 is built from "
@@ -292,7 +293,7 @@ class LongRunRestriction(ImpulsoModel):
             )
         n_vars = L.shape[-1]
         if n_lags is None:
-            n_lags = posterior["B"].shape[-1] // n_vars
+            n_lags = posterior[COEFFICIENTS].shape[-1] // n_vars
 
         perm = self._permutation(var_names)
         inv = np.argsort(perm)
@@ -347,7 +348,7 @@ class LongRunRestriction(ImpulsoModel):
             self._last_diagnostics = {**self._last_diagnostics, "long_run_screen_cache_hit": 1.0}
             return cached
 
-        A = lag_matrices(posterior["B"].values, n_lags)
+        A = lag_matrices(coefficient_draws(posterior), n_lags)
         M = np.eye(n_vars) - np.sum(A, axis=0)
         # cond() returns inf for a singular matrix rather than raising,
         # which is what makes the sanitise-then-blank strategy possible.
@@ -429,10 +430,10 @@ class LongRunRestriction(ImpulsoModel):
             A large condition number means `C(1)` is barely defined; a
             spectral radius above one means the long-run sum diverges.
         """
-        n_vars = posterior["B"].shape[-2]
+        n_vars = posterior[COEFFICIENTS].shape[-2]
         if n_lags is None:
-            n_lags = posterior["B"].shape[-1] // n_vars
-        A = lag_matrices(posterior["B"].values, n_lags)
+            n_lags = posterior[COEFFICIENTS].shape[-1] // n_vars
+        A = lag_matrices(coefficient_draws(posterior), n_lags)
         M = np.eye(n_vars) - np.sum(A, axis=0)
         return {
             "condition": np.linalg.cond(M),
