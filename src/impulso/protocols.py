@@ -36,13 +36,24 @@ class Sampler(Protocol):
 class IdentificationScheme(Protocol):
     """Contract for structural identification schemes.
 
-    Optional capability flag: schemes that *sample* rotations inside
-    `identify` (a fresh draw per call, as `SignRestriction` does) must set
-    a truthy class attribute `_samples_rotations`. Forecast-side scenario
-    machinery reads it via `getattr(scheme, "_samples_rotations", False)`
-    and refuses time-varying volatility for such schemes — no single
-    structural coordinate system would span the forecast steps otherwise.
-    Deterministic schemes (`Cholesky`, `ProxySVAR`) omit the flag.
+    Optional capabilities — read by consumers with a `getattr` default, so
+    minimal third-party schemes implementing only `identify` and
+    `shock_coords` keep satisfying this Protocol under runtime checks
+    (ADR-0013):
+
+    - `last_diagnostics: dict[str, float]` — per-`identify()`-call
+      diagnostic scalars under scheme-prefixed keys (acceptance rates,
+      first-stage strength, cache-hit flags as 0.0/1.0). A single-call
+      scratchpad, overwritten on each call; `IdentifiedVAR.shock_matrix`
+      reads it immediately after `identify` and surfaces the entries onto
+      the result's attrs. Schemes with nothing to report omit it.
+    - `_samples_rotations` — schemes that *sample* rotations inside
+      `identify` (a fresh draw per call, as `SignRestriction` does) must
+      set this truthy class attribute. Forecast-side scenario machinery
+      reads it via `getattr(scheme, "_samples_rotations", False)` and
+      refuses time-varying volatility for such schemes — no single
+      structural coordinate system would span the forecast steps
+      otherwise. Deterministic schemes (`Cholesky`, `ProxySVAR`) omit it.
     """
 
     def identify(

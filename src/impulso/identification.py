@@ -269,12 +269,21 @@ class SignRestriction(ImpulsoModel):
     # this capability flag and refuses time-varying volatility.
     _samples_rotations: ClassVar[bool] = True
 
-    # Single-call scratchpad: identify() writes the rate; the pipeline
-    # (IdentifiedVAR.shock_matrix) reads it immediately afterwards and
-    # attaches it to the shock-matrix DataArray's attrs. Not reentrant —
-    # overwritten on each identify() call. Do not rely on this between
-    # calls; the surviving public surface is the shock-matrix attr.
-    _last_acceptance_rate: float = PrivateAttr(default=0.0)
+    # Single-call scratchpad backing `last_diagnostics`: identify() writes
+    # the acceptance rate; the pipeline (IdentifiedVAR.shock_matrix) reads
+    # it back immediately afterwards and attaches it to the shock-matrix
+    # DataArray's attrs. Not reentrant — overwritten on each identify() call.
+    _last_diagnostics: dict[str, float] = PrivateAttr(default_factory=dict)
+
+    @property
+    def last_diagnostics(self) -> dict[str, float]:
+        """Diagnostics from the most recent `identify()` call.
+
+        Scheme-prefixed scalars (see CONTEXT.md "Identification
+        diagnostics"), overwritten per call and surfaced onto
+        `IdentifiedVAR.shock_matrix().attrs` by the pipeline. Returns a copy.
+        """
+        return dict(self._last_diagnostics)
 
     def identify(
         self,
@@ -300,8 +309,8 @@ class SignRestriction(ImpulsoModel):
             Structural shock matrix, shape (chains, draws, n_vars, n_vars).
             Per-draw fallback to the supplied `L` for draws where no
             rotation satisfies the restrictions. The acceptance rate is
-            available via the `sign_restriction_acceptance_rate` attr on
-            `IdentifiedVAR.shock_matrix()` (attached by the pipeline).
+            available as `last_diagnostics["sign_restriction_acceptance_rate"]`
+            and on the matching `IdentifiedVAR.shock_matrix()` attr.
         """
         del data, n_lags  # unused
         from scipy.stats import special_ortho_group
@@ -357,9 +366,9 @@ class SignRestriction(ImpulsoModel):
                 stacklevel=2,
             )
 
-        # Stash the acceptance rate as a side channel — the pipeline reads
-        # it back to attach to the InferenceData.attrs.
-        self._last_acceptance_rate = accepted_count / total_count
+        # Stash the acceptance rate in the diagnostics scratchpad — the
+        # pipeline reads `last_diagnostics` back to attach to the attrs.
+        self._last_diagnostics = {"sign_restriction_acceptance_rate": accepted_count / total_count}
         return P
 
     @staticmethod
@@ -506,10 +515,20 @@ class LongRunRestriction(ImpulsoModel):
     on_undefined: Literal["nan", "raise"] = "nan"
     max_condition: float = Field(default=1e8, gt=0.0)
 
-    # Single-call scratchpad, mirroring ProxySVAR._last_diagnostics:
-    # _screen() writes the long-run diagnostics; the pipeline reads them
-    # back and attaches them to the shock-matrix attrs.
+    # Single-call scratchpad backing `last_diagnostics`: _screen() writes
+    # the long-run diagnostics; the pipeline reads them back and attaches
+    # them to the shock-matrix attrs.
     _last_diagnostics: dict[str, float] = PrivateAttr(default_factory=dict)
+
+    @property
+    def last_diagnostics(self) -> dict[str, float]:
+        """Diagnostics from the most recent `identify()` call.
+
+        Scheme-prefixed scalars (see CONTEXT.md "Identification
+        diagnostics"), overwritten per call and surfaced onto
+        `IdentifiedVAR.shock_matrix().attrs` by the pipeline. Returns a copy.
+        """
+        return dict(self._last_diagnostics)
 
     # Memoised screen. `M`, its conditioning and the spectral radii depend
     # only on (posterior, n_lags) — not on L — so under time-varying
@@ -716,6 +735,7 @@ class LongRunRestriction(ImpulsoModel):
         """
         cached = self._lr_cache.get(posterior, (n_lags,))
         if cached is not _CACHE_MISS:
+            self._last_diagnostics = {**self._last_diagnostics, "long_run_screen_cache_hit": 1.0}
             return cached
 
         A = lag_matrices(posterior["B"].values, n_lags)
@@ -737,6 +757,7 @@ class LongRunRestriction(ImpulsoModel):
             "long_run_explosive_fraction": float(explosive.mean()),
             "long_run_spectral_radius_median": float(np.median(rho)),
             "long_run_spectral_radius_max": float(rho.max()),
+            "long_run_screen_cache_hit": 0.0,
         }
         self._report(bad, explosive)
         self._lr_cache.set(posterior, (n_lags,), (M, bad))
@@ -861,10 +882,20 @@ class ProxySVAR(ImpulsoBaseModel):
     shock_name: str = "instrumented"
     scale: float | None = None
 
-    # Single-call scratchpad, mirroring SignRestriction._last_acceptance_rate:
-    # identify() writes first-stage diagnostics; the pipeline reads them
-    # immediately afterwards and attaches to the shock matrix attrs.
+    # Single-call scratchpad backing `last_diagnostics`: identify() writes
+    # first-stage diagnostics; the pipeline reads them immediately
+    # afterwards and attaches to the shock matrix attrs.
     _last_diagnostics: dict[str, float] = PrivateAttr(default_factory=dict)
+
+    @property
+    def last_diagnostics(self) -> dict[str, float]:
+        """Diagnostics from the most recent `identify()` call.
+
+        Scheme-prefixed scalars (see CONTEXT.md "Identification
+        diagnostics"), overwritten per call and surfaced onto
+        `IdentifiedVAR.shock_matrix().attrs` by the pipeline. Returns a copy.
+        """
+        return dict(self._last_diagnostics)
 
     # Memoised impact direction. The instrument-residual covariance (and
     # the first-stage diagnostics) depend only on (posterior, data, n_lags)
@@ -934,6 +965,7 @@ class ProxySVAR(ImpulsoBaseModel):
                 "proxy_first_stage_f_median": f_median,
                 "proxy_first_stage_f_q05": float(np.quantile(f_draws, 0.05)),
                 "proxy_first_stage_f_q95": float(np.quantile(f_draws, 0.95)),
+                "proxy_impact_cache_hit": 0.0,
             }
             self._impact_cache.set((posterior, data), (n_lags,), d)
             if f_median < 10.0:
@@ -945,6 +977,8 @@ class ProxySVAR(ImpulsoBaseModel):
                     UserWarning,
                     stacklevel=2,
                 )
+        else:
+            self._last_diagnostics = {**self._last_diagnostics, "proxy_impact_cache_hit": 1.0}
 
         # Complete the matrix: q1 = L^{-1} d normalised, extended to an
         # orthonormal basis via a Householder reflection; P = L @ Q gives
@@ -1221,14 +1255,22 @@ class ZeroSignRestriction(ImpulsoModel):
     # time-varying volatility for such schemes.
     _samples_rotations: ClassVar[bool] = True
 
-    # Single-call scratchpad, mirroring ProxySVAR._last_diagnostics: identify()
-    # writes, IdentifiedVAR.shock_matrix reads it back immediately and attaches
-    # the entries to the shock-matrix attrs. Not reentrant.
-    #
-    # Deliberately *not* `_last_acceptance_rate`: the pipeline surfaces that
-    # private attribute under the name `sign_restriction_acceptance_rate`,
-    # which would mislabel this scheme's diagnostics.
+    # Single-call scratchpad backing `last_diagnostics`: identify() writes,
+    # IdentifiedVAR.shock_matrix reads it back immediately and attaches the
+    # entries to the shock-matrix attrs. Not reentrant. Keys carry the
+    # zero_sign_ prefix so they can never mislabel another scheme's
+    # diagnostics (see CONTEXT.md "Scheme-prefixed diagnostic keys").
     _last_diagnostics: dict[str, float] = PrivateAttr(default_factory=dict)
+
+    @property
+    def last_diagnostics(self) -> dict[str, float]:
+        """Diagnostics from the most recent `identify()` call.
+
+        Scheme-prefixed scalars (see CONTEXT.md "Identification
+        diagnostics"), overwritten per call and surfaced onto
+        `IdentifiedVAR.shock_matrix().attrs` by the pipeline. Returns a copy.
+        """
+        return dict(self._last_diagnostics)
 
     @model_validator(mode="after")
     def _validate_restrictions(self) -> "ZeroSignRestriction":

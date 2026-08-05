@@ -137,7 +137,7 @@ class TestSignRestriction:
         assert scheme.restriction_horizon == 0
 
     def test_sign_restriction_identify_stores_acceptance_rate(self, synthetic_idata_2v):
-        """identify() should record acceptance_rate on the scheme instance."""
+        """identify() should record the acceptance rate in last_diagnostics."""
         scheme = SignRestriction(
             restrictions={"y1": {"y1": "+"}},
             n_rotations=100,
@@ -147,7 +147,7 @@ class TestSignRestriction:
         sigma = synthetic_idata_2v.posterior["Sigma"].values
         L = np.linalg.cholesky(sigma)
         scheme.identify(L, ["y1", "y2"])
-        rate = scheme._last_acceptance_rate
+        rate = scheme.last_diagnostics["sign_restriction_acceptance_rate"]
         assert 0.0 <= rate <= 1.0
 
     def test_identify_multi_horizon_through_identify(self, synthetic_idata_2v):
@@ -163,7 +163,7 @@ class TestSignRestriction:
         P = scheme.identify(L, ["y1", "y2"], posterior=synthetic_idata_2v.posterior)
         assert P.shape == L.shape
         assert not np.any(np.isnan(P))
-        assert 0.0 <= scheme._last_acceptance_rate <= 1.0
+        assert 0.0 <= scheme.last_diagnostics["sign_restriction_acceptance_rate"] <= 1.0
 
     def test_shock_coordinates_with_partial_identification(self):
         """When fewer shocks are named than variables, remaining get 'unidentified_N' labels."""
@@ -650,8 +650,8 @@ class TestLongRunRestriction:
         assert not np.isnan(P[0, 5:]).any()
         assert not np.isnan(P[1]).any()
         np.testing.assert_allclose(P[0, 5:], np.broadcast_to(fx["P_true"], P[0, 5:].shape), atol=1e-12)
-        assert scheme._last_diagnostics["long_run_singular_draws"] == 5.0
-        assert scheme._last_diagnostics["long_run_singular_fraction"] == pytest.approx(0.05)
+        assert scheme.last_diagnostics["long_run_singular_draws"] == 5.0
+        assert scheme.last_diagnostics["long_run_singular_fraction"] == pytest.approx(0.05)
 
     def test_singular_draws_raise_when_asked(self, permanent_transitory_2v):
         fx = permanent_transitory_2v
@@ -672,12 +672,12 @@ class TestLongRunRestriction:
         with pytest.warns(UserWarning, match="long-run multiplier"):
             P_strict = strict.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
         assert np.isnan(P_strict[0, :3]).all()
-        assert strict._last_diagnostics["long_run_singular_draws"] == 3.0
+        assert strict.last_diagnostics["long_run_singular_draws"] == 3.0
 
         lenient = self._scheme(max_condition=1e20)
         P_lenient = lenient.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
         assert not np.isnan(P_lenient).any()
-        assert lenient._last_diagnostics["long_run_singular_draws"] == 0.0
+        assert lenient.last_diagnostics["long_run_singular_draws"] == 0.0
 
     # --- 15. explosive is not singular -------------------------------------
 
@@ -690,9 +690,9 @@ class TestLongRunRestriction:
             P = scheme.identify(fx["L"], ["y1", "y2"], posterior=posterior, n_lags=1)
 
         assert np.isfinite(P).all()
-        assert scheme._last_diagnostics["long_run_explosive_draws"] == 4.0
-        assert scheme._last_diagnostics["long_run_singular_draws"] == 0.0
-        assert scheme._last_diagnostics["long_run_spectral_radius_max"] == pytest.approx(1.5)
+        assert scheme.last_diagnostics["long_run_explosive_draws"] == 4.0
+        assert scheme.last_diagnostics["long_run_singular_draws"] == 0.0
+        assert scheme.last_diagnostics["long_run_spectral_radius_max"] == pytest.approx(1.5)
 
     # --- 16. the diagnostics query -----------------------------------------
 
@@ -734,7 +734,9 @@ class TestLongRunRestriction:
         gc.collect()
         assert ref() is None
 
-        assert scheme._lr_cache.get(self._posterior_with(fx, lambda c, d: None), (1,)) is _CACHE_MISS
+        fresh = self._posterior_with(fx, lambda c, d: None)
+        scheme.identify(fx["L"], ["y1", "y2"], posterior=fresh, n_lags=1)
+        assert scheme.last_diagnostics["long_run_screen_cache_hit"] == 0.0
 
     # --- 17-19. from_zero_restrictions -------------------------------------
 

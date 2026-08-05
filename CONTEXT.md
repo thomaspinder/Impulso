@@ -13,8 +13,12 @@ The reduced-form VAR fits dynamics without economic interpretation; the structur
 _Avoid_: "raw" / "interpretable" — they obscure the technical meaning.
 
 **Identification scheme**:
-A rule for recovering structural shocks from reduced-form covariance, implemented as adapters of the `IdentificationScheme` Protocol (`Cholesky`, `SignRestriction`, `LongRunRestriction`, `ProxySVAR`). The scheme is a pure function: it consumes a Cholesky factor `L` and produces a structural shock matrix `B = identify(L)`. It does not own time iteration.
+A rule for recovering structural shocks from reduced-form covariance, implemented as adapters of the `IdentificationScheme` Protocol (`Cholesky`, `SignRestriction`, `ZeroSignRestriction`, `LongRunRestriction`, `ProxySVAR`). The scheme is pure in its output — it consumes a Cholesky factor `L` and produces a structural shock matrix `B = identify(L)` — with one declared side effect: per-call **identification diagnostics** exposed via `last_diagnostics`. It does not own time iteration.
 _Avoid_: "identification strategy" (used colloquially; the Protocol is named "scheme").
+
+**Identification diagnostics (`last_diagnostics`)**:
+Per-`identify()`-call diagnostic scalars — acceptance rates, first-stage instrument strength, long-run screen condition numbers, cache-hit flags (0.0/1.0) — a flat `dict[str, float]` under scheme-prefixed keys, surfaced onto `shock_matrix().attrs`. A single-call scratchpad, not state: each `identify()` overwrites it and the pipeline reads it back immediately. An optional capability of the identification-scheme seam: schemes with nothing to report (`Cholesky`) simply lack it.
+_Avoid_: treating it as cumulative or reentrant state; the private spellings `_last_diagnostics` / `_last_acceptance_rate` (retired).
 
 **Long-run multiplier (C(1))**:
 The sum of the moving-average coefficients of a stable reduced-form VAR, `C(1) = Σ_h Φ_h = (I − Σ_j A_j)^{-1}` — the total effect of a one-off reduced-form innovation on the *level* of each variable. Exists only when the companion spectral radius is below one; `I − Σ_j A_j` near-singular means it is numerically undefined, which is a distinct failure from divergence.
@@ -22,8 +26,6 @@ The sum of the moving-average coefficients of a stable reduced-form VAR, `C(1) =
 **Cumulative MA impact matrix (Θ(1))**:
 The structural counterpart, `Θ(1) = C(1) P`: the total effect of each structural shock on each variable's level. Where `Cholesky` and `SignRestriction` constrain the impact matrix `Θ(0) = P`, `LongRunRestriction` constrains `Θ(1)` to be lower-triangular in a stated variable ordering, with positive diagonal (shock `j` raises variable `j`'s long-run level).
 _Avoid_: "Blanchard-Quah identification" as an API name — the scheme is named for what it restricts, not for its first users (the prose citation is fine). "Permanent shock" for anything but the first column: only the shock restricted nowhere is unambiguously permanent.
-A rule for recovering structural shocks from reduced-form covariance, implemented as adapters of the `IdentificationScheme` Protocol (`Cholesky`, `SignRestriction`, `ZeroSignRestriction`, `ProxySVAR`). The scheme is a pure function: it consumes a Cholesky factor `L` and produces a structural shock matrix `B = identify(L)`. It does not own time iteration.
-_Avoid_: "identification strategy" (used colloquially; the Protocol is named "scheme").
 
 **Zero-and-sign restrictions (ARW construction)**:
 Identification combining exact zeros on the impact matrix with sign restrictions on impulse responses, via the recursive orthogonalisation of Arias, Rubio-Ramírez & Waggoner (2018). With `P = L Q`, a zero is a *linear* condition on one column of `Q` (`Z_j L q_j = 0`), so columns are built one at a time — each drawn uniformly from the unit sphere of the null space of the stacked zero conditions and the already-drawn columns. The zeros hold by construction; only the signs are accept/reject. Admissibility is the Rubio-Ramírez, Waggoner & Zha (2010) counting condition `z_j <= n - j` on shocks sorted by zero count, checked before sampling. Equality throughout is exact identification and reproduces the Cholesky factor; anything looser is set identification. Draws are *unweighted* — no volume-element correction for the ARW uniform-conditional prior — which is documented rather than silent. Failed draws are `NaN`, never a fallback to `L`, because a fallback would violate the zeros the scheme exists to impose.
@@ -193,6 +195,8 @@ _Avoid_: "extra lags" without saying they are untested; "corrected for non-stati
 ## Conventions
 
 **Discriminator field on adapters**: every concrete adapter class (`Constant`, `RandomWalk`, `AR1`, …) declares its registry key with `name: Literal["x"] = "x"`, *not* `name: ClassVar[str] = "x"`. The Literal form is the modern Pydantic v2 idiom: it makes `name` a real instance attribute, fires `ValidationError` on construction-time mismatch (`Constant(name="other")`) and on post-construction mutation (under `frozen=True`), and participates in `model_dump`/`model_validate` round-trips. Class-level access (`Constant.name`) does *not* work with this pattern — registries that need the key value should hardcode the literal string.
+
+**Scheme-prefixed diagnostic keys**: every key a scheme writes into `last_diagnostics` names its scheme family in a prefix (`sign_restriction_`, `zero_sign_`, `long_run_`, `proxy_`), so entries surfaced onto shared `attrs` can never collide with — or mislabel themselves as — another scheme's diagnostics. `sign_restriction_acceptance_rate` keeps its exact historical spelling; it is public behaviour.
 
 ## Flagged ambiguities
 
