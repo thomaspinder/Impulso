@@ -18,6 +18,13 @@
 # .. meta::
 #    :property=og:image: https://thomaspinder.github.io/Impulso/_static/proxy-svar-card.png
 #    :property=og:image:alt: Posterior median and 68% band of the month-by-month impact of a one-standard-deviation oil supply news shock on the real oil price, 1974-2017.
+#    :property=og:image:width: 2400
+#    :property=og:image:height: 1260
+#
+# .. The width/height let a crawler lay out the large card on its first scrape
+#    instead of guessing from a half-downloaded image. They are asserted, not
+#    measured, so they must track the ``fig.savefig`` call near the end of this
+#    notebook, which fixes the export at 2400 x 1260.
 # ```
 #
 # # Oil supply news with an external instrument
@@ -386,8 +393,24 @@ plotting.serif_title("One-standard-deviation oil supply news shock, period by pe
 # and a fresh runner would otherwise deploy without the file. Smoke renders
 # skip the export so a low-fidelity figure can never displace the committed
 # full-fidelity card.
+#
+# The card's geometry answers to the link crawlers, not to this page. They
+# centre-crop to 1.91:1 and upscale into a ~1200 CSS px slot (2x on retina),
+# so exporting the body figure as-is (2.8:1) cost the y-axis, both margins and
+# the left edge of the title, and then stretched what was left into a blur.
+# Hence the three overrides below:
+#   - 10 x 5.25 in at 240 dpi is exactly 2400 x 1260 px, i.e. 1.91:1 at 2x the
+#     slot, so nothing is cropped and nothing is upscaled;
+#   - `savefig.bbox: standard` keeps that size exact. The ledger style's
+#     `tight` default trims to the artists' extent, which drifts with the tick
+#     labels and silently reintroduces an off-spec ratio;
+#   - `savefig.transparent: False` bakes the background in. A transparent PNG
+#     is composited by the crawler, so a dark-mode card would otherwise put
+#     this plot's dark ink on black.
 if not ci:
-    fig.savefig("../stylesheets/proxy-svar-card.png", dpi=120)
+    fig.set_size_inches(10, 5.25)
+    with plt.rc_context({"savefig.bbox": "standard", "savefig.transparent": False}):
+        fig.savefig("../stylesheets/proxy-svar-card.png", dpi=240)
 
 # %% [markdown]
 # The scale moves several-fold over the sample, and its peaks sit on familiar episodes of oil-market turbulence, including the 1979-80 oil crisis, the 1986 price collapse, the Gulf War, and the 2008-09 financial crisis. At the 1986 and 1990-91 peaks a typical shock moved the oil price by around 11% on impact, whereas through the calm mid-1990s the same one-standard-deviation event was worth closer to 5%. The 2008-09 peak, the largest in the sample, is also a helpful guide to what the path measures. That episode is usually attributed to collapsing demand, so the plot is tracking the changing scale of the residuals rather than dating occasions of oil supply news, and it is not a historical decomposition. A constant-$\Sigma$ model would compress this whole path into one average scale.
