@@ -8,6 +8,30 @@ from impulso._arviz_compat import get_group_dataset, hdi_bounds
 from impulso.samplers import NUTSSampler
 from impulso.sv.spec import StochasticVolatility
 
+# Credible level for the scalar-parameter recovery guards below.
+#
+# These assertions ask whether the posterior is grossly wrong, not whether it
+# is calibrated: calibration is a statement about many datasets, and each test
+# here fits exactly one. On these fixtures the truth lands in the posterior's
+# upper tail -- measured over five sampler seeds on the fixed RW dataset, the
+# truth sits at posterior quantile 0.889 +- 0.028, and on the AR(1) dataset at
+# 0.910 +- 0.010. That is expected rather than broken: sigma_eta is weakly
+# identified when every h_t is seen through log-chi2 observation noise
+# (variance pi^2/2), and the AR(1) fixture's 0.3 sits in the upper 13% of the
+# default HalfNormal(0.2) prior.
+#
+# An 89% HDI on a right-skewed posterior trims almost entirely off the right,
+# putting its upper edge in that same quantile band, so coverage was decided by
+# MCMC noise: 3/5 sampler seeds on the RW fixture. That is why this passed on
+# every run for months against one CI runner and then failed the first time the
+# 3.12 leg drew different hardware, with src/ and the lock file untouched.
+# Raising `draws` cannot fix it -- sharper endpoints converge onto the wrong
+# side of the truth. The interval itself has to be the generous one.
+#
+# 98% covers 5/5 seeds for every parameter here with ~2.6 sd of quantile
+# headroom, and still fails loudly if sigma_eta collapses to zero or blows up.
+RECOVERY_HDI = 0.98
+
 
 @pytest.mark.slow
 def test_rw_recovery(sv_data_rw, sv_series_rw):
@@ -28,12 +52,12 @@ def test_rw_recovery(sv_data_rw, sv_series_rw):
     rho, _ = stats.spearmanr(h_med, sv_series_rw["h_true"])
     assert rho > 0.7, f"Spearman correlation {rho:.3f} < 0.7"
 
-    # sigma_eta 89% HDI covers truth
+    # sigma_eta recovery guard (see RECOVERY_HDI)
     posterior = get_group_dataset(fitted.idata, "posterior")
-    lo_da, hi_da = hdi_bounds(posterior["sigma_eta"], 0.89)
+    lo_da, hi_da = hdi_bounds(posterior["sigma_eta"], RECOVERY_HDI)
     lo, hi = float(lo_da), float(hi_da)
     true_sigma = sv_series_rw["sigma_eta_true"]
-    assert lo <= true_sigma <= hi, f"sigma_eta HDI [{lo:.3f}, {hi:.3f}] misses {true_sigma}"
+    assert lo <= true_sigma <= hi, f"sigma_eta {RECOVERY_HDI:.0%} HDI [{lo:.3f}, {hi:.3f}] misses {true_sigma}"
 
     # Pointwise 89% HDI covers truth at >= 80% of time points
     lo_h, hi_h = (bound.values for bound in hdi_bounds(posterior["h"], 0.89))
@@ -86,6 +110,6 @@ def test_ar1_recovery(sv_series_ar1):
         ("phi", sv_series_ar1["phi_true"]),
         ("sigma_eta", sv_series_ar1["sigma_eta_true"]),
     ]:
-        lo_da, hi_da = hdi_bounds(posterior[key], 0.89)
+        lo_da, hi_da = hdi_bounds(posterior[key], RECOVERY_HDI)
         lo, hi = float(lo_da), float(hi_da)
-        assert lo <= truth <= hi, f"{key} HDI [{lo:.3f}, {hi:.3f}] misses {truth}"
+        assert lo <= truth <= hi, f"{key} {RECOVERY_HDI:.0%} HDI [{lo:.3f}, {hi:.3f}] misses {truth}"
