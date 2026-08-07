@@ -35,11 +35,23 @@ class VARData(ImpulsoBaseModel):
     identified; it is rejected rather than silently soaking up an arbitrary
     share of the intercept.
 
+    Every value must be finite. NaN or Inf in either block is rejected at
+    construction, not left to surface later as a failed fit or an all-NaN
+    posterior.
+
+    Immutability extends to the arrays themselves: `endog` and `exog` are
+    copied and marked read-only once validation passes, so a fitted model can
+    never be re-pointed at data that was mutated underneath it.
+
     Attributes:
         endog: Endogenous variable array of shape (T, n) where T >= 1 and n >= 2.
         endog_names: Names for each endogenous variable. Must be unique.
         exog: Optional exogenous variable array of shape (T, k). Every column
-            must take at least two distinct values.
+            must take at least two distinct values. Endogenous variables are
+            modelled jointly and each carries a structural shock; exogenous
+            regressors enter contemporaneously, are never explained by the
+            system, and carry no shock of their own. Which columns belong on
+            which side is a modelling assumption the data cannot check.
         exog_names: Names for each exogenous variable. Required if exog is provided.
             Must be unique and disjoint from `endog_names`.
         index: DatetimeIndex of length T.
@@ -126,12 +138,25 @@ class VARData(ImpulsoBaseModel):
             )
 
     def _validate_finite(self) -> None:
+        """Reject NaN or Inf anywhere in the endogenous or exogenous block.
+
+        Non-finite values propagate silently through the likelihood, so they are
+        caught at construction rather than emerging as a stalled sampler or an
+        all-NaN posterior.
+        """
         if not np.isfinite(self.endog).all():
             raise ValueError("endog contains NaN or Inf values")
         if self.exog is not None and not np.isfinite(self.exog).all():
             raise ValueError("exog contains NaN or Inf values")
 
     def _make_readonly(self) -> None:
+        """Copy `endog` and `exog` and mark the copies read-only.
+
+        Runs last, once validation has passed. The copy severs the arrays from
+        whatever the caller still holds and the write flag keeps them severed:
+        a fitted model keeps a reference to its `VARData`, so without this it
+        could be re-pointed at data it was never estimated on.
+        """
         endog_copy = self.endog.copy()
         endog_copy.flags.writeable = False
         object.__setattr__(self, "endog", endog_copy)

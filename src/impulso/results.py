@@ -59,6 +59,22 @@ class VARResultBase(ImpulsoBaseModel):
     class-level `_PRIMARY_KEY`; this drives the shared
     `_guard_no_time_dim` check.
 
+    The abstract quartet — `median()`, `hdi()`, `to_dataframe()`, `plot()` —
+    is the whole of what `impulso.plotting` is written against. Every
+    plotting function consumes this interface and the result's own
+    accessors, never the raw posterior internals behind them, which is what
+    makes the base class worth having: a new result becomes plottable by
+    implementing the quartet, and a change to the draw layout stays inside
+    the result that owns it.
+
+    Not every result implements the quartet, deliberately. It is for results
+    carrying posterior draws; the diagnostic results —
+    `GrangerCausalityResult`, `LagOrderResult`, `StationarityTestResult`,
+    `CointegrationTestResult`, `IntegrationOrderResult` — are not
+    posterior-shaped, so they inherit `ImpulsoBaseModel` directly and offer
+    `summary()` instead. "Result object" therefore does not imply the
+    quartet.
+
     Attributes:
         idata: InferenceData-schema container holding the result draws
             (`arviz.InferenceData` on ArviZ 0, `xarray.DataTree` on ArviZ 1).
@@ -889,6 +905,11 @@ class GrangerCausalityResult(ImpulsoBaseModel):
     prediction of `effect` beyond `effect`'s own past, *within this system
     of variables*. Omitted drivers, temporal aggregation, and simultaneous
     feedback each break the step from that statement to a mechanism.
+    The pair is ordered, and the two orderings are separate queries with
+    unrelated answers: `granger_causality(a, b)` tells you nothing about
+    `granger_causality(b, a)`. Either direction, both, or neither may hold,
+    so each direction has to be asked for explicitly and reported as its own
+    result.
 
     **What `p_rope` is, and what it is not.** `p_rope` is the posterior
     probability that the strength norm falls inside the region of practical

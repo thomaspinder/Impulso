@@ -30,6 +30,12 @@ class Constant(ImpulsoModel):
     off-diagonals (scaled by the row's diagonal). For `n_vars == 1`
     the off-diagonal block is empty.
 
+    The factor is assembled from primitives rather than with PyMC's
+    purpose-built `LKJCholeskyCov` / `LKJCorr` because those are broken on the
+    dependency set Impulso supports — an einsum unpacking bug — so the obvious
+    built-in is not an option here. See
+    docs/adr/0014-manual-cholesky-parameterisation.md.
+
     The PyMC variable names produced inside `build_pymc_latent`
     (`sigma_sd`, `tril_offdiag`) match today's posterior contents
     exactly so existing identification and downstream code keep working
