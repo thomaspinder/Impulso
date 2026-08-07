@@ -117,7 +117,7 @@ def _check_finite(frame: pd.DataFrame) -> pd.DataFrame:
     """
     finite = np.isfinite(frame.to_numpy(dtype=np.float64)).all(axis=0)
     if not finite.all():
-        bad = [str(c) for c, ok in zip(frame.columns, finite, strict=True) if not ok]
+        bad = [str(c) for c in frame.columns[~finite]]
         raise ValueError(f"columns contain NaN or Inf and cannot be tested: {bad}")
     return frame
 

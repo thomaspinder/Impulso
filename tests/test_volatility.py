@@ -33,7 +33,7 @@ class TestConstantAdapter:
         with pytest.raises(ValidationError):
             # Deliberately violate the `Literal["constant"]` static type to
             # assert that the frozen Pydantic model raises at runtime.
-            adapter.name = "other"  # ty: ignore[invalid-assignment]
+            adapter.name = "other"
 
 
 class TestConstantBuildPymcLatent:
