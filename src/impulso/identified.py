@@ -40,6 +40,20 @@ AtParam = int | Literal["last", "all"] | None
 class IdentifiedVAR(ImpulsoBaseModel):
     """Immutable structural VAR with identified shocks.
 
+    The reduced-form VAR fits the dynamics — lag coefficients and an error
+    covariance — with no economic interpretation attached: its residuals are
+    correlated linear combinations of whatever drives the system. The
+    structural VAR adds an identification scheme, a mapping from those
+    reduced-form residuals to economically meaningful shocks, and every
+    structural quantity below is computed through it.
+
+    Identification is confined to the endogenous block. Structural shocks,
+    impulse responses, and the scheme itself are defined over the endogenous
+    variables only. Exogenous regressors are exogenous by assumption, so there
+    is nothing to identify; their effects are reported as dynamic multipliers
+    on `FittedVAR.dynamic_multiplier` instead, where the driver is already
+    exogenous and no scheme is involved.
+
     Attributes:
         idata: InferenceData-schema container with the reduced-form posterior
             (B, intercept, L, ...) — `arviz.InferenceData` on ArviZ 0,
@@ -230,6 +244,12 @@ class IdentifiedVAR(ImpulsoBaseModel):
 
     def impulse_response(self, horizon: int = 20, at: AtParam = None) -> IRFResult:
         """Compute structural impulse response functions.
+
+        The impulse response traces the dynamic response of each endogenous
+        variable to a unit structural shock at horizons `0..h`. It is built
+        from the reduced-form lag matrices `A_1..A_p`, propagated into MA
+        coefficients `Phi_h`, and the structural shock matrix `P`: the
+        response at horizon `h` is `Phi_h @ P`.
 
         Note:
             **Shock size under heavy-tailed errors.** A "unit shock" is one

@@ -162,9 +162,13 @@ class ZeroSignRestriction(ImpulsoModel):
         unweighted draws therefore do not represent that prior exactly
         when the restrictions leave a set (rather than a point) identified.
         Two regimes are unaffected: with no zero restrictions the draws are
-        exactly Haar, and when the zeros exactly identify the system
-        (`z_j = n - j` for every shock) the answer is a point up to column
-        signs. See the explanation page for the full caveat.
+        exactly Haar, and when the counting condition holds with equality
+        throughout (`z_j = n - j` for every shock, shocks ordered by
+        descending zero count) every null space is one-dimensional, so the
+        system is exactly identified — the answer is a point up to column
+        signs and reproduces the Cholesky factor, and no weight can move a
+        point. Anything looser leaves a set rather than a point. See the
+        explanation page for the full caveat.
     """
 
     shock_names: list[str]

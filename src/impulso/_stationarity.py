@@ -381,8 +381,18 @@ def johansen_test(
     Reports both the trace and maximum-eigenvalue sequential tests. A rank of
     0 means no cointegration; a rank equal to the number of series means the
     system is stationary in levels; anything in between means the levels
-    share common stochastic trends, and differencing every series would throw
-    the long-run relationships away.
+    share common stochastic trends. Any rank of 1 or more therefore carries a
+    modelling consequence rather than just a verdict: differencing every
+    series discards the long-run relationship those series share, throwing
+    away the cointegrating restrictions along with the unit roots.
+
+    Impulso does not implement a vector error-correction model, and that is a
+    deliberate scope boundary rather than an omission. The recommended
+    response to a non-zero rank is a VAR in levels — the Sims-Stock-Watson
+    stance, under which a levels VAR stays consistent when the series are
+    cointegrated and avoids imposing a rank the test only estimates — and the
+    Minnesota prior already shrinks toward random walks, so a levels fit is
+    not fighting the unit roots it contains.
 
     The test is conditioned on a lag order. `k_ar_diff` counts lagged
     *differences*, so it is `p - 1` for a VAR(p) in levels — pick `p` with
