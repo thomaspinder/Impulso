@@ -122,6 +122,17 @@ invalid-argument-type = "ignore"
 # match against the generic `type.__init__` overloads.
 no-matching-overload = "ignore"
 
+# The frozen-model tests assert immutability by assigning to a frozen field
+# inside `pytest.raises(ValidationError)` — the assignment *is* the
+# assertion. ty >= 0.0.65 models Pydantic frozen semantics and rejects those
+# lines statically. Scoped to tests so `src/` keeps the rule: it is what
+# caught the mutable-member variance bug in the `SVDynamics` protocol.
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+invalid-assignment = "ignore"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

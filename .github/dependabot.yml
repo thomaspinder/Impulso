@@ -14,11 +14,27 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "05:00" # UTC
-    # One PR per run for every Python dependency, rather than one PR each.
+    # Two PRs per run, not one per dependency.
+    #
+    # Linters are separated because ty, ruff and prek are pre-1.0 and ship
+    # new diagnostics in patch releases, while `quality` and
+    # `tests-and-type-check` both gate on `uv run ty check`. Grouped with
+    # everything else, one new rule blocks every runtime bump in the same PR
+    # — #296 stalled a numpy fix for `np.linalg.svd(hermitian=True)`
+    # returning non-unitary `vh` behind a ty 0.0.18 -> 0.0.65 jump.
     groups:
+      linters:
+        patterns:
+          - "ty"
+          - "ruff"
+          - "prek"
       python:
         patterns:
           - "*"
+        exclude-patterns:
+          - "ty"
+          - "ruff"
+          - "prek"
     # impulso is a library, so its `>=` floors are a compatibility promise.
     # Land the bump in uv.lock and only touch a floor if it genuinely excludes
     # the new release.
