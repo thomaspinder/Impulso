@@ -150,7 +150,7 @@ ogp_social_cards = {"enable": False}
 html_static_path = ["stylesheets"]
 html_css_files = ["extra.css"]
 html_theme_options = {
-    "accent_color": "crimson",  # radix name closest to the brand #870d14
+    "accent_color": "crimson",  # names the token family; stylesheets/extra.css re-tones the crimson scale to ledger oxblood
     "color_mode": "auto",  # follow the reader's light/dark preference
     "github_url": "https://github.com/thomaspinder/impulso",
     "nav_links": [
