@@ -3,7 +3,7 @@
 Granger causality asks whether one variable's past improves the prediction
 of another beyond that other variable's own past. Impulso answers it as a
 posterior over a *magnitude* rather than as a hypothesis test, and it will
-not hand you a probability that there is no causality — the last section
+not hand you a probability that there is no causality. The last section
 explains why not.
 
 ## Query a fitted model
@@ -36,7 +36,7 @@ norm     0.32       0.20       0.45
 ```
 
 One row per tested lag, then the headline. `norm` is the Euclidean norm of
-the tested coefficients, `‖b‖ = sqrt(sum_k b_k²)`, computed draw by draw —
+the tested coefficients, `‖b‖ = sqrt(sum_k b_k²)`, computed draw by draw,
 so its posterior is a posterior for the joint strength of the whole lag
 block, not a summary of the per-lag medians. `hdi_lower` and `hdi_upper`
 bound the highest-density interval (HDI), 89% by default; pass
@@ -46,16 +46,16 @@ Keeping the per-lag rows matters: a strong first lag with an offsetting
 second lag is a different finding from two moderate ones, and the norm alone
 cannot tell them apart.
 
-By default the draws are standardised — multiplied by
+By default the draws are standardised (multiplied by
 `sd(cause) / sd(effect)`, both sample standard deviations of the estimation
-data — so a magnitude reads as standard deviations of the effect per
+data), so a magnitude reads as standard deviations of the effect per
 standard deviation of the cause. The factor is on the result as `scale`.
 Pass `standardize=False` for raw coefficient units.
 
 ## Put a number on "practically zero"
 
-Supply a region of practical equivalence (ROPE) — the magnitude below which
-you would call the relationship negligible — and the result also reports
+Supply a region of practical equivalence (ROPE), the magnitude below which
+you would call the relationship negligible, and the result also reports
 `p_rope`:
 
 ```python
@@ -75,32 +75,32 @@ The obvious thing to want is `P(no causality | data)`. Impulso does not
 report it, because under the priors it fits that quantity is zero by
 construction and would be zero whatever the data said.
 
-Every coefficient in Impulso has a continuous prior — Normal under
+Every coefficient in Impulso has a continuous prior: Normal under
 `MinnesotaPrior`, Normal-Inverse-Wishart under `NIWPrior`. A continuous
 distribution assigns probability zero to any single point, so
 `P(b = 0) = 0` before seeing the data. Conditioning cannot raise a
 probability from zero. A model that can answer the question needs a prior
-that puts a lump of mass on the null itself — a spike-and-slab, or an
-edge-inclusion prior over which coefficients are present at all — which is a
+that puts a lump of mass on the null itself (a spike-and-slab, or an
+edge-inclusion prior over which coefficients are present at all), which is a
 different model, not a different summary of this one.
 
-So the honest reformulation is the ROPE one: not "is it exactly zero?" but
-"is it smaller than I would care about?". That is what `p_rope` answers, and
+So the honest reformulation is the ROPE one: "is it smaller than I would
+care about?" rather than "is it exactly zero?". That is what `p_rope` answers, and
 it is only meaningful because you chose the threshold. Report `p_rope`
 together with the `rope` that produced it; alone it is uninterpretable.
 
 ## Toda-Yamamoto for integrated systems
 
 Standard Granger inference assumes the VAR's asymptotics are the stationary
-ones. On integrated series they are not, and the usual fix — difference
-everything first — changes the question to one about growth rates and
+ones. On integrated series they are not, and the usual fix (difference
+everything first) changes the question to one about growth rates and
 discards any long-run relationship.
 
 Toda and Yamamoto (1995) offer a way around it: fit the VAR in levels with
 `p + d` lags, where `p` is the lag order you would have chosen and `d` the
 highest integration order in the system, then test only the first `p`. The
-extra `d` lags are not part of the hypothesis. They exist to restore the
-standard asymptotics.
+extra `d` lags exist to restore the standard asymptotics, not to enter the
+hypothesis.
 
 ```python
 from impulso import toda_yamamoto
@@ -139,8 +139,8 @@ integration_order(data).summary()          # look at every level, per variable
 toda_yamamoto(data, "co2", "temperature", lags=2, d=2)
 ```
 
-Passing `d=` skips the diagnostics entirely — the decision is recorded as
-`augmentation_source="user"` — so it also works without `statsmodels`
+Passing `d=` skips the diagnostics entirely (the decision is recorded as
+`augmentation_source="user"`), so it also works without `statsmodels`
 installed. `d=0` is legitimate: it is the plain Granger test, and it is what
 the diagnostics themselves return for a stationary system.
 
@@ -155,7 +155,7 @@ toda_yamamoto(data, "co2", "temperature", lags=2, integration_order_result=diagn
 ### The manual route
 
 `toda_yamamoto` fits with the conjugate estimator, which draws in closed
-form — augmentation inflates the lag order, and this keeps that cheap. It
+form: augmentation inflates the lag order, and this keeps that cheap. It
 therefore does not accept exogenous regressors, the NUTS estimator, or a
 stochastic-volatility process. For any of those, run the same three steps by
 hand:
@@ -197,7 +197,7 @@ more. In particular:
 
 **Granger causality is predictive precedence, not intervention.** It ranks
 information sets, not policies. It cannot tell you what temperature would do
-under a counterfactual emissions path — that is what
+under a counterfactual emissions path. That is what
 `counterfactual` and `structural_scenario` are for, and they need an
 identification scheme.
 

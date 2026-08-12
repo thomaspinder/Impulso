@@ -28,8 +28,8 @@ logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 # variable depends on its own past values and the past values of all other variables in the
 # system. This makes it a natural tool for macroeconomic analysis, where GDP, inflation,
 # and interest rates evolve together. Bayesian estimation adds regularisation through
-# prior distributions -- critical when the number of parameters grows quickly with lags
-# and variables -- and provides full posterior uncertainty over every coefficient and
+# prior distributions (critical when the number of parameters grows quickly with lags
+# and variables) and provides full posterior uncertainty over every coefficient and
 # forecast. For more background, see the
 # [Bayesian VAR explanation](../explanation/bayesian-var.md).
 
@@ -47,8 +47,8 @@ plotting.use_ledger_style()
 # %% [markdown]
 # ## Simulate a small macro economy
 #
-# We simulate a VAR(1) with three variables -- quarterly GDP growth, inflation, and a
-# short-term interest rate -- so that we know the true coefficients and can check whether
+# We simulate a VAR(1) with three variables (quarterly GDP growth, inflation, and a
+# short-term interest rate) so that we know the true coefficients and can check whether
 # the model recovers them.
 #
 # The true coefficient matrix `A_true` embeds a simple macroeconomic story:
@@ -57,7 +57,7 @@ plotting.use_ledger_style()
 # |-----------|---------|------------------------|
 # | **GDP growth** | Persistent at 0.6 | Reacts negatively to last quarter's interest rate (-0.1) |
 # | **Inflation**  | Persistent at 0.5 | Follows GDP with a one-quarter lag (0.2) |
-# | **Interest rate** | Persistent at 0.4 | Reacts to inflation (0.15) -- a simplified Taylor-rule channel |
+# | **Interest rate** | Persistent at 0.4 | Reacts to inflation (0.15), a simplified Taylor-rule channel |
 
 # %%
 rng = np.random.default_rng(42)
@@ -113,7 +113,7 @@ print(f"AIC selects {ic.aic} lag(s), BIC selects {ic.bic} lag(s), HQ selects {ic
 ic.summary()
 
 # %% [markdown]
-# BIC selects 1 lag -- correctly recovering the true DGP order. The criteria table above
+# BIC selects 1 lag, correctly recovering the true DGP order. The criteria table above
 # shows the penalty-adjusted fit at each lag. BIC's stronger complexity penalty makes it
 # a sensible default when the goal is parsimony.
 #
@@ -158,7 +158,7 @@ az.summary(fitted.idata, var_names=["B", "intercept"])
 # %% [markdown]
 # The posterior means for the `B` coefficients should be close to the true values in
 # `A_true`. For example, the GDP-on-GDP-lag coefficient should be near 0.6 and the
-# GDP-on-rate-lag coefficient near -0.1. The 94% HDIs give you a credible range -- if
+# GDP-on-rate-lag coefficient near -0.1. The 94% HDIs give you a credible range: if
 # they contain the true value, the model is well calibrated. The intercepts should be
 # near zero since the DGP has no intercept.
 #
@@ -166,8 +166,8 @@ az.summary(fitted.idata, var_names=["B", "intercept"])
 #
 # With a fitted model in hand, you can:
 #
-# - **Forecast**: produce probabilistic multi-step-ahead forecasts -- see the
+# - **Forecast**: produce probabilistic multi-step-ahead forecasts; see the
 #   [Forecasting tutorial](forecasting.py)
 # - **Identify structural shocks**: apply Cholesky or sign-restriction identification
-#   to study causal impulse responses -- see the
+#   to study causal impulse responses; see the
 #   [Structural Analysis tutorial](structural-analysis.py)

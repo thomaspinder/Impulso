@@ -26,7 +26,7 @@ climate record realistically offers.
 **Structural breaks.** Volcanic eruptions, regime shifts in observing
 systems, and changes in instrumentation all inject level or variance shifts.
 A level shift makes a stationary series look integrated to KPSS while ADF
-may still reject — the textbook route to a `conflicting` verdict.
+may still reject: the textbook route to a `conflicting` verdict.
 
 **Long memory.** Several climate series are better described as fractionally
 integrated than as cleanly I(0) or I(1). The tests have no way to say so;
@@ -62,14 +62,14 @@ equivalent:
 2. **Difference the series.** Appropriate if you believe the trend is
    stochastic. Impulse responses are now responses of the *growth rate*, and
    they do die out. This is a different question, answered about a different
-   object — not a preprocessing detail.
+   object, not a preprocessing detail.
 3. **Keep levels and pass the trend as an exogenous regressor.** `VARData`
    accepts `exog`, so a deterministic time trend (or a forcing series) can
    enter the model directly, leaving the endogenous block to carry the
    dynamics.
 
 There is a good argument that anthropogenically forced warming is closer to
-trend stationary than to difference stationary — the trend has a physical
+trend stationary than to difference stationary: the trend has a physical
 driver rather than being an accumulation of shocks. That argument, not the
 p-value, is what should decide the specification. State which route you took
 and why.
@@ -110,9 +110,9 @@ second, is what separates a real long-run relationship from a shared drift.
 
 ## Cointegration and what to do about it
 
-If two climate series share a stochastic trend — cumulative emissions and
+If two climate series share a stochastic trend (cumulative emissions and
 global mean surface temperature is the obvious pair, given the near-linear
-relationship between cumulative carbon dioxide and warming — they are
+relationship between cumulative carbon dioxide and warming), they are
 cointegrated, and the cointegrating relationship is the physically meaningful
 part.
 
@@ -143,7 +143,7 @@ walk, which is the right prior mean for integrated data. This is the
 recommended default.
 
 **Difference and accept the cost.** Legitimate if the long-run relationship
-is not what you are asking about — if the question is genuinely about
+is not what you are asking about, if the question is genuinely about
 short-run dynamics between growth rates. Say explicitly that the long-run
 relationship was discarded, so that nobody reads a levels interpretation into
 the results.
@@ -163,7 +163,7 @@ them the way you would record the lag order:
   augmentation term a Toda-Yamamoto style procedure needs, and it is far
   easier to carry forward now than to reconstruct later. See [Granger
   causality and Toda-Yamamoto](granger-causality.md) for the procedure that
-  consumes it — including why it refuses to run when `inconclusive` is
+  consumes it, including why it refuses to run when `inconclusive` is
   non-empty.
 - The **cointegration rank** and the lag order it was conditioned on. The
   rank is not invariant to `k_ar_diff`.

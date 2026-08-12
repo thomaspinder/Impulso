@@ -21,24 +21,24 @@
 # downstream. What differs is the **mode of inference**:
 #
 # - **The NUTS VAR** (`VAR`) places *independent-Normal* priors on the coefficients and
-#   samples the full posterior with Hamiltonian Monte Carlo. Maximally flexible — it admits
+#   samples the full posterior with Hamiltonian Monte Carlo. Maximally flexible (it admits
 #   per-equation shrinkage, stochastic volatility, sign restrictions, and external
-#   instruments — but every coefficient is a sampled latent, so large systems are slow.
+#   instruments), but every coefficient is a sampled latent, so large systems are slow.
 # - **The conjugate VAR** (`ConjugateVAR`) places a *Normal-Inverse-Wishart* prior, which is
 #   conjugate to the VAR likelihood. The coefficient/covariance posterior is then available
 #   in **closed form**: we draw $(\beta, \Sigma)$ analytically and reserve Monte Carlo for a
-#   single low-dimensional hyperparameter — the Minnesota tightness $\lambda$ — which the
+#   single low-dimensional hyperparameter, the Minnesota tightness $\lambda$, which the
 #   data *selects* by marginal likelihood ({cite:t}`giannoneLenzaPrimiceri2015`).
 #
 # This notebook fits both on the same series, shows they reach the same structural
 # conclusions, times them, and ends with a rule for choosing between them. We use an
-# **environmental** system — a German climate–energy VAR — rather than the usual
+# **environmental** system, a German climate–energy VAR, rather than the usual
 # macro data, to show the machinery is domain-agnostic.
 #
 # :::{admonition} Scope
 # :class: note
 # This is the estimator-first tour. For the conjugate VAR wearing a *deterministic
-# volatility break* — the COVID application it was built for — see
+# volatility break* (the COVID application it was built for), see
 # [Estimating a VAR after March 2020](post-march-2020.py). Why a conjugate estimator is a
 # *sibling* of `VAR` rather than a mode of it is recorded in ADR 0004.
 # :::
@@ -88,7 +88,7 @@ plotting.use_ledger_style()
 # | `precipitation` | `precipitation_sum` | mm/day | hydro / runoff |
 #
 # The committed CSV is produced once by `scripts/fetch_berlin_climate.py` and read offline
-# here — no network call at render time. That script targets Open-Meteo's free archive
+# here: no network call at render time. That script targets Open-Meteo's free archive
 # endpoint, so anyone can reproduce the file without credentials.
 
 # %% mystnb={"figure": {"caption": "Raw monthly ERA5 series for Berlin, 1980–2024. Temperature and radiation are dominated by the seasonal cycle.", "name": "climate-raw"}, "image": {"alt": "Four raw monthly Berlin climate series, 1980-2024: temperature and radiation show a dominant seasonal cycle; wind and precipitation are noisier."}} tags=["remove-input"]
@@ -102,7 +102,7 @@ for ax, col in zip(axes, raw.columns, strict=True):
 _ = plotting.serif_title("Berlin climate — raw monthly means (1980–2024)", axes[0])
 
 # %% [markdown]
-# The raw series are overwhelmingly *seasonal* — a VAR fit on them would spend its
+# The raw series are overwhelmingly *seasonal*: a VAR fit on them would spend its
 # coefficients re-learning the calendar. We model **anomalies** instead: each observation
 # minus its month-of-year climatological mean, standardised to unit variance. The result is
 # stationary, comparable across variables, and lets impulse responses read in standard
@@ -125,7 +125,7 @@ _ = plotting.serif_title("Berlin climate — standardised anomalies", axes[0])
 # %% [markdown]
 # ## Fitting the conjugate VAR
 #
-# We use twelve lags — enough to capture up to a year of dynamic feedback in monthly data —
+# We use twelve lags (enough to capture up to a year of dynamic feedback in monthly data),
 # giving $4 \times 12 = 48$ coefficients per equation. The prior is the conjugate Minnesota
 # prior `NIWPrior`; `select=True` asks the estimator to choose the overall tightness
 # $\lambda$ by maximising the marginal likelihood and then sample its posterior, rather than
@@ -147,15 +147,15 @@ print(f"conjugate fit wall-clock                  = {conjugate_seconds:.2f} s")
 
 # %% [markdown]
 # The estimator reports a posterior for $\lambda$ (not a fixed value): the data speak to how
-# much shrinkage the system needs. Everything downstream — coefficients, covariance, the base
-# Cholesky factor — was drawn in closed form conditional on those hyperparameter draws.
+# much shrinkage the system needs. Everything downstream (coefficients, covariance, the base
+# Cholesky factor) was drawn in closed form conditional on those hyperparameter draws.
 #
 # ## The same model by NUTS
 #
 # To make this a clean *inference-mode* comparison, we fit the NUTS VAR at the **same**
 # tightness the conjugate estimator just selected (`MinnesotaPrior(tightness=lambda_hat)`).
 # Now the only differences are the prior family (independent-Normal vs conjugate NIW) and
-# the sampler — not the amount of shrinkage.
+# the sampler, not the amount of shrinkage.
 
 # %%
 if ci:
@@ -200,8 +200,8 @@ else:
 # Because both estimators return a `FittedVAR`, identification is the same call on each. We
 # apply a Cholesky scheme with the ordering `radiation → temperature → wind → precipitation`
 # (solar forcing is the most exogenous; rainfall the most responsive). The ordering encodes
-# real assumptions — see [Monetary Policy Analysis](monetary-policy.py) for how much it can
-# matter — but here we hold it fixed and vary only the estimator.
+# real assumptions (see [Monetary Policy Analysis](monetary-policy.py) for how much it can
+# matter), but here we hold it fixed and vary only the estimator.
 
 # %%
 ordering = ["radiation", "temperature", "wind", "precipitation"]
@@ -247,9 +247,9 @@ for ax, (shock, response) in zip(axes, pairs, strict=True):
 # %% [markdown]
 # The two estimators tell the same structural story: a positive radiation (sunshine) shock
 # warms temperature; a warmth shock is followed by calmer winds. The medians track closely
-# and the bands overlap. They are *not* identical — the conjugate NIW prior imposes a
-# symmetric Kronecker structure across equations while the NUTS prior is independent-Normal —
-# and that is exactly the point: the inference mode is a modelling choice, not a source of
+# and the bands overlap. They are *not* identical: the conjugate NIW prior imposes a
+# symmetric Kronecker structure across equations while the NUTS prior is independent-Normal.
+# That is exactly the point: the inference mode is a modelling choice, not a source of
 # contradiction.
 
 # %%
@@ -265,8 +265,8 @@ if not ci:
 # ## Which lag order does the data prefer?
 #
 # The closed form gives us more than speed. Every conjugate fit reports its **marginal
-# likelihood** — the density of the observed data under the model, with the coefficients and
-# covariance integrated out — on `fitted.evidence`. Ratios of those numbers are Bayes
+# likelihood** (the density of the observed data under the model, with the coefficients and
+# covariance integrated out) on `fitted.evidence`. Ratios of those numbers are Bayes
 # factors, so the twelve-lag choice we made by convention can be put to the data instead.
 #
 # One alignment matters. A VAR($p$) conditions on its first $p$ rows and models the rest, so
@@ -274,7 +274,7 @@ if not ci:
 # and their ratio means nothing. We therefore feed each candidate a series pre-trimmed to
 # the longest lag order, `anomalies.iloc[LAGS - p:]`, so all three model exactly the same
 # response window and differ only in how far back they look. `compare_evidence` refuses the
-# comparison — loudly — if that alignment is missing.
+# comparison, loudly, if that alignment is missing.
 
 # %%
 comparison_draws = 50 if ci else 250
@@ -301,7 +301,7 @@ evidence.to_dataframe().round(3)
 # de-seasonalised anomalies the short model wins by tens of log points: once the calendar is
 # removed, a month of Berlin weather carries little information about the next year of it,
 # and the extra lags buy less than they cost. We keep twelve lags for the rest of the
-# notebook so the estimator comparison stays on the system introduced above — but this is
+# notebook so the estimator comparison stays on the system introduced above, but this is
 # the number to quote when someone asks why.
 #
 # Two caveats travel with these values. Each is conditional on the presample the shared
@@ -311,19 +311,19 @@ evidence.to_dataframe().round(3)
 #
 # ## When to reach for which
 #
-# Both estimators share the entire post-fitting pipeline — identification, IRFs, FEVDs,
-# forecasts — so the choice is purely about the estimation path.
+# Both estimators share the entire post-fitting pipeline (identification, IRFs, FEVDs,
+# forecasts), so the choice is purely about the estimation path.
 #
 # | Reach for the **conjugate VAR** when… | Reach for the **NUTS VAR** when… |
 # |----------------------------------------|-----------------------------------|
-# | speed matters — hyperparameter selection, model comparison, or many refits | you need per-equation or asymmetric cross-variable shrinkage |
+# | speed matters: hyperparameter selection, model comparison, or many refits | you need per-equation or asymmetric cross-variable shrinkage |
 # | you want the tightness $\lambda$ chosen by the data (hierarchical) | you need stochastic volatility, sign restrictions, or external instruments |
 # | the conjugate NIW (symmetric, Kronecker) prior suits the problem | you need arbitrary or non-conjugate priors |
 # | the system is large and full MCMC over every coefficient is costly | you want full HMC convergence diagnostics on all coefficients |
 #
 # The conjugate VAR trades flexibility for closed-form speed and a data-driven prior. When
-# your problem fits inside that trade — as macro and climate systems with symmetric Minnesota
-# shrinkage usually do — it is the sharper tool. When you need volatility that moves or priors
+# your problem fits inside that trade (as macro and climate systems with symmetric Minnesota
+# shrinkage usually do), it is the sharper tool. When you need volatility that moves or priors
 # that bend per equation, the NUTS VAR is there, and everything you build on top is the same.
 #
 # ## References

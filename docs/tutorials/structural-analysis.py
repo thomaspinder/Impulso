@@ -86,7 +86,7 @@ df.describe().round(1)
 # %% [markdown]
 # ## Remove the seasonal cycle
 #
-# Temperature has a strong annual cycle that violates VAR stationarity assumptions. Pressure and humidity also have weaker seasonal patterns. We remove these by fitting a harmonic regression - two pairs of sine and cosine terms at annual and semi-annual frequencies - to each variable and subtracting the fitted values. The residuals are the *anomalies* we model.
+# Temperature has a strong annual cycle that violates VAR stationarity assumptions. Pressure and humidity also have weaker seasonal patterns. We remove these by fitting a harmonic regression (two pairs of sine and cosine terms at annual and semi-annual frequencies) to each variable and subtracting the fitted values. The residuals are the *anomalies* we model.
 
 # %%
 doy = df.index.day_of_year.values
@@ -143,8 +143,8 @@ for i, col in enumerate(df.columns):
 # %% [markdown]
 # ## Build the VAR dataset
 #
-# We pass the anomalies to `VARData.from_df()`. The column order --
-# pressure, wind, temperature, humidity -- will carry through to the Cholesky
+# We pass the anomalies to `VARData.from_df()`. The column order (pressure,
+# wind, temperature, humidity) will carry through to the Cholesky
 # identification later.
 
 # %%
@@ -167,7 +167,7 @@ ic.summary()
 # ## Fit the Bayesian VAR
 #
 # AIC and Hannan–Quinn both prefer 3 lags, while BIC prefers 2. We proceed with the
-# more parsimonious BIC choice - two lags captures the primary day-to-day persistence
+# more parsimonious BIC choice: two lags captures the primary day-to-day persistence
 # while keeping the parameter space manageable (4 variables × 2 lags × 4 equations =
 # 32 autoregressive coefficients plus intercepts and the covariance matrix).
 #
@@ -201,9 +201,7 @@ fitted
 # 4. **Humidity** is most endogenous. Relative humidity depends on temperature
 #    (Clausius–Clapeyron), moisture advection (wind), and frontal moisture (pressure).
 #
-# Unlike in macroeconomics, where the ordering of GDP, inflation, and interest rates is
-# a matter of ongoing debate, the atmospheric physics provides a principled and
-# defensible identification.
+# Here the atmospheric physics provides a principled and defensible identification.
 
 # %%
 identified = fitted.set_identification_strategy(Cholesky(ordering=["pressure", "wind", "temperature", "humidity"]))
@@ -214,7 +212,7 @@ identified
 #
 # An IRF traces how a one-standard-deviation structural shock propagates through the
 # system over subsequent time steps. Each panel in the grid below shows the response
-# of one variable (row) to a shock in another (column), out to 14 days — enough to
+# of one variable (row) to a shock in another (column), out to 14 days, enough to
 # capture the full lifecycle of a typical synoptic weather event. The shaded band is
 # the 94% posterior credible interval.
 
@@ -223,11 +221,11 @@ irf = identified.impulse_response(horizon=14)
 fig = irf.plot()
 
 # %% [markdown]
-# Each panel in this grid shows how one weather variable at the Cabauw research tower responds over the following 14 days to an unexpected one-day disturbance in another, after seasonal patterns have been removed. The first column — the effects of a pressure shock — tells the clearest story. An anomalous rise in pressure of about 6 hPa (typical of an unexpected high-pressure system) causes wind speeds to drop by around 0.6 m/s as pressure gradients weaken, temperatures to initially fall by roughly 0.7°C as clear skies allow heat to radiate away overnight, and relative humidity to drop by about 1 percentage point as subsiding air dries out the atmosphere. These effects unfold over 2–5 days and then gradually fade, mirroring the timescale on which weather systems pass through the Netherlands.
+# Each panel in this grid shows how one weather variable at the Cabauw research tower responds over the following 14 days to an unexpected one-day disturbance in another, after seasonal patterns have been removed. The first column, the effects of a pressure shock, tells the clearest story. An anomalous rise in pressure of about 6 hPa (typical of an unexpected high-pressure system) causes wind speeds to drop by around 0.6 m/s as pressure gradients weaken, temperatures to initially fall by roughly 0.7°C as clear skies allow heat to radiate away overnight, and relative humidity to drop by about 1 percentage point as subsiding air dries out the atmosphere. These effects unfold over 2–5 days and then gradually fade, mirroring the timescale on which weather systems pass through the Netherlands.
 #
-# The model also recovers a fundamental thermodynamic relationship directly from the data: an unexpected rise in temperature causes a sharp and persistent drop in relative humidity (bottom of column 3). This reflects the Clausius–Clapeyron effect — warmer air can hold more moisture, so if the amount of water vapour stays roughly constant but the air warms, relative humidity falls. The response is large (around 1.5 percentage points per °C) and persists for over 10 days, making it the single cleanest signal in the entire analysis.
+# The model also recovers a fundamental thermodynamic relationship directly from the data: an unexpected rise in temperature causes a sharp and persistent drop in relative humidity (bottom of column 3). This reflects the Clausius–Clapeyron effect: warmer air can hold more moisture, so if the amount of water vapour stays roughly constant but the air warms, relative humidity falls. The response is large (around 1.5 percentage points per °C) and persists for over 10 days, making it the single cleanest signal in the entire analysis.
 #
-# Taken together, the impulse responses paint a physically coherent picture: large-scale pressure is a dominant driver of local conditions, wind acts as a mediator between the large-scale flow and surface weather, temperature responds to both but carries its own strong persistence through surface heat storage, and humidity sits at the end of the chain — reacting to everything else but driving relatively little itself. The fact that a purely statistical model, identified only by a plausible ordering of the variables, recovers these well-understood atmospheric mechanisms without any built-in physics is a compelling demonstration of what structural VAR models can do.
+# Taken together, the impulse responses paint a physically coherent picture: large-scale pressure is a dominant driver of local conditions, wind acts as a mediator between the large-scale flow and surface weather, temperature responds to both but carries its own strong persistence through surface heat storage, and humidity sits at the end of the chain, reacting to everything else but driving relatively little itself. A purely statistical model, identified only by a plausible ordering of the variables, has recovered these well-understood atmospheric mechanisms without any built-in physics.
 #
 # ## Forecast error variance decomposition
 #
@@ -241,19 +239,19 @@ fevd = identified.fevd(horizon=14)
 fig = fevd.plot()
 
 # %% [markdown]
-# The dominant pattern is that each variable is primarily driven by its own shocks — the diagonal dominates everywhere. But the asymmetries are what matter. Pressure is almost 100% self-driven at all horizons: nothing in the local system feeds back into it, confirming its role as the most exogenous variable. Wind is mostly self-driven but with a steady ~20% contribution from pressure, reflecting the influence of large-scale pressure gradients on local wind speeds. Temperature is overwhelmingly self-driven (~90%+), consistent with the strong persistence from surface heat storage seen in the IRFs.
+# The dominant pattern is that each variable is primarily driven by its own shocks: the diagonal dominates everywhere. But the asymmetries are what matter. Pressure is almost 100% self-driven at all horizons: nothing in the local system feeds back into it, confirming its role as the most exogenous variable. Wind is mostly self-driven but with a steady ~20% contribution from pressure, reflecting the influence of large-scale pressure gradients on local wind speeds. Temperature is overwhelmingly self-driven (~90%+), consistent with the strong persistence from surface heat storage seen in the IRFs.
 #
-# Humidity is the most interesting panel because it's the only variable where other shocks make a visible contribution — pressure accounts for a growing ~10% share, with thin slivers from wind and temperature. This confirms humidity as the most endogenous variable in the system, absorbing influences from the rest through subsidence drying (pressure) and the Clausius–Clapeyron effect (temperature). The overall picture validates the Cholesky ordering: the causal flow runs predominantly from pressure through to humidity, not the other way around.
+# Humidity is the most interesting panel because it's the only variable where other shocks make a visible contribution: pressure accounts for a growing ~10% share, with thin slivers from wind and temperature. This confirms humidity as the most endogenous variable in the system, absorbing influences from the rest through subsidence drying (pressure) and the Clausius–Clapeyron effect (temperature). The overall picture validates the Cholesky ordering: the causal flow runs predominantly from pressure through to humidity, not the other way around.
 #
 # ## Historical decomposition
 #
 # The IRFs and FEVD describe the system's *average* dynamics. The historical
 # decomposition goes further: it splits the *actual* observed value of each variable at
-# each point in time into a deterministic baseline — the path implied by the initial
-# conditions and intercept with every shock switched off — plus the propagated
+# each point in time into a deterministic baseline (the path implied by the initial
+# conditions and intercept with every shock switched off) plus the propagated
 # contribution of each structural shock, and the pieces sum back to the data exactly.
 # Contributions carry forward through the lag dynamics, so a shock keeps contributing
-# beyond the day it strikes. This lets you answer narrative questions — for instance,
+# beyond the day it strikes. This lets you answer narrative questions: for instance,
 # which shocks drove a particular cold snap or an unusually calm week?
 
 # %% mystnb={"image": {"alt": "Historical decomposition: stacked per-shock contributions with the posterior median total deviation overlaid; each variable's own shock dominates its history."}}
@@ -261,7 +259,7 @@ hd = identified.historical_decomposition()
 hd.plot()
 
 # %% [markdown]
-# Each panel shows the propagated median contribution of each structural shock as stacked bars, with the black line marking the posterior median of the variable's total deviation from its deterministic baseline — by construction, the per-draw contributions sum exactly to that deviation. The bars need not visually reach the line: bars are per-shock medians while the line is the median of their sum, so a gap between them signals posterior uncertainty about *which* shock to credit, not a failure of the decomposition. The attribution pattern mirrors the FEVD. Each variable's deviations are dominated by its own colour — pressure almost entirely so, wind with a contrasting undercurrent from pressure (the mechanical link between pressure gradients and wind speed), temperature mostly self-driven through surface heat storage, and humidity the most mixed panel, with pressure and temperature contributions reflecting frontal passages and the Clausius–Clapeyron effect. Because contributions propagate through the lag dynamics, a large synoptic event keeps contributing for several days after it strikes rather than being booked to a single day, and reading across panels for the same period shows how one event travels down the causal chain from pressure to humidity.
+# Each panel shows the propagated median contribution of each structural shock as stacked bars, with the black line marking the posterior median of the variable's total deviation from its deterministic baseline; by construction, the per-draw contributions sum exactly to that deviation. The bars need not visually reach the line: bars are per-shock medians while the line is the median of their sum, so a gap between them signals posterior uncertainty about *which* shock to credit, not a failure of the decomposition. The attribution pattern mirrors the FEVD. Each variable's deviations are dominated by its own colour: pressure almost entirely so, wind with a contrasting undercurrent from pressure (the mechanical link between pressure gradients and wind speed), temperature mostly self-driven through surface heat storage, and humidity the most mixed panel, with pressure and temperature contributions reflecting frontal passages and the Clausius–Clapeyron effect. Because contributions propagate through the lag dynamics, a large synoptic event keeps contributing for several days after it strikes rather than being booked to a single day, and reading across panels for the same period shows how one event travels down the causal chain from pressure to humidity.
 #
 # ## Summary
 #
@@ -276,7 +274,7 @@ hd.plot()
 #    `.historical_decomposition()`
 #
 # The atmospheric setting is particularly well-suited to structural VAR analysis because
-# the physics provides an unambiguous causal ordering — something rarely available in
-# economics or finance. The same workflow applies to any domain where you can defend a
-# contemporaneous causal ordering. For identification schemes that do not rely on a
-# recursive ordering, Impulso also supports sign restrictions via `SignRestriction`.
+# the physics provides an unambiguous causal ordering. The same workflow applies to any
+# domain where you can defend a contemporaneous causal ordering. For identification
+# schemes that do not rely on a recursive ordering, Impulso also supports sign
+# restrictions via `SignRestriction`.

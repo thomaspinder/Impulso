@@ -58,7 +58,7 @@ plotting.use_ledger_style()
 # which grows only linearly.
 #
 # {numref}`minnesota-parameter-count` plots both sides for a quarterly sample of $T = 200$,
-# roughly fifty years of data — about as long a macroeconomic series as you will ever be
+# roughly fifty years of data, about as long a macroeconomic series as you will ever be
 # handed.
 
 # %% mystnb={"figure": {"caption": "Free VAR coefficients against available data points for a sample of $T = 200$. The parameter count grows quadratically in the number of variables; the data does not.", "name": "minnesota-parameter-count"}, "image": {"alt": "Log-scale line chart: VAR coefficient counts grow quadratically with the number of variables while available data points grow only linearly."}} tags=["remove-input"]
@@ -92,8 +92,8 @@ _ = plotting.legend_right(ax)
 # squares will happily fit it, and the fit will be mostly noise: the estimates have enormous
 # sampling variance, and the implied dynamics are frequently explosive. This is the *curse of
 # dimensionality* that {cite:t}`sims1980` flagged in the paper that introduced VARs to
-# macroeconomics, and it is the reason {cite:t}`doan1984` and {cite:t}`litterman1986` — then
-# at the Federal Reserve Bank of Minneapolis and the University of Minnesota — proposed
+# macroeconomics, and it is the reason {cite:t}`doan1984` and {cite:t}`litterman1986` (then
+# at the Federal Reserve Bank of Minneapolis and the University of Minnesota) proposed
 # fixing it with a prior rather than with more data.
 #
 # ## The idea: start from a random walk
@@ -138,7 +138,7 @@ _ = plotting.legend_right(ax)
 # $$ (eq-minnesota-mean)
 #
 # So $A_1$ has ones on its diagonal, and every other coefficient in the model is centred at
-# zero. Two things motivate this. Macroeconomic levels — output, prices, employment — really
+# zero. Two things motivate this. Macroeconomic levels (output, prices, employment) really
 # are close to unit-root processes, and a random walk is a famously hard forecast to beat at
 # short horizons. And it is a *safe* default: shrinking toward it removes cross-variable
 # dynamics rather than inventing them, so the prior can only cost you predictability you had
@@ -148,7 +148,7 @@ _ = plotting.legend_right(ax)
 # :class: note
 # The random-walk mean is a statement about *levels*. If you have already differenced,
 # de-meaned, or standardised your series, a prior mean of one on the own first lag is too
-# persistent — the honest centre is closer to zero. You can still use `MinnesotaPrior`, but
+# persistent: the honest centre is closer to zero. You can still use `MinnesotaPrior`, but
 # the shrinkage target is then working against you rather than for you. Write a custom prior
 # with a zero mean instead (see [Writing a Custom Prior](../how-to/custom-priors.md)); it is a
 # ten-line class.
@@ -190,7 +190,7 @@ params = prior.build_priors(n_vars=3, n_lags=4)
 #
 # Those two $3 \times 12$ arrays *are* the prior, so plotting them is the most direct way to
 # understand it. Rows are equations (which variable is being explained); columns run over the
-# 12 regressors in lag-major order — all three variables at lag 1, then all three at lag 2,
+# 12 regressors in lag-major order: all three variables at lag 1, then all three at lag 2,
 # and so on.
 
 # %% mystnb={"figure": {"caption": "The default Minnesota prior for a 3-variable VAR(4), shown as the two arrays Impulso actually passes to PyMC. Left: prior means — ones on the own first lag, zero everywhere else. Right: prior standard deviations — brightest on own recent lags, dark on distant cross lags.", "name": "minnesota-heatmaps"}, "image": {"alt": "Two heatmaps of the Minnesota prior arrays: means are one on own first lags and zero elsewhere; standard deviations fade with lag and cross-variable distance."}} tags=["remove-input"]
@@ -227,7 +227,7 @@ for ax, key, title, cmap in [
 # %% [markdown]
 # The left panel is the random walk: a one wherever a variable meets its own first lag,
 # zero everywhere else. The right panel is where the tuning lives. The largest prior standard
-# deviation anywhere in the model is 0.10, on the own first lags — a coefficient the data
+# deviation anywhere in the model is 0.10, on the own first lags, a coefficient the data
 # must fight for even in the most permissive corner of the prior. By lag 4 the own-lag
 # standard deviation is 0.025 and the cross-lag standard deviation is 0.0125, which is
 # effectively a hard zero.
@@ -270,7 +270,7 @@ _ = plotting.legend_right(ax)
 # %% [markdown]
 # The constant vertical gap between the accent and muted curves is `cross_shrinkage`: a factor of
 # $\kappa = 0.5$ applied uniformly across lags. Setting `cross_shrinkage=0`
-# collapses the muted curves to zero and turns the VAR into $n$ independent autoregressions —
+# collapses the muted curves to zero and turns the VAR into $n$ independent autoregressions:
 # useful as a forecasting benchmark, useless for structural work, since a variable that cannot
 # respond to another variable's lags has no dynamic transmission to identify.
 #
@@ -368,12 +368,12 @@ pd.DataFrame(
 # Notice where the mass sits. At every tightness the *median* radius is at or just above one,
 # because the prior mean {eq}`eq-minnesota-mean` is a random walk and a random walk has
 # spectral radius exactly one. The Minnesota prior is deliberately parked on the boundary of
-# stationarity — it is not a stationarity prior, and it never claims to be.
+# stationarity: it is not a stationarity prior, and it never claims to be.
 #
 # Nor is a bare stability count the right diagnostic here: the largest of several near-unit
 # eigenvalues is biased upward, so most draws come out technically explosive even at tiny
 # $\lambda$. What matters is *by how much*. At $\lambda = 0.05$ only about an eighth of draws
-# exceed a radius of 1.10 — these are near-unit-root systems, which is what macroeconomic
+# exceed a radius of 1.10: these are near-unit-root systems, which is what macroeconomic
 # levels look like. At $\lambda = 1.0$ the median draw has radius 1.9, meaning a shock roughly
 # doubles every period. {numref}`minnesota-prior-predictive` shows what that difference means
 # for simulated data.
@@ -404,7 +404,7 @@ _ = axes[0].set_ylabel("simulated $y_{1,t}$")
 
 # %% [markdown]
 # This is the argument for shrinkage stated in the units you care about. A loose prior is not
-# "letting the data decide" — it is asserting, before seeing anything, that the economy
+# "letting the data decide"; it is asserting, before seeing anything, that the economy
 # probably detonates, and the likelihood then has to spend the sample arguing it back down.
 # Tightening $\lambda$ concentrates prior mass on the wandering, highly persistent behaviour
 # that real macroeconomic levels actually exhibit.
@@ -412,12 +412,12 @@ _ = axes[0].set_ylabel("simulated $y_{1,t}$")
 # ## What the prior does to the posterior
 #
 # Prior predictive plausibility is necessary, not sufficient. The tightest prior is always the
-# most plausible-looking, and it is also useless — set $\lambda$ small enough and you get back
+# most plausible-looking, and it is also useless: set $\lambda$ small enough and you get back
 # your random walk regardless of what the data says. The real question is the bias–variance
 # trade-off, so let us measure it.
 #
-# We simulate a 3-variable VAR(1) — persistent, as macroeconomic levels are, with a spectral
-# radius of 0.89 — then deliberately fit a VAR(4), three times more lags than the truth. This
+# We simulate a 3-variable VAR(1) (persistent, as macroeconomic levels are, with a spectral
+# radius of 0.89), then deliberately fit a VAR(4), three times more lags than the truth. This
 # is the realistic situation: you do not know $p$, so you pick generously and rely on the
 # prior to switch off what is not there.
 
@@ -465,7 +465,7 @@ for lam in TIGHTNESS_GRID:
 
 # %% [markdown]
 # Two things get measured. **Coefficient error** is the root mean squared distance between the
-# posterior mean of $B$ and the truth — available only because we simulated the data.
+# posterior mean of $B$ and the truth, available only because we simulated the data.
 # **One-step forecast error** is the honest out-of-sample version: using each fitted model's
 # posterior mean, predict every one of the 60 held-out periods from its actual predecessors
 # and compare against what happened.
@@ -538,7 +538,7 @@ _ = axes[1].legend()
 # coefficients fitted on 100 observations, so the model is *high-variance*. Both ends are
 # clearly worse than the middle.
 #
-# On this grid the minimum sits at $\lambda = 0.25$ rather than at the 0.1 default — but look
+# On this grid the minimum sits at $\lambda = 0.25$ rather than at the 0.1 default, but look
 # at how flat the bottom of the curve is. Anything from 0.1 to 0.5 lands within two percent of
 # the best forecast score available, whereas $\lambda = 0.02$ costs seven percent, and both
 # extremes roughly double the coefficient error. The lesson is not that 0.25 is the right
@@ -547,10 +547,10 @@ _ = axes[1].legend()
 #
 # Two honest caveats. The right panel shows shrinkage working *against* the truth for
 # `rate on infl(-1)`: its prior mean is 0 but its true value is 0.2, so every step toward a
-# tighter prior biases it down. That is the deal you are taking — you accept bias on the
+# tighter prior biases it down. That is the deal you are taking: you accept bias on the
 # handful of coefficients that are real to buy variance reduction on the many that are not.
-# And the forecast curve is much flatter than the coefficient curve — the loose end barely
-# hurts it at all — because one-step-ahead forecasts are dominated by the own first lag, the
+# And the forecast curve is much flatter than the coefficient curve (the loose end barely
+# hurts it at all) because one-step-ahead forecasts are dominated by the own first lag, the
 # one coefficient the prior is *least* wrong about. The 27 badly estimated lag-2-to-4
 # coefficients hardly move a one-step forecast, which is why the coefficient panel is the
 # sharper diagnostic. Shrinkage pays far more at longer horizons and in structural work, where
@@ -560,11 +560,11 @@ _ = axes[1].legend()
 #
 # | Situation | Suggested starting point |
 # |-----------|--------------------------|
-# | Small system (2–4 variables), long sample | `tightness=0.2`, `cross_shrinkage=0.5` — you can afford to let the data speak |
+# | Small system (2–4 variables), long sample | `tightness=0.2`, `cross_shrinkage=0.5`: you can afford to let the data speak |
 # | Standard macro VAR (5–8 variables) | The defaults: `tightness=0.1`, `decay="harmonic"`, `cross_shrinkage=0.5` |
-# | Large system (10+ variables) | `tightness=0.05` or lower — {cite:t}`giannoneLenzaPrimiceri2015` show optimal tightness falls as $n$ grows |
+# | Large system (10+ variables) | `tightness=0.05` or lower: {cite:t}`giannoneLenzaPrimiceri2015` show optimal tightness falls as $n$ grows |
 # | Many lags on monthly or weekly data | `decay="geometric"` to kill distant lags, or `decay="harmonic"` if you expect seasonality |
-# | Forecasting benchmark | `cross_shrinkage=0.0` — reduces the VAR to independent AR($p$) models |
+# | Forecasting benchmark | `cross_shrinkage=0.0`: reduces the VAR to independent AR($p$) models |
 #
 # Rather than trusting a table, fit two or three tightness values and compare. The prior
 # predictive check above costs nothing and rules out the obviously bad end of the range; the
@@ -575,7 +575,7 @@ _ = axes[1].legend()
 # The classical Litterman formula multiplies the cross-variable standard deviation by
 # $\sigma_i / \sigma_j$, the ratio of residual scales, so that a coefficient linking a
 # variable measured in basis points to one measured in log points is shrunk sensibly.
-# {eq}`eq-minnesota-sd` has no such term — `build_priors` only sees `n_vars` and `n_lags`, never
+# {eq}`eq-minnesota-sd` has no such term: `build_priors` only sees `n_vars` and `n_lags`, never
 # your data. **Put your variables on comparable scales before fitting**, by standardising them
 # or by expressing everything in percent. If you would rather the estimator handle scaling for
 # you, `NIWPrior` computes per-variable AR(1) residual standard deviations internally; see
@@ -592,12 +592,12 @@ _ = axes[1].legend()
 #
 # ## Where to go next
 #
-# - **Fit one end to end** — the [Quickstart](quickstart.py) walks through a full model with
+# - **Fit one end to end**: the [Quickstart](quickstart.py) walks through a full model with
 #   the default Minnesota prior.
-# - **Let the data choose $\lambda$** — [The Conjugate VAR](conjugate-var.py) uses `NIWPrior`,
+# - **Let the data choose $\lambda$**: [The Conjugate VAR](conjugate-var.py) uses `NIWPrior`,
 #   whose conjugate structure gives a closed-form marginal likelihood, so the tightness can be
 #   selected rather than assumed ({cite:t}`giannoneLenzaPrimiceri2015`).
-# - **Write your own** — [Writing a Custom Prior](../how-to/custom-priors.md) shows the
+# - **Write your own**: [Writing a Custom Prior](../how-to/custom-priors.md) shows the
 #   ten-line protocol any prior implements, which is how you would build the zero-mean or
 #   scale-aware variants mentioned above.
 #

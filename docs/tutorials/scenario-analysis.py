@@ -18,7 +18,7 @@
 #
 # Every policy debate is a "what if". What would food prices have done without the energy
 # shock? What does the forecast look like if the central bank holds rates at 2% for a year?
-# And if it does, *which* shocks have to do the work — and how believable are they?
+# And if it does, *which* shocks have to do the work, and how believable are they?
 #
 # Impulso answers these three questions with one family of tools, built on a single
 # stacked-shock engine ({cite:t}`antolinDiazPetrellaRubioRamirez2021`):
@@ -27,10 +27,10 @@
 # |----------|--------|----------------|
 # | What would history have looked like without shock $j$? | `counterfactual()` | `IdentifiedVAR` |
 # | What is the forecast if variable $i$ follows path $x$? | `conditional_forecast()` | `FittedVAR` |
-# | Same path, but only named shocks may absorb it — and how plausible is that? | `structural_scenario()` | `IdentifiedVAR` |
+# | Same path, but only named shocks may absorb it, and how plausible is that? | `structural_scenario()` | `IdentifiedVAR` |
 #
 # The conditional forecast ({cite:t}`waggonerZha1999`) lets *every* structural shock adjust,
-# and its answer is provably invariant to the identification scheme — which is why it lives
+# and its answer is provably invariant to the identification scheme, which is why it lives
 # on the reduced-form object and needs no identification at all. The structural scenario
 # restricts *who* adjusts, which is where identification starts to matter. And every
 # scenario ships with a plausibility statistic in the tradition of
@@ -43,7 +43,7 @@
 # All three tools hold the estimated reduced-form dynamics fixed while editing or
 # constraining shocks. That is a fixed-path intervention, not a change of policy *rule*:
 # if agents' behaviour would change under the scenario (as {cite:t}`leeperZha2003`
-# formalise), the model's answer degrades — and degrades faster the less "modest" the
+# formalise), the model's answer degrades, and degrades faster the less "modest" the
 # intervention. The plausibility statistic is the guard rail: treat scenarios it flags as
 # incredible with corresponding scepticism.
 # :::
@@ -80,7 +80,7 @@ plotting.use_ledger_style()
 # We reuse the three-variable U.S. monetary system from the
 # [monetary policy tutorial](monetary-policy.py): log industrial production (`output`),
 # the log consumer price index (CPI, `prices`), and the federal funds rate (`rate`), monthly from 1965 to
-# December 2007 — the eve of the zero-lower-bound era, which makes the forecast-side
+# December 2007: the eve of the zero-lower-bound era, which makes the forecast-side
 # scenarios below historically pointed.
 #
 # {cite:t}`antolinDiazPetrellaRubioRamirez2021` run their scenario analysis on a richer
@@ -120,8 +120,8 @@ fitted = VAR(lags=12, prior="minnesota").fit(data, sampler=sampler)
 identified = fitted.set_identification_strategy(Cholesky(ordering=["output", "prices", "rate"]))
 
 # %% [markdown]
-# Under this ordering the third structural shock — the one that moves the funds rate on
-# impact without contemporaneously moving output or prices — is the *monetary policy
+# Under this ordering the third structural shock, the one that moves the funds rate on
+# impact without contemporaneously moving output or prices, is the *monetary policy
 # shock*. It is labelled `rate` in every result below.
 #
 # ## 1. Historical counterfactual: the Volcker disinflation without the shocks
@@ -146,11 +146,11 @@ cf = identified.counterfactual(
 fig = cf.plot()
 
 # %% [markdown]
-# The `difference()` accessor gives the median effect of the edit — here, the cumulative
+# The `difference()` accessor gives the median effect of the edit: here, the cumulative
 # contribution of the Volcker-era monetary shocks to each series. Two properties of this
 # object are worth knowing. First, for a shock zeroed over the *full* sample,
 # `actual - counterfactual` equals that shock's historical-decomposition contribution
-# exactly, draw by draw — the two features answer the same question with the same
+# exactly, draw by draw: the two features answer the same question with the same
 # numbers. Second, a *windowed* edit is a different object: the difference is zero before
 # the window, and *persists after it* (the economy does not snap back to the actual path
 # when the edit window closes), because the counterfactual carries its own lag dynamics
@@ -186,25 +186,25 @@ fig = cf_2008.plot()
 # %% [markdown]
 # ## 3. Structural scenario: who does the work, and is it believable?
 #
-# The conditional forecast is agnostic about *why* the rate follows the path — demand,
+# The conditional forecast is agnostic about *why* the rate follows the path: demand,
 # supply, and policy shocks all conspire to deliver it. A **structural scenario**
 # ({cite:t}`antolinDiazPetrellaRubioRamirez2021`) names the shocks allowed to absorb the
 # conditions. Setting `adjusting=["rate"]` loads the entire easing onto monetary policy
-# shocks while demand and supply shocks keep their unconditional distributions — the
+# shocks while demand and supply shocks keep their unconditional distributions: the
 # scenario reads "the Fed *chooses* this path".
 #
 # Every solve-path result carries two plausibility diagnostics, reported per posterior
 # draw:
 #
-# - `q` — the squared Mahalanobis distance of the pinned values from their unconditional
+# - `q`, the squared Mahalanobis distance of the pinned values from their unconditional
 #   distribution ($\chi^2_r$ reference when all shocks adjust): how many
 #   standard-deviations-worth of shocks the scenario demands.
-# - `q_cal` — the calibrated statistic of {cite:t}`antolinDiazPetrellaRubioRamirez2021`
+# - `q_cal`, the calibrated statistic of {cite:t}`antolinDiazPetrellaRubioRamirez2021`
 #   on $[0.5, 1]$ (via {cite:t}`mcculloch1989`): $0.5$ means "indistinguishable from the
 #   unconditional forecast", values near $1$ mean "incredible". Under *hard* pins the
 #   underlying divergence is infinite and `q_cal` sits at its ceiling of 1 by
 #   construction; the informative version uses `path_uncertainty="unconditional"`, which
-#   restricts the forecast *mean* only and keeps honest bands — the mode behind that
+#   restricts the forecast *mean* only and keeps honest bands, the mode behind that
 #   paper's headline numbers.
 
 # %% mystnb={"figure": {"caption": "Structural scenario: the same easing path, absorbed entirely by monetary policy shocks, with unconditional-width bands (path_uncertainty='unconditional').", "name": "structural-scenario-2008"}, "image": {"alt": "Structural scenario fan chart: the 2008 easing path absorbed entirely by monetary policy shocks, shown with unconditional-width credible bands."}}
@@ -247,8 +247,8 @@ pd.DataFrame(rows).T
 # to results near $0.86$ that they say should be interpreted with caution; their
 # hard-restriction variants peg the metric at its ceiling of $1$, a large distortion of
 # the shock distribution. (The paper reports posterior modes; the table above shows
-# medians.) A scenario that demands a long sequence of same-signed monetary shocks —
-# the model's way of saying "this is not what my estimated policy rule would do" —
+# medians.) A scenario that demands a long sequence of same-signed monetary shocks
+# (the model's way of saying "this is not what my estimated policy rule would do")
 # earns a higher `q` than one the rule largely delivers on its own.
 #
 # You can also *prescribe* future shock paths directly (`shocks=[ShockPath(...)]` on the
@@ -258,12 +258,12 @@ pd.DataFrame(rows).T
 #
 # ## Summary
 #
-# 1. **`counterfactual()`** edits realised structural shocks and re-propagates — the
+# 1. **`counterfactual()`** edits realised structural shocks and re-propagates: the
 #    in-sample "what if", dual to the historical decomposition.
-# 2. **`conditional_forecast()`** pins future observable paths with all shocks free —
-#    identification-free by construction.
+# 2. **`conditional_forecast()`** pins future observable paths with all shocks free
+#    (identification-free by construction).
 # 3. **`structural_scenario()`** names the adjusting shocks and/or prescribes shock
-#    paths — and its plausibility statistics tell you when to stop believing the answer.
+#    paths, and its plausibility statistics tell you when to stop believing the answer.
 #
 # The three methods share one engine and one vocabulary (`ShockPath`, `VariablePath`),
 # and their overlaps are exact: a structural scenario with every shock adjusting *is*

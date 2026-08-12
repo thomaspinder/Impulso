@@ -15,9 +15,9 @@ scheme = LongRunRestriction(
 )
 ```
 
-That single zero says the demand shock has no permanent effect on the level of output. Shock `j` has no long-run effect on any variable ordered before it, so the ordering is the restriction — with two variables there is exactly one.
+That single zero says the demand shock has no permanent effect on the level of output. Shock `j` has no long-run effect on any variable ordered before it, so the ordering is the restriction: with two variables there is exactly one.
 
-If naming the zeros directly is clearer than reasoning about an ordering, use the alternative constructor. It recovers both orderings from the pattern — the variables' and the shocks', so neither list has to be given in order — and refuses patterns that no ordering can produce:
+If naming the zeros directly is clearer than reasoning about an ordering, use the alternative constructor. It recovers both orderings from the pattern (the variables' and the shocks', so neither list has to be given in order) and refuses patterns that no ordering can produce:
 
 ```python
 scheme = LongRunRestriction.from_zero_restrictions(
@@ -31,7 +31,7 @@ scheme = LongRunRestriction.from_zero_restrictions(
 :class: warning
 The restriction is on the long-run level of the variables *as they enter
 the model*. "Demand has no permanent effect on output" therefore requires
-output to enter as a growth rate — the level then accumulates, and a
+output to enter as a growth rate: the level then accumulates, and a
 zero cumulative effect on the growth rate is a zero permanent effect on
 the level. If you pass output in levels, the restriction says the demand
 shock has no permanent effect on the *growth rate*, which is a much
@@ -98,7 +98,7 @@ scheme = LongRunRestriction(
 identified = fitted.set_identification_strategy(scheme)
 ```
 
-The restriction: internal variability has no permanent effect on the level of global-mean temperature, while forced variability may. That is one assumption, stated plainly, and it is doing all the identifying work — so be clear about what it commits you to:
+The restriction: internal variability has no permanent effect on the level of global-mean temperature, while forced variability may. That is one assumption, stated plainly, and it is doing all the identifying work, so be clear about what it commits you to:
 
 - Temperature must enter as a change, not a level, or the restriction means something else.
 - With two variables this is exactly one restriction. Adding a third variable would assert three zeros at once, which is a far stronger joint claim.
