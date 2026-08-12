@@ -38,11 +38,11 @@ build-and-publish: build publish ## Build and publish.
 
 .PHONY: docs
 docs: ## Build the Sphinx/MyST-NB docs (executes + caches notebooks)
-	@uv run --group docs sphinx-build -b html docs docs/_build/html
+	@uv run --group docs sphinx-build -b html -d docs/_build/doctrees docs docs/_build/html
 
 .PHONY: docs-ci
 docs-ci: ## Build docs in smoke mode, warnings-as-errors (CI gate)
-	@IMPULSO_DOCS_CI=1 uv run --group docs sphinx-build -W --keep-going -b html docs docs/_build/html
+	@IMPULSO_DOCS_CI=1 uv run --group docs sphinx-build -W --keep-going -b html -d docs/_build/doctrees docs docs/_build/html
 
 .PHONY: docs-test
 docs-test: docs-ci ## Alias for docs-ci: fail on any warning

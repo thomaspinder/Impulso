@@ -267,7 +267,7 @@ jobs:
             # single slow/failed MCMC notebook. Cached notebooks render real
             # figures; anything that fails execution renders an error cell but
             # the site still deploys. The PR build below stays strict.
-            IMPULSO_DOCS_RESILIENT=1 uv run sphinx-build --keep-going -b html docs docs/_build/html
+            IMPULSO_DOCS_RESILIENT=1 uv run sphinx-build --keep-going -b html -d docs/_build/doctrees docs docs/_build/html
           else
             echo "PR build: fast smoke render (strict)."
             make docs-ci

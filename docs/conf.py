@@ -7,6 +7,7 @@ everything. No Quarto, no pandoc, no markdown post-processing.
 from __future__ import annotations
 
 import os
+import re
 
 # -- Project information -----------------------------------------------------
 project = "impulso"
@@ -184,8 +185,40 @@ if _smoke_render:
     )
 
 
+# -- Lazy-loaded figure images ------------------------------------------------
+# Tutorial figures are 0.5-1.4MB PNGs, so let the browser defer them until
+# they scroll into view. Only `<img>` tags whose src points into `_images/`
+# (Sphinx's directory for content figures) are touched — theme/branding
+# images in the page chrome are left alone. Skipping tags that already carry
+# a `loading` attribute keeps the rewrite idempotent.
+_IMG_TAG_RE = re.compile(r"<img\b[^>]*>")
+
+
+def _lazy_load_figures(app, pagename, templatename, context, doctree):
+    """Add `loading="lazy"` to content-figure img tags in a page's body.
+
+    Args:
+        app: The Sphinx application.
+        pagename: Name of the page being rendered.
+        templatename: Name of the template rendering the page.
+        context: Jinja context; `context["body"]` holds the page HTML.
+        doctree: Doctree of the page, or None for pages without a source.
+    """
+    body = context.get("body")
+    if not body:
+        return
+
+    def _annotate(match):
+        tag = match.group(0)
+        if "_images/" not in tag or "loading=" in tag:
+            return tag
+        return tag.replace("<img", '<img loading="lazy"', 1)
+
+    context["body"] = _IMG_TAG_RE.sub(_annotate, body)
+
+
 def setup(app):
-    """Register the render-mode marker hook."""
+    """Register the render-mode marker and lazy-image hooks."""
 
     def _write_render_mode(app, exception):
         if exception is None and app.builder.name == "html":
@@ -194,3 +227,6 @@ def setup(app):
                 fh.write(mode + "\n")
 
     app.connect("build-finished", _write_render_mode)
+    # html-page-context only fires for HTML builders, so this is inert for
+    # linkcheck and any other non-HTML build.
+    app.connect("html-page-context", _lazy_load_figures)
