@@ -61,7 +61,7 @@ plotting.use_ledger_style()
 # roughly fifty years of data — about as long a macroeconomic series as you will ever be
 # handed.
 
-# %% mystnb={"figure": {"caption": "Free VAR coefficients against available data points for a sample of $T = 200$. The parameter count grows quadratically in the number of variables; the data does not.", "name": "minnesota-parameter-count"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Free VAR coefficients against available data points for a sample of $T = 200$. The parameter count grows quadratically in the number of variables; the data does not.", "name": "minnesota-parameter-count"}, "image": {"alt": "Log-scale line chart: VAR coefficient counts grow quadratically with the number of variables while available data points grow only linearly."}} tags=["remove-input"]
 n_grid = np.arange(2, 13)
 T_ref = 200
 
@@ -193,7 +193,7 @@ params = prior.build_priors(n_vars=3, n_lags=4)
 # 12 regressors in lag-major order — all three variables at lag 1, then all three at lag 2,
 # and so on.
 
-# %% mystnb={"figure": {"caption": "The default Minnesota prior for a 3-variable VAR(4), shown as the two arrays Impulso actually passes to PyMC. Left: prior means — ones on the own first lag, zero everywhere else. Right: prior standard deviations — brightest on own recent lags, dark on distant cross lags.", "name": "minnesota-heatmaps"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "The default Minnesota prior for a 3-variable VAR(4), shown as the two arrays Impulso actually passes to PyMC. Left: prior means — ones on the own first lag, zero everywhere else. Right: prior standard deviations — brightest on own recent lags, dark on distant cross lags.", "name": "minnesota-heatmaps"}, "image": {"alt": "Two heatmaps of the Minnesota prior arrays: means are one on own first lags and zero elsewhere; standard deviations fade with lag and cross-variable distance."}} tags=["remove-input"]
 names = ["gdp", "infl", "rate"]
 col_labels = [f"{names[c % 3]}\nL{c // 3 + 1}" for c in range(12)]
 
@@ -238,7 +238,7 @@ for ax, key, title, cmap in [
 # enough to leave seasonal or long-cycle dynamics some room; geometric decay ($1/l^2$) all
 # but deletes anything past the second lag.
 
-# %% mystnb={"figure": {"caption": "Prior standard deviation by lag, read out of `build_priors` for an 8-lag model. Geometric decay reaches near-zero by lag 3; harmonic decay leaves distant lags an order of magnitude more room.", "name": "minnesota-decay"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Prior standard deviation by lag, read out of `build_priors` for an 8-lag model. Geometric decay reaches near-zero by lag 3; harmonic decay leaves distant lags an order of magnitude more room.", "name": "minnesota-decay"}, "image": {"alt": "Log-scale plot of prior standard deviation by lag: geometric decay hits near zero by lag 3; harmonic decay leaves distant lags an order of magnitude more room."}} tags=["remove-input"]
 lags = np.arange(1, 9)
 fig, ax = plt.subplots(figsize=(6.5, 4))
 for decay, style in [("harmonic", "-"), ("geometric", "--")]:
@@ -279,7 +279,7 @@ _ = plotting.legend_right(ax)
 # {numref}`minnesota-densities` draws the same information as densities, which is how the
 # sampler sees it. Each curve is the prior on a single coefficient before any data arrives.
 
-# %% mystnb={"figure": {"caption": "Prior densities on two representative coefficients at three tightness settings. Left: the own first-lag coefficient, centred on the random walk. Right: a cross-variable first-lag coefficient, centred on zero and additionally shrunk by $\\kappa = 0.5$. The vertical scales are independent — compare the widths.", "name": "minnesota-densities"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Prior densities on two representative coefficients at three tightness settings. Left: the own first-lag coefficient, centred on the random walk. Right: a cross-variable first-lag coefficient, centred on zero and additionally shrunk by $\\kappa = 0.5$. The vertical scales are independent — compare the widths.", "name": "minnesota-densities"}, "image": {"alt": "Prior density curves for an own first-lag and a cross first-lag coefficient at three tightness settings: smaller tightness gives visibly narrower distributions."}} tags=["remove-input"]
 grid = np.linspace(-1.0, 2.0, 800)
 
 
@@ -378,7 +378,7 @@ pd.DataFrame(
 # doubles every period. {numref}`minnesota-prior-predictive` shows what that difference means
 # for simulated data.
 
-# %% mystnb={"figure": {"caption": "Prior predictive paths for the first variable of a 3-variable VAR(4), 15 draws per panel, 120 periods each. Accent paths come from draws with spectral radius below 1.1 (near-unit-root); muted paths from more explosive draws, most of which leave the frame within a few periods. Tight shrinkage implies plausible macroeconomic series; loose shrinkage implies almost nothing that resembles data.", "name": "minnesota-prior-predictive"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Prior predictive paths for the first variable of a 3-variable VAR(4), 15 draws per panel, 120 periods each. Accent paths come from draws with spectral radius below 1.1 (near-unit-root); muted paths from more explosive draws, most of which leave the frame within a few periods. Tight shrinkage implies plausible macroeconomic series; loose shrinkage implies almost nothing that resembles data.", "name": "minnesota-prior-predictive"}, "image": {"alt": "Simulated prior predictive paths at three tightness settings: tight priors give plausible wandering series while loose priors produce mostly explosive paths."}} tags=["remove-input"]
 fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), sharey=True)
 sim_rng = np.random.default_rng(7)
 for ax, lam in zip(axes, lambdas, strict=True):
@@ -491,7 +491,7 @@ scores = pd.DataFrame(
 ).set_index("tightness")
 scores.round(4)
 
-# %% mystnb={"figure": {"caption": "Left: both error measures against tightness, each normalised by its own minimum so the two curves share an axis. Right: posterior means of the four largest true coefficients as tightness varies, with the true values as dotted lines. Loose priors overshoot the truth; very tight priors pin every coefficient to the random walk.", "name": "minnesota-bias-variance"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Left: both error measures against tightness, each normalised by its own minimum so the two curves share an axis. Right: posterior means of the four largest true coefficients as tightness varies, with the true values as dotted lines. Loose priors overshoot the truth; very tight priors pin every coefficient to the random walk.", "name": "minnesota-bias-variance"}, "image": {"alt": "U-shaped error curves show very tight and very loose priors both hurt, alongside posterior coefficients pulled toward the random walk as tightness falls."}} tags=["remove-input"]
 fig, axes = plt.subplots(1, 2, figsize=(11, 4))
 
 for col, colour, marker in [
@@ -600,10 +600,6 @@ _ = axes[1].legend()
 # - **Write your own** — [Writing a Custom Prior](../how-to/custom-priors.md) shows the
 #   ten-line protocol any prior implements, which is how you would build the zero-mean or
 #   scale-aware variants mentioned above.
-#
-# <section class="consulting-cta">
-#     <p>We currently have some <strong>availability for consulting</strong> on how Bayesian modelling, vector autoregressions, and impulso can be integrated into your team's macroeconomic and financial forecasting work. If this sounds relevant, <a href="https://calendly.com/hello-1761-izqw/15-minute-meeting-clone-1">book an introductory call</a>. These calls are for consulting inquiries only. For technical usage questions and free community support, please use GitHub Discussions and the documentation.</p>
-# </section>
 #
 # ## References
 #

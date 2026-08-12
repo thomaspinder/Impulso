@@ -9,111 +9,243 @@
         "displayName": "Oxblood",
         "canonical": "#7a2e2a",
         "darkValue": "#cf6f60",
-        "tonalRamp": ["oklch(15% 0.09 27)", "oklch(26% 0.09 27)", "oklch(38% 0.09 27)", "oklch(49% 0.09 27)", "oklch(60% 0.09 27)", "oklch(72% 0.07 27)", "oklch(83% 0.05 27)", "oklch(95% 0.02 27)"]
+        "tonalRamp": [
+          "oklch(15% 0.09 27)",
+          "oklch(26% 0.09 27)",
+          "oklch(38% 0.09 27)",
+          "oklch(49% 0.09 27)",
+          "oklch(60% 0.09 27)",
+          "oklch(72% 0.07 27)",
+          "oklch(83% 0.05 27)",
+          "oklch(95% 0.02 27)"
+        ]
       },
       "oxblood-deep": {
         "role": "primary",
         "displayName": "Oxblood Deep",
         "canonical": "#5f231f",
         "darkValue": "#a35043",
-        "tonalRamp": ["oklch(13% 0.08 27)", "oklch(24% 0.09 27)", "oklch(35% 0.09 27)", "oklch(47% 0.09 27)", "oklch(58% 0.08 27)", "oklch(70% 0.06 27)", "oklch(82% 0.04 27)", "oklch(94% 0.02 27)"]
+        "tonalRamp": [
+          "oklch(13% 0.08 27)",
+          "oklch(24% 0.09 27)",
+          "oklch(35% 0.09 27)",
+          "oklch(47% 0.09 27)",
+          "oklch(58% 0.08 27)",
+          "oklch(70% 0.06 27)",
+          "oklch(82% 0.04 27)",
+          "oklch(94% 0.02 27)"
+        ]
       },
       "oxblood-wash": {
         "role": "primary",
         "displayName": "Oxblood Wash",
         "canonical": "#f4e7e4",
         "darkValue": "#2f211e",
-        "tonalRamp": ["oklch(20% 0.03 27)", "oklch(31% 0.03 27)", "oklch(43% 0.03 27)", "oklch(54% 0.03 27)", "oklch(65% 0.03 27)", "oklch(76% 0.03 27)", "oklch(87% 0.03 27)", "oklch(95% 0.02 27)"]
+        "tonalRamp": [
+          "oklch(20% 0.03 27)",
+          "oklch(31% 0.03 27)",
+          "oklch(43% 0.03 27)",
+          "oklch(54% 0.03 27)",
+          "oklch(65% 0.03 27)",
+          "oklch(76% 0.03 27)",
+          "oklch(87% 0.03 27)",
+          "oklch(95% 0.02 27)"
+        ]
       },
       "ink": {
         "role": "neutral",
         "displayName": "Ink",
         "canonical": "#2a2320",
         "darkValue": "#f2ece6",
-        "tonalRamp": ["oklch(15% 0.012 55)", "oklch(26% 0.012 55)", "oklch(38% 0.012 55)", "oklch(49% 0.012 55)", "oklch(60% 0.012 55)", "oklch(72% 0.012 55)", "oklch(83% 0.012 55)", "oklch(95% 0.008 55)"]
+        "tonalRamp": [
+          "oklch(15% 0.012 55)",
+          "oklch(26% 0.012 55)",
+          "oklch(38% 0.012 55)",
+          "oklch(49% 0.012 55)",
+          "oklch(60% 0.012 55)",
+          "oklch(72% 0.012 55)",
+          "oklch(83% 0.012 55)",
+          "oklch(95% 0.008 55)"
+        ]
       },
       "body": {
         "role": "neutral",
         "displayName": "Body",
         "canonical": "#423b36",
         "darkValue": "#d8cfc7",
-        "tonalRamp": ["oklch(15% 0.012 55)", "oklch(26% 0.012 55)", "oklch(38% 0.012 55)", "oklch(49% 0.012 55)", "oklch(60% 0.012 55)", "oklch(72% 0.012 55)", "oklch(83% 0.012 55)", "oklch(95% 0.008 55)"]
+        "tonalRamp": [
+          "oklch(15% 0.012 55)",
+          "oklch(26% 0.012 55)",
+          "oklch(38% 0.012 55)",
+          "oklch(49% 0.012 55)",
+          "oklch(60% 0.012 55)",
+          "oklch(72% 0.012 55)",
+          "oklch(83% 0.012 55)",
+          "oklch(95% 0.008 55)"
+        ]
       },
       "muted": {
         "role": "neutral",
         "displayName": "Muted",
         "canonical": "#6b6058",
         "darkValue": "#9a8d84",
-        "tonalRamp": ["oklch(15% 0.015 55)", "oklch(26% 0.015 55)", "oklch(38% 0.015 55)", "oklch(49% 0.015 55)", "oklch(60% 0.015 55)", "oklch(72% 0.015 55)", "oklch(83% 0.012 55)", "oklch(95% 0.008 55)"]
+        "tonalRamp": [
+          "oklch(15% 0.015 55)",
+          "oklch(26% 0.015 55)",
+          "oklch(38% 0.015 55)",
+          "oklch(49% 0.015 55)",
+          "oklch(60% 0.015 55)",
+          "oklch(72% 0.015 55)",
+          "oklch(83% 0.012 55)",
+          "oklch(95% 0.008 55)"
+        ]
       },
       "hairline": {
         "role": "neutral",
         "displayName": "Hairline",
         "canonical": "#e6dfd6",
         "darkValue": "#3a322e",
-        "tonalRamp": ["oklch(15% 0.012 70)", "oklch(26% 0.012 70)", "oklch(38% 0.012 70)", "oklch(49% 0.012 70)", "oklch(60% 0.012 70)", "oklch(72% 0.012 70)", "oklch(83% 0.012 70)", "oklch(95% 0.008 70)"]
+        "tonalRamp": [
+          "oklch(15% 0.012 70)",
+          "oklch(26% 0.012 70)",
+          "oklch(38% 0.012 70)",
+          "oklch(49% 0.012 70)",
+          "oklch(60% 0.012 70)",
+          "oklch(72% 0.012 70)",
+          "oklch(83% 0.012 70)",
+          "oklch(95% 0.008 70)"
+        ]
       },
       "surface": {
         "role": "neutral",
         "displayName": "Surface",
         "canonical": "#f3efe9",
         "darkValue": "#2a2320",
-        "tonalRamp": ["oklch(15% 0.008 75)", "oklch(26% 0.008 75)", "oklch(38% 0.008 75)", "oklch(49% 0.008 75)", "oklch(60% 0.008 75)", "oklch(72% 0.008 75)", "oklch(83% 0.008 75)", "oklch(96% 0.006 75)"]
+        "tonalRamp": [
+          "oklch(15% 0.008 75)",
+          "oklch(26% 0.008 75)",
+          "oklch(38% 0.008 75)",
+          "oklch(49% 0.008 75)",
+          "oklch(60% 0.008 75)",
+          "oklch(72% 0.008 75)",
+          "oklch(83% 0.008 75)",
+          "oklch(96% 0.006 75)"
+        ]
       },
       "paper": {
         "role": "neutral",
         "displayName": "Paper",
         "canonical": "#faf9f7",
         "darkValue": "#201b19",
-        "tonalRamp": ["oklch(15% 0.004 80)", "oklch(26% 0.004 80)", "oklch(38% 0.004 80)", "oklch(49% 0.004 80)", "oklch(60% 0.004 80)", "oklch(72% 0.004 80)", "oklch(84% 0.004 80)", "oklch(98% 0.003 80)"]
+        "tonalRamp": [
+          "oklch(15% 0.004 80)",
+          "oklch(26% 0.004 80)",
+          "oklch(38% 0.004 80)",
+          "oklch(49% 0.004 80)",
+          "oklch(60% 0.004 80)",
+          "oklch(72% 0.004 80)",
+          "oklch(84% 0.004 80)",
+          "oklch(98% 0.003 80)"
+        ]
       },
       "lifted-oxblood": {
         "role": "categorical",
         "displayName": "Lifted Oxblood",
         "canonical": "#8a332e",
         "darkValue": "#cf6f60",
-        "tonalRamp": ["oklch(15% 0.095 27)", "oklch(27% 0.095 27)", "oklch(39% 0.095 27)", "oklch(50% 0.095 27)", "oklch(61% 0.08 27)", "oklch(73% 0.06 27)", "oklch(84% 0.04 27)", "oklch(95% 0.02 27)"]
+        "tonalRamp": [
+          "oklch(15% 0.095 27)",
+          "oklch(27% 0.095 27)",
+          "oklch(39% 0.095 27)",
+          "oklch(50% 0.095 27)",
+          "oklch(61% 0.08 27)",
+          "oklch(73% 0.06 27)",
+          "oklch(84% 0.04 27)",
+          "oklch(95% 0.02 27)"
+        ]
       },
       "ledger-blue": {
         "role": "categorical",
         "displayName": "Ledger Blue",
         "canonical": "#31649e",
         "darkValue": "#5b8fd6",
-        "tonalRamp": ["oklch(15% 0.08 252)", "oklch(26% 0.09 252)", "oklch(38% 0.10 252)", "oklch(49% 0.10 252)", "oklch(60% 0.10 252)", "oklch(72% 0.08 252)", "oklch(83% 0.06 252)", "oklch(95% 0.02 252)"]
+        "tonalRamp": [
+          "oklch(15% 0.08 252)",
+          "oklch(26% 0.09 252)",
+          "oklch(38% 0.10 252)",
+          "oklch(49% 0.10 252)",
+          "oklch(60% 0.10 252)",
+          "oklch(72% 0.08 252)",
+          "oklch(83% 0.06 252)",
+          "oklch(95% 0.02 252)"
+        ]
       },
       "ochre": {
         "role": "categorical",
         "displayName": "Ochre",
         "canonical": "#9a7020",
         "darkValue": "#b3883b",
-        "tonalRamp": ["oklch(15% 0.06 82)", "oklch(26% 0.08 82)", "oklch(38% 0.10 82)", "oklch(49% 0.11 82)", "oklch(60% 0.11 82)", "oklch(72% 0.10 82)", "oklch(83% 0.08 82)", "oklch(95% 0.04 82)"]
+        "tonalRamp": [
+          "oklch(15% 0.06 82)",
+          "oklch(26% 0.08 82)",
+          "oklch(38% 0.10 82)",
+          "oklch(49% 0.11 82)",
+          "oklch(60% 0.11 82)",
+          "oklch(72% 0.10 82)",
+          "oklch(83% 0.08 82)",
+          "oklch(95% 0.04 82)"
+        ]
       },
       "plum": {
         "role": "categorical",
         "displayName": "Plum",
         "canonical": "#8f4a85",
         "darkValue": "#b877ab",
-        "tonalRamp": ["oklch(15% 0.07 335)", "oklch(26% 0.09 335)", "oklch(38% 0.10 335)", "oklch(49% 0.10 335)", "oklch(60% 0.10 335)", "oklch(72% 0.08 335)", "oklch(83% 0.06 335)", "oklch(95% 0.02 335)"]
+        "tonalRamp": [
+          "oklch(15% 0.07 335)",
+          "oklch(26% 0.09 335)",
+          "oklch(38% 0.10 335)",
+          "oklch(49% 0.10 335)",
+          "oklch(60% 0.10 335)",
+          "oklch(72% 0.08 335)",
+          "oklch(83% 0.06 335)",
+          "oklch(95% 0.02 335)"
+        ]
       },
       "olive": {
         "role": "categorical",
         "displayName": "Olive",
         "canonical": "#5a7a2e",
         "darkValue": "#78933f",
-        "tonalRamp": ["oklch(15% 0.06 128)", "oklch(26% 0.08 128)", "oklch(38% 0.10 128)", "oklch(49% 0.10 128)", "oklch(60% 0.10 128)", "oklch(72% 0.09 128)", "oklch(83% 0.07 128)", "oklch(95% 0.03 128)"]
-      },
-      "legacy-brand-red": {
-        "role": "legacy",
-        "displayName": "Legacy Brand Red",
-        "canonical": "#870d14",
-        "tonalRamp": ["oklch(15% 0.12 27)", "oklch(24% 0.13 27)", "oklch(35% 0.14 27)", "oklch(47% 0.14 27)", "oklch(58% 0.12 27)", "oklch(70% 0.09 27)", "oklch(82% 0.06 27)", "oklch(94% 0.02 27)"]
+        "tonalRamp": [
+          "oklch(15% 0.06 128)",
+          "oklch(26% 0.08 128)",
+          "oklch(38% 0.10 128)",
+          "oklch(49% 0.10 128)",
+          "oklch(60% 0.10 128)",
+          "oklch(72% 0.09 128)",
+          "oklch(83% 0.07 128)",
+          "oklch(95% 0.03 128)"
+        ]
       }
     },
     "typographyMeta": {
-      "body": { "displayName": "Chrome Body", "purpose": "All site chrome and prose; deliberately personality-free system sans." },
-      "mono": { "displayName": "Code", "purpose": "Inline and block code; API names in tutorial code link to the reference." },
-      "figure-claim": { "displayName": "Figure Claim", "purpose": "Figure titles only — Spectral semibold, left-aligned, written as a finding. Set via serif_title()." },
-      "figure-evidence": { "displayName": "Figure Evidence", "purpose": "Axis labels, ticks, legends, captions — Public Sans; labels in body, ticks in muted." }
+      "body": {
+        "displayName": "Chrome Body",
+        "purpose": "All site chrome and prose; deliberately personality-free system sans."
+      },
+      "mono": {
+        "displayName": "Code",
+        "purpose": "Inline and block code; API names in tutorial code link to the reference."
+      },
+      "figure-claim": {
+        "displayName": "Figure Claim",
+        "purpose": "Figure titles only — Spectral semibold, left-aligned, written as a finding. Set via serif_title()."
+      },
+      "figure-evidence": {
+        "displayName": "Figure Evidence",
+        "purpose": "Axis labels, ticks, legends, captions — Public Sans; labels in body, ticks in muted."
+      }
     },
     "shadows": []
   },
@@ -152,13 +284,6 @@
       "description": "The signature chart (qc_core.plotting.estimate_plot): posterior in oxblood wash, credible interval in translucent oxblood, ink median rule, hairline baseline, no y-axis.",
       "html": "<figure class=\"ds-estimate\"><svg viewBox=\"0 0 320 120\" role=\"img\" aria-label=\"Posterior density with credible interval and median\"><defs><clipPath id=\"ds-est-band\"><rect x=\"110\" y=\"0\" width=\"115\" height=\"100\"/></clipPath></defs><path d=\"M20,100 C80,98 110,25 160,22 C210,25 240,98 300,100 Z\" fill=\"#f4e7e4\"/><path d=\"M20,100 C80,98 110,25 160,22 C210,25 240,98 300,100 Z\" fill=\"#7a2e2a\" opacity=\"0.3\" clip-path=\"url(#ds-est-band)\"/><line x1=\"20\" y1=\"100\" x2=\"300\" y2=\"100\" stroke=\"#e6dfd6\" stroke-width=\"1\"/><line x1=\"160\" y1=\"100\" x2=\"160\" y2=\"22\" stroke=\"#2a2320\" stroke-width=\"1.4\"/><path d=\"M20,100 C80,98 110,25 160,22 C210,25 240,98 300,100\" fill=\"none\" stroke=\"#7a2e2a\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg><figcaption>Estimate Figure — posterior density, credible interval, median rule.</figcaption></figure>",
       "css": ".ds-estimate { margin: 0; max-width: 340px; background: #faf9f7; padding: 12px; } .ds-estimate svg { display: block; width: 100%; height: auto; } .ds-estimate figcaption { font-family: Spectral, Georgia, Palatino, serif; font-weight: 600; font-size: 12px; color: #2a2320; text-align: left; margin-top: 8px; }"
-    },
-    {
-      "name": "CTA Card (legacy)",
-      "kind": "card",
-      "description": "The surviving consulting-CTA block in Legacy Brand Red. Documented for fidelity; status legacy pending removal — not a pattern for new work.",
-      "html": "<div class=\"ds-cta-card\"><p>We currently have some <strong>availability for consulting</strong> on Bayesian modelling and vector autoregressions. <a href=\"#\">Book an introductory call</a>.</p></div>",
-      "css": ".ds-cta-card { padding: 12px 16px; border: 2px solid #870d14; border-left: 5px solid #870d14; border-radius: 8px; background: rgba(135, 13, 20, 0.06); max-width: 46em; } .ds-cta-card p { margin: 0; color: #423b36; font-size: 14px; line-height: 1.55; } .ds-cta-card a { color: #870d14; font-weight: 600; } .ds-cta-card a:hover { color: #5f231f; }"
     }
   ],
   "narrative": {
@@ -172,10 +297,26 @@
       "Executed notebooks: every figure on the site is reproduced at build time, not pasted"
     ],
     "rules": [
-      { "name": "The One Accent Rule", "body": "Oxblood is the only voice raised above the ink. When one number matters, it wears oxblood; nothing else on the page competes for that channel.", "section": "colors" },
-      { "name": "The Re-Lit, Not Inverted Rule", "body": "Dark mode re-lights the same named roles on warm near-black. It never inverts hues or swaps roles.", "section": "colors" },
-      { "name": "The Serif States, Sans Measures Rule", "body": "Spectral (serif) states the claim — titles only. Public Sans carries the evidence — labels, ticks, legends. No third role exists.", "section": "typography" },
-      { "name": "The Flat-At-Rest Rule", "body": "Surfaces are flat at rest. A shadow may appear only on a transient overlay, never as decoration on static content.", "section": "elevation" }
+      {
+        "name": "The One Accent Rule",
+        "body": "Oxblood is the only voice raised above the ink. When one number matters, it wears oxblood; nothing else on the page competes for that channel.",
+        "section": "colors"
+      },
+      {
+        "name": "The Re-Lit, Not Inverted Rule",
+        "body": "Dark mode re-lights the same named roles on warm near-black. It never inverts hues or swaps roles.",
+        "section": "colors"
+      },
+      {
+        "name": "The Serif States, Sans Measures Rule",
+        "body": "Spectral (serif) states the claim — titles only. Public Sans carries the evidence — labels, ticks, legends. No third role exists.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-At-Rest Rule",
+        "body": "Surfaces are flat at rest. A shadow may appear only on a transient overlay, never as decoration on static content.",
+        "section": "elevation"
+      }
     ],
     "dos": [
       "Do load the ledger style (plotting.use_ledger_style()) in every notebook that draws; it is the visual system.",

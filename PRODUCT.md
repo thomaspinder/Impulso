@@ -69,8 +69,10 @@ observed convention, not confirmed as a binding brand commitment.
 - Open decisions (recorded, not invented):
   - Whether climate-conditioned macro risk remains the lead case-study domain (GTM §8, not
     reconfirmed on 2026-08-12).
-  - Whether the incumbent consulting-CTA blocks in `README.md` and `docs/index.md` should be removed
-    to match the confirmed no-explicit-CTAs posture.
+  - Consulting-CTA removal (resolved for the docs surface 2026-08-12): the CTA blocks in
+    `docs/index.md` and all seven tutorial notebooks are removed, with their styling support,
+    to match the no-explicit-CTAs posture. `README.md` carries its own CTA block and remains a
+    separate open decision.
   - Binding status of the AI-driven-development disclosure in `README.md`.
 
 ## Brand Commitments

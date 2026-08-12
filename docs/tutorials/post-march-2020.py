@@ -121,7 +121,7 @@ var_names = list(model_df.columns)
 # is shaded. The point of the whole exercise is visible at a glance: three
 # observations lie far outside the range of everything that came before.
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "3x3 panel of the seven series from 2015 onward with March-May 2020 shaded: the pandemic months lie far outside the prior range of every series."}} tags=["remove-input"]
 labels = {
     "unemployment": "Unemployment [pp]",
     "employment": "Employment [100·log]",
@@ -186,7 +186,7 @@ fitted = ConjugateVAR(
 # tightly but say little about the *speed* of the return to normal, so the $\rho$
 # posterior barely moves away from its prior.
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "Histograms of the posterior tightness, three outbreak volatility scales, and decay: the scales are double-digit multiples while rho barely moves off its prior."}} tags=["remove-input"]
 post = fitted.idata.posterior
 panels = ["lambda_", "s_march", "s_april", "s_may", "rho"]
 titles = {
@@ -279,7 +279,7 @@ irf_at = model_df.index[13:].get_loc(pd.Timestamp("2020-02-01"))
 irf_pandemic = fitted.set_identification_strategy(chol).impulse_response(horizon=60, at=irf_at)
 irf_baseline = fitted_base.set_identification_strategy(chol).impulse_response(horizon=60)
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "3x3 grid of responses to an unemployment innovation: pandemic-model medians with 68% and 95% bands against the drop-the-data baseline's dashed medians."}} tags=["remove-input"]
 ip = irf_pandemic.idata.posterior_predictive["irf"].sel(shock="unemployment")
 ib = irf_baseline.idata.posterior_predictive["irf"].sel(shock="unemployment")
 med_p = ip.median(dim=("chain", "draw")).values
@@ -416,10 +416,10 @@ def plot_conditional(cf, suptitle):
     return fig
 
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "Fan chart of the pandemic VAR's conditional forecast: unemployment pinned to the recovery path; consumption and prices carry 68% and 95% bands."}} tags=["remove-input"]
 plot_conditional(cf_pandemic, "Figure 3 — conditional forecast, pandemic VAR (common-volatility break)")
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "Fan chart of the drop-the-data baseline's conditional forecast on the same axis limits, with slightly narrower near-term bands than the pandemic model."}} tags=["remove-input"]
 plot_conditional(cf_baseline, "Figure 4 — conditional forecast, drop-the-pandemic-data baseline")
 
 # %% [markdown]

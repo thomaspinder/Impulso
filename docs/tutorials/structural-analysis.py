@@ -116,7 +116,7 @@ for col in df.columns:
 # ±10°C) dominates the raw series but is absent from the anomalies, leaving only the day-to-day
 # fluctuations driven by passing weather systems.
 
-# %%
+# %% mystnb={"image": {"alt": "Four weather series from the Cabauw mast: raw data with fitted seasonal cycles on the left, and the deseasonalised anomalies the VAR models on the right."}}
 fig, axes = plt.subplots(4, 2, figsize=(10, 7), sharex="col")
 units = {"pressure": "hPa", "wind": "m/s", "temperature": "C", "humidity": "%"}
 
@@ -218,7 +218,7 @@ identified
 # capture the full lifecycle of a typical synoptic weather event. The shaded band is
 # the 94% posterior credible interval.
 
-# %%
+# %% mystnb={"image": {"alt": "IRF grid over 14 days with 94% bands: a pressure shock lowers wind, temperature, and humidity over 2-5 days, and a warmth shock persistently lowers humidity."}}
 irf = identified.impulse_response(horizon=14)
 fig = irf.plot()
 
@@ -236,7 +236,7 @@ fig = irf.plot()
 # for one variable into contributions from shocks to all four variables, over a 14-day
 # horizon.
 
-# %%
+# %% mystnb={"image": {"alt": "FEVD panels over 14 days: each variable's forecast errors are mostly self-driven, with pressure contributing visibly to wind and humidity."}}
 fevd = identified.fevd(horizon=14)
 fig = fevd.plot()
 
@@ -256,7 +256,7 @@ fig = fevd.plot()
 # beyond the day it strikes. This lets you answer narrative questions — for instance,
 # which shocks drove a particular cold snap or an unusually calm week?
 
-# %%
+# %% mystnb={"image": {"alt": "Historical decomposition: stacked per-shock contributions with the posterior median total deviation overlaid; each variable's own shock dominates its history."}}
 hd = identified.historical_decomposition()
 hd.plot()
 
@@ -280,7 +280,3 @@ hd.plot()
 # economics or finance. The same workflow applies to any domain where you can defend a
 # contemporaneous causal ordering. For identification schemes that do not rely on a
 # recursive ordering, Impulso also supports sign restrictions via `SignRestriction`.
-#
-# <section class="consulting-cta">
-#     <p>We currently have some <strong>availability for consulting</strong> on how Bayesian modelling, vector autoregressions, and impulso can be integrated into your team's macroeconomic and financial forecasting work. If this sounds relevant, <a href="https://calendly.com/hello-1761-izqw/15-minute-meeting-clone-1">book an introductory call</a>. These calls are for consulting inquiries only. For technical usage questions and free community support, please use GitHub Discussions and the documentation.</p>
-# </section>

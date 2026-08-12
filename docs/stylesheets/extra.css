@@ -1,25 +1,3 @@
-:root {
-    --linkcolor: #870d14;
-}
-
-.consulting-cta {
-    margin: 1.5rem 0;
-    padding: 0.75rem 1rem;
-    border: 2px solid var(--linkcolor);
-    border-left: 5px solid var(--linkcolor);
-    border-radius: 8px;
-    background-color: color-mix(in srgb, var(--linkcolor) 6%, transparent);
-}
-
-.consulting-cta p {
-    margin: 0;
-}
-
-.consulting-cta a {
-    color: var(--linkcolor);
-    font-weight: 600;
-}
-
 /* Re-tone the theme's Radix "crimson" accent to the ledger's oxblood
    (qc_core.plotting.COLORS.oxblood #7a2e2a light, #cf6f60 dark). shibuya
    maps every --accent-* token from --crimson-* (conf.py accent_color), so
@@ -110,4 +88,37 @@
    light/dark through the scale above. */
 :root {
     --mystnb-source-margin-color: var(--accent-a6);
+}
+
+/* mystnb gives HTML outputs (pandas DataFrames) no scroll container, so
+   wide tables force page-level horizontal scroll on narrow viewports.
+   Scroll belongs on the output wrapper; plain-text outputs need nothing —
+   their .highlight>pre already carries overflow:auto from the theme. */
+.cell_output .output.text_html {
+    overflow-x: auto;
+}
+
+/* The banner close button is a bare 1em lucide icon in a 16x24px box —
+   well under the 44px touch-target floor. The button is absolutely
+   positioned (top .8rem, right 1rem), so negative margins of half the
+   added size keep the icon's visual position and the banner height
+   unchanged while the hit area grows. */
+.announcement-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    margin-top: -10px;
+    margin-right: -14px;
+}
+
+/* shibuya ships no :focus-visible rule of its own (only the Tailwind
+   -moz-focusring reset), leaving keyboard focus to UA defaults. The
+   accent tokens resolve through the re-toned crimson scale above, so
+   the outline speaks oxblood in light and its lift in dark. */
+a:focus-visible,
+button:focus-visible {
+    outline: 2px solid var(--accent-9);
+    outline-offset: 2px;
 }

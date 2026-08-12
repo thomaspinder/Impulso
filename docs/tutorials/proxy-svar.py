@@ -104,7 +104,7 @@ plotting.use_ledger_style()
 # - **VAR data (monthly, 1974M01-2017M12):** the real oil price, world oil production, world oil inventories, world industrial production, U.S. industrial production, and the U.S. consumer price index (CPI). The series enter as $100 \times \log(\cdot)$, and the oil price is deflated by U.S. CPI.
 # - **Proxy (indexed 1975M01-2017M12):** the first principal component of announcement-day changes in WTI futures prices at maturities from 1 to 12 months. The underlying futures data begin in 1983. Surprises from multiple announcements in the same month are added together; a month without an announcement is recorded as zero, not as missing.
 
-# %%
+# %% mystnb={"image": {"alt": "Time series of oil futures price surprises around OPEC announcements, 1975-2017: long stretches of zeros punctuated by isolated spikes of either sign."}}
 data_df = pd.read_csv("data/kaenzig_data.csv", index_col=0, parse_dates=True)
 instrument = pd.read_csv("data/kaenzig_instrument.csv", index_col=0, parse_dates=True)[
     "oil_surprise"
@@ -229,7 +229,7 @@ irf = ivar.impulse_response(horizon=50)
 sm = ivar.shock_matrix()
 {k: round(v, 2) for k, v in sm.attrs.items()}
 
-# %%
+# %% mystnb={"image": {"alt": "Histogram of the posterior first-stage F-statistic: all mass lies above the F=10 rule-of-thumb line, with the posterior median marked."}}
 f_draws = scheme.first_stage(fitted.idata.posterior, data, n_lags=12).ravel()
 
 fig, ax = plt.subplots(figsize=(6, 3.2))
@@ -258,7 +258,7 @@ plotting.legend_below(ax, per_row=2)
 #
 # The figure overlays two analyses of the same six-variable system. The solid ledger accent shows the Impulso posterior median with 68% and 90% credible intervals. The dashed comparison shows a local reproduction of Känzig's OLS point estimate and moving-block-bootstrap confidence bands, the resampling scheme that {cite:t}`jentschLunsford2019` recommend for proxy SVARs. The paper uses 10,000 bootstrap replications but in this notebook we use 1,000 to keep the compilation manageable. These intervals have different interpretations, so their widths should not be read as a contest between methods. The useful comparison is whether the estimated paths tell a similar economic story.
 
-# %%
+# %% mystnb={"image": {"alt": "Six-panel IRF grid: after adverse oil supply news, inventories build while production and output fall only later; Bayesian and OLS paths agree."}}
 irf_draws = irf.idata.posterior_predictive["irf"].sel(shock="oil_supply_news")
 med = irf_draws.median(dim=("chain", "draw")).values
 q = {
@@ -364,7 +364,7 @@ print(
 #
 # With time-varying volatility, `shock_matrix(at="all")` returns an impact matrix for every month rather than a single one. The entry worth plotting is the one that links the oil supply news shock to the real oil price. For each month $t$, it answers a concrete question: _"had a typical oil supply news shock arrived that month, one standard deviation in size under $\Sigma_t$, by how many percent would the real oil price have moved on impact?"_. The direction of the shock in residual space is pinned down by the proxy and never changes. What changes is the amount of residual variation along that direction, which $\Sigma_t$ lets expand in turbulent periods and contract in calm ones. Keeping the 10% normalisation would erase exactly this variation by forcing the answer to be 10 in every month, so we set `scale=None` and let the model report the shock's natural size. In the figure below, the line is the posterior median of that month-by-month impact and the band is a 68% credible interval.
 
-# %%
+# %% mystnb={"image": {"alt": "Posterior median and 68% band of the monthly oil-price impact of a one-standard-deviation supply news shock, peaking in turbulent episodes like 1986 and 2008."}}
 scheme_sd = ProxySVAR(
     instrument=instrument,
     policy_variable="real_oil_price",

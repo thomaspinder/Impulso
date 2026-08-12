@@ -91,7 +91,7 @@ plotting.use_ledger_style()
 # here — no network call at render time. That script targets Open-Meteo's free archive
 # endpoint, so anyone can reproduce the file without credentials.
 
-# %% mystnb={"figure": {"caption": "Raw monthly ERA5 series for Berlin, 1980–2024. Temperature and radiation are dominated by the seasonal cycle.", "name": "climate-raw"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Raw monthly ERA5 series for Berlin, 1980–2024. Temperature and radiation are dominated by the seasonal cycle.", "name": "climate-raw"}, "image": {"alt": "Four raw monthly Berlin climate series, 1980-2024: temperature and radiation show a dominant seasonal cycle; wind and precipitation are noisier."}} tags=["remove-input"]
 raw = pd.read_csv("data/berlin_climate.csv", index_col="date", parse_dates=True)
 
 fig, axes = plt.subplots(4, 1, figsize=(9, 6), sharex=True)
@@ -114,7 +114,7 @@ anomalies = raw - climatology
 anomalies = (anomalies - anomalies.mean()) / anomalies.std()
 anomalies.describe().round(2)
 
-# %% mystnb={"figure": {"caption": "Standardised monthly anomalies — the seasonal cycle removed. This is what the VAR sees.", "name": "climate-anomalies"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Standardised monthly anomalies — the seasonal cycle removed. This is what the VAR sees.", "name": "climate-anomalies"}, "image": {"alt": "Four standardised anomaly series with the seasonal cycle removed: stationary, mean-zero fluctuations that the VAR actually models."}} tags=["remove-input"]
 fig, axes = plt.subplots(4, 1, figsize=(9, 6), sharex=True)
 for ax, col in zip(axes, anomalies.columns, strict=True):
     ax.plot(anomalies.index, anomalies[col], linewidth=0.6, color=plotting.COLORS.oxblood)
@@ -208,7 +208,7 @@ ordering = ["radiation", "temperature", "wind", "precipitation"]
 irf_conjugate = fitted_conjugate.set_identification_strategy(Cholesky(ordering=ordering)).impulse_response(horizon=24)
 irf_nuts = fitted_nuts.set_identification_strategy(Cholesky(ordering=ordering)).impulse_response(horizon=24)
 
-# %% mystnb={"figure": {"caption": "Conjugate-VAR impulse responses (Cholesky). Column shock → row response, over 24 months.", "name": "irf-conjugate"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Conjugate-VAR impulse responses (Cholesky). Column shock → row response, over 24 months.", "name": "irf-conjugate"}, "image": {"alt": "4x4 grid of conjugate-VAR impulse responses over 24 months: each panel shows one variable's response to a Cholesky-identified shock with credible bands."}} tags=["remove-input"]
 fig = irf_conjugate.plot()
 _ = fig.suptitle(
     "Conjugate VAR — impulse responses",
@@ -231,7 +231,7 @@ def irf_band(irf_result, shock, response, prob=0.9):
     return np.arange(median.shape[0]), median, hdi.sel(hdi="lower").values, hdi.sel(hdi="higher").values
 
 
-# %% mystnb={"figure": {"caption": "Conjugate vs NUTS impulse responses at the same tightness. Medians (lines) and 90% bands (shaded).", "name": "irf-overlay"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Conjugate vs NUTS impulse responses at the same tightness. Medians (lines) and 90% bands (shaded).", "name": "irf-overlay"}, "image": {"alt": "Two IRF panels overlaying conjugate and NUTS estimators: medians track closely and 90% bands overlap for radiation-to-temperature and temperature-to-wind."}} tags=["remove-input"]
 pairs = [("radiation", "temperature"), ("temperature", "wind")]
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 for ax, (shock, response) in zip(axes, pairs, strict=True):
@@ -325,10 +325,6 @@ evidence.to_dataframe().round(3)
 # your problem fits inside that trade — as macro and climate systems with symmetric Minnesota
 # shrinkage usually do — it is the sharper tool. When you need volatility that moves or priors
 # that bend per equation, the NUTS VAR is there, and everything you build on top is the same.
-#
-# <section class="consulting-cta">
-#     <p>We currently have some <strong>availability for consulting</strong> on how Bayesian modelling, vector autoregressions, and impulso can be integrated into your team's macroeconomic, financial, and environmental forecasting work. If this sounds relevant, <a href="https://calendly.com/hello-1761-izqw/15-minute-meeting-clone-1">book an introductory call</a>. These calls are for consulting inquiries only. For technical usage questions and free community support, please use GitHub Discussions and the documentation.</p>
-# </section>
 #
 # ## References
 #

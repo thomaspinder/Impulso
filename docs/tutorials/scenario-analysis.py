@@ -137,7 +137,7 @@ identified = fitted.set_identification_strategy(Cholesky(ordering=["output", "pr
 # conditions. Realised shocks are edited, never re-drawn, so the band below reflects
 # parameter and identification uncertainty only.
 
-# %% mystnb={"figure": {"caption": "Actual paths vs the counterfactual in which the monetary policy shock is switched off from October 1979 to August 1982. The shaded band is the counterfactual's 89% highest density interval (HDI).", "name": "volcker-counterfactual"}}
+# %% mystnb={"figure": {"caption": "Actual paths vs the counterfactual in which the monetary policy shock is switched off from October 1979 to August 1982. The shaded band is the counterfactual's 89% highest density interval (HDI).", "name": "volcker-counterfactual"}, "image": {"alt": "Actual versus counterfactual paths for output, prices, and the rate with 89% bands: without Volcker-era monetary shocks the funds rate path is markedly lower."}}
 cf = identified.counterfactual(
     shocks=[ShockPath(shock="rate", values=0.0, start="1979-10-01", end="1982-08-01")],
     start="1978-01-01",
@@ -172,7 +172,7 @@ cf.difference().loc["1980-01-01":"1983-01-01"].round(2).head(8)
 # draw; unpinned entries keep their full predictive uncertainty. `NaN` entries in a
 # pinned path mean "unconstrained at that step".
 
-# %% mystnb={"figure": {"caption": "Conditional forecast for 2008 with the funds rate pinned to the approximate easing path actually followed. Crosses mark the pinned values.", "name": "conditional-2008"}}
+# %% mystnb={"figure": {"caption": "Conditional forecast for 2008 with the funds rate pinned to the approximate easing path actually followed. Crosses mark the pinned values.", "name": "conditional-2008"}, "image": {"alt": "Conditional forecast fan chart for 2008: the funds rate is pinned to the easing path (crosses) while output and prices keep full predictive uncertainty."}}
 # The approximate 2008 federal-funds target path (policy meetings, rounded).
 easing_path = np.array([3.0, 3.0, 2.25, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 1.0, 1.0, 0.25])
 
@@ -207,7 +207,7 @@ fig = cf_2008.plot()
 #   restricts the forecast *mean* only and keeps honest bands — the mode behind that
 #   paper's headline numbers.
 
-# %% mystnb={"figure": {"caption": "Structural scenario: the same easing path, absorbed entirely by monetary policy shocks, with unconditional-width bands (path_uncertainty='unconditional').", "name": "structural-scenario-2008"}}
+# %% mystnb={"figure": {"caption": "Structural scenario: the same easing path, absorbed entirely by monetary policy shocks, with unconditional-width bands (path_uncertainty='unconditional').", "name": "structural-scenario-2008"}, "image": {"alt": "Structural scenario fan chart: the 2008 easing path absorbed entirely by monetary policy shocks, shown with unconditional-width credible bands."}}
 scenario = identified.structural_scenario(
     steps=12,
     conditions=[VariablePath(variable="rate", values=easing_path)],

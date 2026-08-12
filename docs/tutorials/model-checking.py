@@ -76,7 +76,7 @@ plotting.use_ledger_style()
 # variables and this sample; here they are simply a realistic test bed, with all the
 # awkwardness real macro data brings.
 
-# %% mystnb={"figure": {"caption": "The three series. Output and prices trend strongly upward; the funds rate is bounded but highly persistent.", "name": "checking-raw-data"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "The three series. Output and prices trend strongly upward; the funds rate is bounded but highly persistent.", "name": "checking-raw-data"}, "image": {"alt": "Three stacked series, 1965-2007: log industrial production and log CPI trend strongly upward while the federal funds rate is bounded but highly persistent."}} tags=["remove-input"]
 df = pd.read_csv("data/monetary_policy.csv", index_col="date", parse_dates=True)
 df = df.loc[:"2007-12"]
 
@@ -203,7 +203,7 @@ spec = VAR(lags=3, prior="minnesota")
 # {cite:t}`gabry2019`). `VAR.prior_predictive` draws from exactly the graph `fit` will
 # sample, so there is no risk of checking a different prior than the one we use:
 
-# %%
+# %% mystnb={"image": {"alt": "Prior predictive check for the funds rate: 50 prior draws form a wide band that comfortably contains the observed density."}}
 prior = spec.prior_predictive(data, draws=500, random_seed=0)
 axes = az.plot_ppc(prior, group="prior", num_pp_samples=50, coords={"var": ["rate"]})
 
@@ -315,7 +315,7 @@ flagged.sort_values("r_hat", ascending=False).head(8)
 # about the coefficient's location and wander slowly within it, instead of overlapping as
 # indistinguishable noise:
 
-# %%
+# %% mystnb={"image": {"alt": "Trace plots for two prices-equation coefficients: chains disagree on location and wander slowly, the visual signature of poor mixing."}}
 az.plot_trace(
     fitted.idata,
     var_names=["B"],
@@ -330,7 +330,7 @@ az.plot_trace(
 # information, BFMI, below about 0.3) the sampler cannot move between energy levels fast
 # enough to explore the tails ({cite:t}`betancourt2017`):
 
-# %%
+# %% mystnb={"image": {"alt": "Energy diagnostic plot: marginal and transition energy distributions overlap closely, so this check passes."}}
 az.plot_energy(fitted.idata)
 
 # %% [markdown]
@@ -389,7 +389,7 @@ print(
 # chain's draws are spread uniformly across the pooled ranking, so all histograms should look
 # flat:
 
-# %%
+# %% mystnb={"image": {"alt": "Rank plots for the previously worst coefficients: near-uniform histograms across chains confirm the low-rank mass matrix fixed the mixing."}}
 az.plot_rank(
     fitted.idata,
     var_names=["B"],
@@ -413,7 +413,7 @@ az.plot_rank(
 # conditioned on the observed lags — the standard predictive object for a conditional model,
 # and the one `az.plot_ppc` expects:
 
-# %%
+# %% mystnb={"image": {"alt": "Posterior predictive check for the funds rate: replicate densities track the observed density closely."}}
 ppc = fitted.posterior_predictive(seed=0)
 axes = az.plot_ppc(ppc, num_pp_samples=100, coords={"var": ["rate"]})
 
@@ -434,7 +434,7 @@ print(f"95% band covers {pooled:.1%} of observations")
 for name, cov in zip(data.endog_names, per_var, strict=True):
     print(f"  {name}: {cov:.1%}")
 
-# %% mystnb={"figure": {"caption": "Observed series against the 95% posterior predictive band. The band is one-step-ahead, so it hugs the data; the check is whether the right fraction of points escape it.", "name": "checking-ppc-bands"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "Observed series against the 95% posterior predictive band. The band is one-step-ahead, so it hugs the data; the check is whether the right fraction of points escape it.", "name": "checking-ppc-bands"}, "image": {"alt": "Observed series against the one-step-ahead 95% posterior predictive band, which hugs the data; roughly the right fraction of points escape it."}} tags=["remove-input"]
 time = df.index[3:]
 fig, axes = plt.subplots(3, 1, figsize=(8, 6), sharex=True)
 for i, (ax, name) in enumerate(zip(axes, data.endog_names, strict=True)):
@@ -481,7 +481,3 @@ _ = plotting.serif_title("Posterior predictive check, one-step-ahead", axes[0])
 # - **Identify structural shocks** — the [Structural Analysis tutorial](structural-analysis.py)
 # - **Time-varying volatility**, for the constant-covariance caveat above — the
 #   [Stochastic Volatility tutorial](stochastic-volatility.py)
-#
-# <section class="consulting-cta">
-#     <p>We currently have some <strong>availability for consulting</strong> on how Bayesian modelling, vector autoregressions, and impulso can be integrated into your team's macroeconomic and financial forecasting work. If this sounds relevant, <a href="https://calendly.com/hello-1761-izqw/15-minute-meeting-clone-1">book an introductory call</a>. These calls are for consulting inquiries only. For technical usage questions and free community support, please use GitHub Discussions and the documentation.</p>
-# </section>

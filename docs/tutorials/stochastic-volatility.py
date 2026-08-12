@@ -68,7 +68,7 @@ print(inflation.tail())
 # %% [markdown]
 # The resulting series is monthly CPI inflation in percent. It starts in February 1965, one month after the raw CPI series begins, and runs through the most recent CPI release.
 
-# %% mystnb={"figure": {"caption": "US monthly CPI inflation and a 12-month rolling standard deviation.", "name": "raw-inflation"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "US monthly CPI inflation and a 12-month rolling standard deviation.", "name": "raw-inflation"}, "image": {"alt": "Two panels: monthly US CPI inflation since 1965, and a 12-month rolling standard deviation that is high in the 1970s and falls sharply after the mid-1980s."}} tags=["remove-input"]
 rolling_window = 12
 rolling_sd = inflation.rolling(rolling_window).std()
 
@@ -149,13 +149,13 @@ fitted = StochasticVolatility(dynamics="random_walk").fit(data, sampler=sampler)
 #
 # `fitted.volatility()` returns a `VolatilityResult` whose `.plot()` method shows the posterior median of $\exp(h_t / 2)$ together with a highest-density interval.
 
-# %% mystnb={"figure": {"caption": "Posterior conditional SD of US CPI inflation from the random-walk SV fit.", "name": "vol-path"}}
+# %% mystnb={"figure": {"caption": "Posterior conditional SD of US CPI inflation from the random-walk SV fit.", "name": "vol-path"}, "image": {"alt": "Posterior median conditional standard deviation of US inflation with credible band: high through the 1970s, collapsing after the mid-1980s Great Moderation."}}
 fig = fitted.volatility().plot()
 
 # %% [markdown]
 # To see how the volatility path lines up with the macroeconomic narrative we overlay NBER recession dates that fall within the sample. These are the recessions dated by the NBER Business Cycle Dating Committee from 1965 onward.
 
-# %% mystnb={"figure": {"caption": "Posterior conditional SD with NBER recessions shaded.", "name": "vol-path-nber"}}
+# %% mystnb={"figure": {"caption": "Posterior conditional SD with NBER recessions shaded.", "name": "vol-path-nber"}, "image": {"alt": "Conditional standard deviation path with NBER recessions shaded: volatility peaks align with the 1973-75 and 1980-82 recessions and rise again after 2020."}}
 fig = fitted.volatility().plot()
 ax = plt.gcf().axes[0]
 nber_recessions = [
@@ -183,7 +183,7 @@ for start, end in nber_recessions:
 #
 # How does the SV posterior compare with the naive 12-month rolling estimator we plotted earlier? We overlay them on the same axes.
 
-# %% mystnb={"figure": {"caption": "Posterior median conditional SD from the SV model in the ledger accent versus a muted 12-month rolling SD.", "name": "vol-vs-rolling"}}
+# %% mystnb={"figure": {"caption": "Posterior median conditional SD from the SV model in the ledger accent versus a muted 12-month rolling SD.", "name": "vol-vs-rolling"}, "image": {"alt": "SV posterior median SD overlaid on the 12-month rolling SD: both agree on the broad shape, but the SV path is smoother and avoids step changes."}}
 posterior_sd = fitted.volatility().median()
 
 fig, ax = plt.subplots(figsize=(9, 4))
@@ -217,7 +217,7 @@ _ = plotting.serif_title("SV posterior SD vs rolling SD — US CPI inflation", a
 #
 # Instead of the `"ar1"` shorthand used above, we pass an explicit `AR1()` dynamics object. Both forms are equivalent; the object form is the extension point if you want to add a new dynamics (e.g. SVt or SV with leverage) without editing the library — implement the `SVDynamics` protocol and pass an instance here.
 
-# %%
+# %% mystnb={"image": {"alt": "Posterior conditional standard deviation from the AR(1) stochastic volatility fit, qualitatively similar to the random-walk path."}}
 if ci:
     sampler_ar1 = NUTSSampler(
         draws=50,
@@ -249,7 +249,7 @@ fig_ar1 = fitted_ar1.volatility().plot()
 #
 # With the random-walk SV fit we can generate a density forecast. For each posterior draw we simulate forward 12 months by evolving $h_{T+h}$ as $h_T + \sum_{s=1}^{h} \sigma_\eta \eta_s$ and then drawing $y_{T+h} = \mu + \exp(h_{T+h}/2)\, \varepsilon_{T+h}$.
 
-# %% mystnb={"figure": {"caption": "12-step density forecast from the random-walk SV model.", "name": "sv-forecast"}}
+# %% mystnb={"figure": {"caption": "12-step density forecast from the random-walk SV model.", "name": "sv-forecast"}, "image": {"alt": "12-month density forecast fan chart for inflation: the median with credible bands whose modest widening reflects the small posterior volatility-of-volatility."}}
 forecast = fitted.forecast(steps=12)
 fig_fcst = forecast.plot()
 

@@ -81,7 +81,7 @@ plotting.use_ledger_style()
 # We do not difference the data. {cite:t}`simsStockWatson1990` showed that Bayesian inference in levels VARs is valid regardless of whether the series have unit roots, and differencing can distort impulse responses when variables are cointegrated.
 # :::
 
-# %% mystnb={"figure": {"caption": "The three time series of output, prices, and rate.", "name": "data-series"}} tags=["remove-input"]
+# %% mystnb={"figure": {"caption": "The three time series of output, prices, and rate.", "name": "data-series"}, "image": {"alt": "Three stacked time series, 1965-2007: log industrial production and log CPI trend upward while the federal funds rate swings, peaking near 19% around 1980."}} tags=["remove-input"]
 df = pd.read_csv("data/monetary_policy.csv", index_col="date", parse_dates=True)
 df = df.loc[:"2007-12"]
 df.describe().round(2)
@@ -169,7 +169,7 @@ az.summary(fitted.idata, var_names=["intercept"], kind="diagnostics")
 #
 # The Cholesky decomposition factors $\Sigma_u$ into $L L'$ where $L$ is lower triangular with positive diagonal entries. Setting $B_0 = L$ in {eq}`eq-svar` gives us a structural impact matrix where the zeros above the diagonal carry specific economic meaning determined by the variable ordering. Our baseline ordering is: output, prices, rate. Written out, $B_0$ looks like:$$B_0 = \begin{pmatrix} * & 0 & 0 \\ * & * & 0 \\ * & * & * \end{pmatrix}$$Read column by column. The first column is the "output shock": it can move all three variables on impact. The second column is the "price shock": it can move prices and the rate, but not output as there is a zero in position $(1,2)$. The third column is the "rate shock" (our monetary policy shock): it can only move the rate on impact, not output or prices, again because there are zeros in positions $(1,3)$ and $(2,3)$. What does this mean economically? The zeros say that output and prices are "sluggish" within the month and cannot respond contemporaneously to a monetary policy shock. The Fed, by contrast, sits in the last row and can see and respond to everything. This is a timing assumption: it takes at least one month for a change in the funds rate to show up in industrial production or consumer prices, but the Federal Open Market Committee (FOMC) - the body that sets the funds rate - can observe current economic conditions and adjust policy within the month. The monetary policy shock itself is the residual variation in the funds rate equation after removing the predicted response to current output and prices (i.e., the part not explained by the linear model). If the Fed raises rates by more than its usual reaction to the current state of the economy, the excess is the *"shock"*. This is a defensible set of assumptions for monthly data, but it is not the only defensible set. The three zeros are doing real work, and different orderings will give different answers.
 
-# %%
+# %% mystnb={"image": {"alt": "3x3 Cholesky IRF grid over 48 months: a contractionary rate shock lowers output persistently but raises prices, the price puzzle."}}
 ordering_a = ["output", "prices", "rate"]
 identified_chol_a = fitted.set_identification_strategy(Cholesky(ordering=ordering_a))
 
@@ -206,7 +206,7 @@ ordering_c = ["rate", "output", "prices"]
 identified_chol_c = fitted.set_identification_strategy(Cholesky(ordering=ordering_c))
 irf_chol_c = identified_chol_c.impulse_response(horizon=48)
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "Responses to a rate shock under three Cholesky orderings: orderings A and B coincide exactly, while ordering C with the rate first gives different paths."}} tags=["remove-input"]
 
 response_vars = ["output", "prices", "rate"]
 response_labels = {
@@ -303,7 +303,7 @@ print(
     else f"Acceptance rate: {acceptance_rate}"
 )
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "Sign-restriction IRFs with 68% and 90% bands: the rate rises and prices fall by construction, while the output response straddles zero."}} tags=["remove-input"]
 
 irf_sr_h6 = identified_sr_h6.impulse_response(horizon=48)
 irf_sr_data = irf_sr_h6.idata.posterior_predictive["irf"]
@@ -378,7 +378,7 @@ for h in [0, 6, 12]:
     }
     print(f"h={h:>2}: acceptance rate = {ar:.1%}")
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "Median responses at restriction horizons 0, 6, and 12 months: longer horizons deepen the output decline and the price fall; rate paths are nearly identical."}} tags=["remove-input"]
 
 fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
@@ -412,7 +412,7 @@ axes[-1].set_xlabel("Months")
 #
 # We now place the Cholesky baseline (ordering A) and the sign restriction baseline ($h = 6$) side by side. This is the payoff of running both approaches on the same data: we can see directly how different identifying assumptions lead to different conclusions about the same economic question.
 
-# %% tags=["remove-input"]
+# %% mystnb={"image": {"alt": "Overlay of Cholesky and sign-restriction IRFs: both show output falling, but sign-restriction bands are far wider and prices fall instead of rising."}} tags=["remove-input"]
 
 fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
@@ -544,10 +544,6 @@ pd.DataFrame(band_rows)
 # ### The price puzzle as a diagnostic
 #
 # The price puzzle is not just an embarrassment for the Cholesky model. It is a diagnostic. Its appearance signals that the identified monetary policy shock likely contains a predictable component of the Fed's forward-looking response to inflation. This can mean the VAR is too small (omitting variables the Fed watches), or that the timing assumptions are too rigid, or both. Under sign restrictions, the puzzle is absent by construction, which is not a resolution but a different set of assumptions.
-#
-# <section class="consulting-cta">
-#     <p>We currently have some <strong>availability for consulting</strong> on how Bayesian modelling, vector autoregressions, and impulso can be integrated into your team's macroeconomic and financial forecasting work. If this sounds relevant, <a href="https://calendly.com/hello-1761-izqw/15-minute-meeting-clone-1">book an introductory call</a>. These calls are for consulting inquiries only. For technical usage questions and free community support, please use GitHub Discussions and the documentation.</p>
-# </section>
 #
 #
 # ## References

@@ -16,7 +16,6 @@ colors:
   ochre: "#9a7020"
   plum: "#8f4a85"
   olive: "#5a7a2e"
-  legacy-brand-red: "#870d14"
 typography:
   body:
     fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Oxygen, Ubuntu, Droid Sans, Helvetica Neue, sans-serif"
@@ -90,9 +89,10 @@ The validated five-slot cycle for multi-series figures (passes lightness-band, c
 - **Olive** (#5a7a2e): slot 5.
 
 ### Legacy & Drift
-- **Legacy Brand Red** (#870d14): the pre-ledger brand red, surviving as `--linkcolor` in
-  `docs/stylesheets/extra.css` and the consulting-CTA card border. Legacy — do not extend to new
-  work.
+- **Legacy Brand Red** (#870d14, retired 2026-08-12): the pre-ledger brand red. Fully removed
+  from the docs surface — the landing-page CTA card and the seven tutorial copies are gone, along
+  with the `--linkcolor` support in `docs/stylesheets/extra.css`. It survives only in `README.md`,
+  which is outside this surface and a separately recorded open decision. Do not reintroduce.
 - **Radix crimson (resolved drift)**: shibuya's `accent_color: "crimson"` once rendered
   pink-leaning links (≈#e93d82). As of 2026-08-12, `extra.css` overrides the full `--crimson-*`
   scale — Radix step semantics, anchored on Oxblood #7a2e2a (light) and #cf6f60 (dark) — so every
@@ -183,11 +183,10 @@ the figures and code are the interface.
 - **Border:** 1px hairline (#e6dfd6); a heavier left rule may mark a container's voice.
 - **Shadow Strategy:** none at rest (see Elevation & Depth).
 
-### CTA Card (legacy)
-The consulting-CTA block (`.consulting-cta`): 2px border + 5px left rule in Legacy Brand Red
-(#870d14), 8px radius, 6% tint wash background. **Status: legacy** — PRODUCT.md records the
-no-explicit-CTAs posture and its removal is an open decision. Do not build new components in this
-pattern.
+### CTA Card (retired 2026-08-12)
+Removed from the entire docs surface — landing page and all seven tutorial copies — per
+PRODUCT.md's no-explicit-CTAs posture, together with its `.consulting-cta` styles and
+`--linkcolor`. Do not build new components in this pattern.
 
 ### Admonitions
 Theme-supplied (shibuya). Keep them recessive: they support the prose, they do not decorate it.

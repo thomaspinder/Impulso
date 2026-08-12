@@ -98,7 +98,7 @@ print(hdi.upper)
 #
 # The `.plot()` method produces a fan chart showing the median forecast with shaded credible bands for each variable.
 
-# %%
+# %% mystnb={"image": {"alt": "Fan chart of 8-quarter forecasts for GDP growth, inflation, and the interest rate: posterior median lines with 89% credible bands that widen with horizon."}}
 fig = fcast.plot()
 
 # %% [markdown]
@@ -120,7 +120,7 @@ density_hdi = density_fcast.hdi(prob=0.89)
 # %% [markdown]
 # Plotting both 89% bands on the same axes shows the gap. The narrow inner band is parameter uncertainty alone; the wider band is the full predictive.
 
-# %%
+# %% mystnb={"image": {"alt": "Three-panel comparison of 89% forecast bands: the full predictive band is several times wider than the parameter-only band, especially at short horizons."}}
 horizons = range(1, 9)
 fig, axes = plt.subplots(1, n_vars, figsize=(12, 4), squeeze=False)
 
@@ -168,7 +168,3 @@ fcast.to_dataframe()
 #
 # Bayesian VAR forecasts provide more than point predictions. The full posterior predictive distribution lets you quantify and communicate forecast uncertainty honestly. For structural questions — what happens to inflation when the central bank raises rates? — see the [Structural Analysis tutorial](structural-analysis.py).
 #
-#
-# <section class="consulting-cta">
-#     <p>We currently have some <strong>availability for consulting</strong> on how Bayesian modelling, vector autoregressions, and impulso can be integrated into your team's macroeconomic and financial forecasting work. If this sounds relevant, <a href="https://calendly.com/hello-1761-izqw/15-minute-meeting-clone-1">book an introductory call</a>. These calls are for consulting inquiries only. For technical usage questions and free community support, please use GitHub Discussions and the documentation.</p>
-# </section>
