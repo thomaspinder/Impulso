@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-12",
+  "title": "Design System: Impulso Documentation",
+  "extensions": {
+    "colorMeta": {
+      "oxblood": {
+        "role": "primary",
+        "displayName": "Oxblood",
+        "canonical": "#7a2e2a",
+        "darkValue": "#cf6f60",
+        "tonalRamp": ["oklch(15% 0.09 27)", "oklch(26% 0.09 27)", "oklch(38% 0.09 27)", "oklch(49% 0.09 27)", "oklch(60% 0.09 27)", "oklch(72% 0.07 27)", "oklch(83% 0.05 27)", "oklch(95% 0.02 27)"]
+      },
+      "oxblood-deep": {
+        "role": "primary",
+        "displayName": "Oxblood Deep",
+        "canonical": "#5f231f",
+        "darkValue": "#a35043",
+        "tonalRamp": ["oklch(13% 0.08 27)", "oklch(24% 0.09 27)", "oklch(35% 0.09 27)", "oklch(47% 0.09 27)", "oklch(58% 0.08 27)", "oklch(70% 0.06 27)", "oklch(82% 0.04 27)", "oklch(94% 0.02 27)"]
+      },
+      "oxblood-wash": {
+        "role": "primary",
+        "displayName": "Oxblood Wash",
+        "canonical": "#f4e7e4",
+        "darkValue": "#2f211e",
+        "tonalRamp": ["oklch(20% 0.03 27)", "oklch(31% 0.03 27)", "oklch(43% 0.03 27)", "oklch(54% 0.03 27)", "oklch(65% 0.03 27)", "oklch(76% 0.03 27)", "oklch(87% 0.03 27)", "oklch(95% 0.02 27)"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#2a2320",
+        "darkValue": "#f2ece6",
+        "tonalRamp": ["oklch(15% 0.012 55)", "oklch(26% 0.012 55)", "oklch(38% 0.012 55)", "oklch(49% 0.012 55)", "oklch(60% 0.012 55)", "oklch(72% 0.012 55)", "oklch(83% 0.012 55)", "oklch(95% 0.008 55)"]
+      },
+      "body": {
+        "role": "neutral",
+        "displayName": "Body",
+        "canonical": "#423b36",
+        "darkValue": "#d8cfc7",
+        "tonalRamp": ["oklch(15% 0.012 55)", "oklch(26% 0.012 55)", "oklch(38% 0.012 55)", "oklch(49% 0.012 55)", "oklch(60% 0.012 55)", "oklch(72% 0.012 55)", "oklch(83% 0.012 55)", "oklch(95% 0.008 55)"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "canonical": "#6b6058",
+        "darkValue": "#9a8d84",
+        "tonalRamp": ["oklch(15% 0.015 55)", "oklch(26% 0.015 55)", "oklch(38% 0.015 55)", "oklch(49% 0.015 55)", "oklch(60% 0.015 55)", "oklch(72% 0.015 55)", "oklch(83% 0.012 55)", "oklch(95% 0.008 55)"]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#e6dfd6",
+        "darkValue": "#3a322e",
+        "tonalRamp": ["oklch(15% 0.012 70)", "oklch(26% 0.012 70)", "oklch(38% 0.012 70)", "oklch(49% 0.012 70)", "oklch(60% 0.012 70)", "oklch(72% 0.012 70)", "oklch(83% 0.012 70)", "oklch(95% 0.008 70)"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "canonical": "#f3efe9",
+        "darkValue": "#2a2320",
+        "tonalRamp": ["oklch(15% 0.008 75)", "oklch(26% 0.008 75)", "oklch(38% 0.008 75)", "oklch(49% 0.008 75)", "oklch(60% 0.008 75)", "oklch(72% 0.008 75)", "oklch(83% 0.008 75)", "oklch(96% 0.006 75)"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "#faf9f7",
+        "darkValue": "#201b19",
+        "tonalRamp": ["oklch(15% 0.004 80)", "oklch(26% 0.004 80)", "oklch(38% 0.004 80)", "oklch(49% 0.004 80)", "oklch(60% 0.004 80)", "oklch(72% 0.004 80)", "oklch(84% 0.004 80)", "oklch(98% 0.003 80)"]
+      },
+      "lifted-oxblood": {
+        "role": "categorical",
+        "displayName": "Lifted Oxblood",
+        "canonical": "#8a332e",
+        "darkValue": "#cf6f60",
+        "tonalRamp": ["oklch(15% 0.095 27)", "oklch(27% 0.095 27)", "oklch(39% 0.095 27)", "oklch(50% 0.095 27)", "oklch(61% 0.08 27)", "oklch(73% 0.06 27)", "oklch(84% 0.04 27)", "oklch(95% 0.02 27)"]
+      },
+      "ledger-blue": {
+        "role": "categorical",
+        "displayName": "Ledger Blue",
+        "canonical": "#31649e",
+        "darkValue": "#5b8fd6",
+        "tonalRamp": ["oklch(15% 0.08 252)", "oklch(26% 0.09 252)", "oklch(38% 0.10 252)", "oklch(49% 0.10 252)", "oklch(60% 0.10 252)", "oklch(72% 0.08 252)", "oklch(83% 0.06 252)", "oklch(95% 0.02 252)"]
+      },
+      "ochre": {
+        "role": "categorical",
+        "displayName": "Ochre",
+        "canonical": "#9a7020",
+        "darkValue": "#b3883b",
+        "tonalRamp": ["oklch(15% 0.06 82)", "oklch(26% 0.08 82)", "oklch(38% 0.10 82)", "oklch(49% 0.11 82)", "oklch(60% 0.11 82)", "oklch(72% 0.10 82)", "oklch(83% 0.08 82)", "oklch(95% 0.04 82)"]
+      },
+      "plum": {
+        "role": "categorical",
+        "displayName": "Plum",
+        "canonical": "#8f4a85",
+        "darkValue": "#b877ab",
+        "tonalRamp": ["oklch(15% 0.07 335)", "oklch(26% 0.09 335)", "oklch(38% 0.10 335)", "oklch(49% 0.10 335)", "oklch(60% 0.10 335)", "oklch(72% 0.08 335)", "oklch(83% 0.06 335)", "oklch(95% 0.02 335)"]
+      },
+      "olive": {
+        "role": "categorical",
+        "displayName": "Olive",
+        "canonical": "#5a7a2e",
+        "darkValue": "#78933f",
+        "tonalRamp": ["oklch(15% 0.06 128)", "oklch(26% 0.08 128)", "oklch(38% 0.10 128)", "oklch(49% 0.10 128)", "oklch(60% 0.10 128)", "oklch(72% 0.09 128)", "oklch(83% 0.07 128)", "oklch(95% 0.03 128)"]
+      },
+      "legacy-brand-red": {
+        "role": "legacy",
+        "displayName": "Legacy Brand Red",
+        "canonical": "#870d14",
+        "tonalRamp": ["oklch(15% 0.12 27)", "oklch(24% 0.13 27)", "oklch(35% 0.14 27)", "oklch(47% 0.14 27)", "oklch(58% 0.12 27)", "oklch(70% 0.09 27)", "oklch(82% 0.06 27)", "oklch(94% 0.02 27)"]
+      }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "Chrome Body", "purpose": "All site chrome and prose; deliberately personality-free system sans." },
+      "mono": { "displayName": "Code", "purpose": "Inline and block code; API names in tutorial code link to the reference." },
+      "figure-claim": { "displayName": "Figure Claim", "purpose": "Figure titles only — Spectral semibold, left-aligned, written as a finding. Set via serif_title()." },
+      "figure-evidence": { "displayName": "Figure Evidence", "purpose": "Axis labels, ticks, legends, captions — Public Sans; labels in body, ticks in muted." }
+    },
+    "shadows": []
+  },
+  "components": [
+    {
+      "name": "Link",
+      "kind": "custom",
+      "description": "Oxblood text link, deepening on hover — matching the overridden theme accent scale in extra.css.",
+      "html": "<a class=\"ds-link\" href=\"#\">impulse_response()</a>",
+      "css": ".ds-link { color: #7a2e2a; font-weight: 600; text-decoration: underline; text-decoration-color: rgba(122, 46, 42, 0.35); text-underline-offset: 3px; transition: color 0.15s ease, text-decoration-color 0.15s ease; } .ds-link:hover { color: #5f231f; text-decoration-color: #5f231f; } .ds-link:focus-visible { outline: 2px solid #7a2e2a; outline-offset: 2px; border-radius: 2px; }"
+    },
+    {
+      "name": "Admonition (Note)",
+      "kind": "card",
+      "description": "Recessive callout: surface ground, hairline border, a 3px oxblood left rule as its only voice.",
+      "html": "<div class=\"ds-admonition\"><p class=\"ds-admonition-title\">Note</p><p class=\"ds-admonition-body\">The density axis means nothing to the reader, so the Estimate Figure does not draw it.</p></div>",
+      "css": ".ds-admonition { background: #f3efe9; border: 1px solid #e6dfd6; border-left: 3px solid #7a2e2a; border-radius: 8px; padding: 12px 16px; max-width: 46em; } .ds-admonition-title { margin: 0 0 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #6b6058; font-weight: 600; } .ds-admonition-body { margin: 0; color: #423b36; font-size: 14px; line-height: 1.55; }"
+    },
+    {
+      "name": "Code Block",
+      "kind": "custom",
+      "description": "Quiet mono block on the warm surface step; strings pick up the accent.",
+      "html": "<pre class=\"ds-code\"><code>fitted = VAR(lags=<span class=\"ds-code-str\">\"bic\"</span>, prior=<span class=\"ds-code-str\">\"minnesota\"</span>).fit(data)</code></pre>",
+      "css": ".ds-code { background: #f3efe9; border: 1px solid #e6dfd6; border-radius: 8px; padding: 14px 16px; margin: 0; overflow-x: auto; } .ds-code code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; color: #2a2320; line-height: 1.5; } .ds-code-str { color: #7a2e2a; }"
+    },
+    {
+      "name": "Ledger Table",
+      "kind": "custom",
+      "description": "Results table in the ledger idiom: horizontal hairlines only, uppercase muted headers, tabular numerals right-aligned.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Variable</th><th class=\"ds-num\">Median</th><th class=\"ds-num\">89% HDI</th></tr></thead><tbody><tr><td>gdp</td><td class=\"ds-num\">0.42</td><td class=\"ds-num\">(0.11, 0.73)</td></tr><tr><td>inflation</td><td class=\"ds-num\">−0.08</td><td class=\"ds-num\">(−0.21, 0.05)</td></tr><tr><td>rate</td><td class=\"ds-num\">0.15</td><td class=\"ds-num\">(0.02, 0.29)</td></tr></tbody></table>",
+      "css": ".ds-table { border-collapse: collapse; font-family: 'Public Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 13px; color: #423b36; width: 100%; max-width: 34em; } .ds-table th { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #6b6058; font-weight: 600; text-align: left; padding: 6px 12px 6px 0; border-bottom: 1px solid #e6dfd6; } .ds-table td { padding: 8px 12px 8px 0; border-bottom: 1px solid #e6dfd6; } .ds-table th.ds-num, .ds-table td.ds-num { text-align: right; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Estimate Figure",
+      "kind": "custom",
+      "description": "The signature chart (qc_core.plotting.estimate_plot): posterior in oxblood wash, credible interval in translucent oxblood, ink median rule, hairline baseline, no y-axis.",
+      "html": "<figure class=\"ds-estimate\"><svg viewBox=\"0 0 320 120\" role=\"img\" aria-label=\"Posterior density with credible interval and median\"><defs><clipPath id=\"ds-est-band\"><rect x=\"110\" y=\"0\" width=\"115\" height=\"100\"/></clipPath></defs><path d=\"M20,100 C80,98 110,25 160,22 C210,25 240,98 300,100 Z\" fill=\"#f4e7e4\"/><path d=\"M20,100 C80,98 110,25 160,22 C210,25 240,98 300,100 Z\" fill=\"#7a2e2a\" opacity=\"0.3\" clip-path=\"url(#ds-est-band)\"/><line x1=\"20\" y1=\"100\" x2=\"300\" y2=\"100\" stroke=\"#e6dfd6\" stroke-width=\"1\"/><line x1=\"160\" y1=\"100\" x2=\"160\" y2=\"22\" stroke=\"#2a2320\" stroke-width=\"1.4\"/><path d=\"M20,100 C80,98 110,25 160,22 C210,25 240,98 300,100\" fill=\"none\" stroke=\"#7a2e2a\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg><figcaption>Estimate Figure — posterior density, credible interval, median rule.</figcaption></figure>",
+      "css": ".ds-estimate { margin: 0; max-width: 340px; background: #faf9f7; padding: 12px; } .ds-estimate svg { display: block; width: 100%; height: auto; } .ds-estimate figcaption { font-family: Spectral, Georgia, Palatino, serif; font-weight: 600; font-size: 12px; color: #2a2320; text-align: left; margin-top: 8px; }"
+    },
+    {
+      "name": "CTA Card (legacy)",
+      "kind": "card",
+      "description": "The surviving consulting-CTA block in Legacy Brand Red. Documented for fidelity; status legacy pending removal — not a pattern for new work.",
+      "html": "<div class=\"ds-cta-card\"><p>We currently have some <strong>availability for consulting</strong> on Bayesian modelling and vector autoregressions. <a href=\"#\">Book an introductory call</a>.</p></div>",
+      "css": ".ds-cta-card { padding: 12px 16px; border: 2px solid #870d14; border-left: 5px solid #870d14; border-radius: 8px; background: rgba(135, 13, 20, 0.06); max-width: 46em; } .ds-cta-card p { margin: 0; color: #423b36; font-size: 14px; line-height: 1.55; } .ds-cta-card a { color: #870d14; font-weight: 600; } .ds-cta-card a:hover { color: #5f231f; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Calibrated Ledger",
+    "overview": "The documentation inherits its worldview from its own figures. The Calibrated Ledger — warm off-white paper, near-black umber ink, hairline rules, and a single oxblood accent on the number that matters — is fully realised in the qc-core matplotlib style that every tutorial loads, and the site chrome exists to serve those figures, not to compete with them. The system is quiet, rigorous, and warm: off-white paper instead of clinical white, umber ink instead of pure black, rigour without coldness.\n\nTwo layers make up the surface. The figure layer is normative and precisely specified (the ledger.mplstyle palette, light and dark). The chrome layer is a themed Sphinx site (shibuya, Radix scales, system fonts) that should read as recessive infrastructure: navigation, search, and code chrome disappear behind the evidence. Where the two layers once disagreed — the theme's pink-leaning Radix crimson accent versus the ledger's oxblood — the ledger now wins in code: docs/stylesheets/extra.css re-tones the theme's entire accent scale to oxblood in both modes.",
+    "keyCharacteristics": [
+      "Warm paper ground (#faf9f7) with umber ink (#2a2320) — never pure white or pure black",
+      "One accent: oxblood marks the number that matters; everything else is ink on paper",
+      "Hairline rules (1px, #e6dfd6) do the structural work shadows would do elsewhere",
+      "Serif states the claim, sans carries the evidence",
+      "Executed notebooks: every figure on the site is reproduced at build time, not pasted"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Oxblood is the only voice raised above the ink. When one number matters, it wears oxblood; nothing else on the page competes for that channel.", "section": "colors" },
+      { "name": "The Re-Lit, Not Inverted Rule", "body": "Dark mode re-lights the same named roles on warm near-black. It never inverts hues or swaps roles.", "section": "colors" },
+      { "name": "The Serif States, Sans Measures Rule", "body": "Spectral (serif) states the claim — titles only. Public Sans carries the evidence — labels, ticks, legends. No third role exists.", "section": "typography" },
+      { "name": "The Flat-At-Rest Rule", "body": "Surfaces are flat at rest. A shadow may appear only on a transient overlay, never as decoration on static content.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do load the ledger style (plotting.use_ledger_style()) in every notebook that draws; it is the visual system.",
+      "Do write figure titles as claims, left-aligned, in Spectral via serif_title() — state the finding, not the variable.",
+      "Do keep scatter plots to at most three series (only the first three cycle slots pass the all-pairs separation test); fold a sixth-plus series into Muted as \"Other\" or facet the chart.",
+      "Do use warm neutrals everywhere: paper #faf9f7 and ink #2a2320, with hairline #e6dfd6 rules.",
+      "Do let dark mode re-light the same roles (the palette defines every dark counterpart); figures save transparent so they sit on either ground."
+    ],
+    "donts": [
+      "Don't reintroduce the Radix crimson pink (≈#e93d82) or extend Legacy Brand Red (#870d14); oxblood #7a2e2a is the accent, and extra.css re-tones the theme's crimson scale to keep it so.",
+      "Don't use pure #fff or #000 anywhere; the system's ground is warm paper and its ink is umber.",
+      "Don't frame legends, add drop shadows to static content, or draw top/right spines — the ledger is flat and hairline-ruled.",
+      "Don't invent a sixth categorical hue; the five-slot cycle is validated and closed.",
+      "Don't add CTA-styled blocks; the surviving consulting card is legacy pending removal, not a pattern."
+    ]
+  }
+}
