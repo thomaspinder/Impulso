@@ -25,9 +25,9 @@ logging.getLogger("pytensor").setLevel(logging.ERROR)
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # %% [markdown]
-# Conventional VARs produce point forecasts. A Bayesian VAR produces a full posterior predictive distribution over future paths. This means every forecast comes with calibrated uncertainty — wide bands when the model is unsure, narrow when the data are informative.
+# Conventional VARs produce point forecasts. A Bayesian VAR produces a full posterior predictive distribution over future paths. This means every forecast comes with calibrated uncertainty: wide bands when the model is unsure, narrow when the data are informative.
 #
-# That uncertainty has two sources: the model's coefficients are only estimated, and the system is hit by a fresh random shock every period. `forecast()` includes both by default. The [section below](#what-the-bands-include) shows why leaving the shocks out — as much VAR tooling implicitly does — understates uncertainty, badly so at short horizons.
+# That uncertainty has two sources: the model's coefficients are only estimated, and the system is hit by a fresh random shock every period. `forecast()` includes both by default. The [section below](#what-the-bands-include) shows why leaving the shocks out (as much VAR tooling implicitly does) understates uncertainty, badly so at short horizons.
 
 # %%
 import matplotlib.pyplot as plt
@@ -43,7 +43,7 @@ plotting.use_ledger_style()
 # %% [markdown]
 # ## Setup
 #
-# We repeat the data-generating process from the [quickstart tutorial](quickstart.py). The DGP is a VAR(1) with three macro variables — GDP growth, inflation, and an interest rate. If you've already worked through that notebook, the setup code below will be familiar.
+# We repeat the data-generating process from the [quickstart tutorial](quickstart.py). The DGP is a VAR(1) with three macro variables: GDP growth, inflation, and an interest rate. If you've already worked through that notebook, the setup code below will be familiar.
 
 # %%
 rng = np.random.default_rng(42)
@@ -70,18 +70,18 @@ fitted
 # %% [markdown]
 # ## Point forecasts
 #
-# Call `.forecast(steps=8)` to produce an 8-step-ahead forecast. The result is a `ForecastResult` object that holds the full posterior predictive draws. The `.median()` method extracts the central tendency — the posterior median at each horizon.
+# Call `.forecast(steps=8)` to produce an 8-step-ahead forecast. The result is a `ForecastResult` object that holds the full posterior predictive draws. The `.median()` method extracts the central tendency: the posterior median at each horizon.
 
 # %%
 fcast = fitted.forecast(steps=8)
 fcast.median()
 
 # %% [markdown]
-# Each row is a forecast horizon (1 through 8 quarters ahead). The values converge toward the unconditional mean of the process as the horizon increases — a hallmark of stationary VARs.
+# Each row is a forecast horizon (1 through 8 quarters ahead). The values converge toward the unconditional mean of the process as the horizon increases, a hallmark of stationary VARs.
 #
 # ## Credible intervals
 #
-# The `.hdi()` method computes the highest density interval at a given probability level. An 89% HDI means 89% of the posterior forecast mass falls within these bounds. We use 89% rather than 95% following the ArviZ convention — it avoids the false precision of round numbers.
+# The `.hdi()` method computes the highest density interval at a given probability level. An 89% HDI means 89% of the posterior forecast mass falls within these bounds. We use 89% rather than 95% following the ArviZ convention: it avoids the false precision of round numbers.
 
 # %%
 hdi = fcast.hdi(prob=0.89)
@@ -92,7 +92,7 @@ print("\nUpper bounds:")
 print(hdi.upper)
 
 # %% [markdown]
-# The intervals widen at longer horizons. This is expected: two forces compound over time — the random shocks hitting the system accumulate, and parameter uncertainty propagates forward as each forecast step feeds into the next.
+# The intervals widen at longer horizons. This is expected: two forces compound over time. The random shocks hitting the system accumulate, and parameter uncertainty propagates forward as each forecast step feeds into the next.
 #
 # ## Visualise the forecast
 #
@@ -106,9 +106,9 @@ fig = fcast.plot()
 #
 # ## What the bands include
 #
-# The forecast above is a genuine posterior predictive distribution: it composes *parameter uncertainty* (the coefficients are estimated, not known) with *shock uncertainty* (each future period draws a fresh innovation). This is the default — `include_shock_uncertainty=True`.
+# The forecast above is a genuine posterior predictive distribution: it composes *parameter uncertainty* (the coefficients are estimated, not known) with *shock uncertainty* (each future period draws a fresh innovation). This is the default: `include_shock_uncertainty=True`.
 #
-# Setting `include_shock_uncertainty=False` switches the shocks off and propagates only the posterior over conditional-mean paths. The result is a distribution over what the model *expects* to happen, not over what *will* happen. It is the right object for scenario mechanics, but it is not a predictive distribution — and reporting it as one is a common way to understate forecast uncertainty. Pass `seed` in density mode to make the drawn shocks reproducible.
+# Setting `include_shock_uncertainty=False` switches the shocks off and propagates only the posterior over conditional-mean paths. The result is a distribution over what the model *expects* to happen, not over what *will* happen. It is the right object for scenario mechanics, but it is not a predictive distribution, and reporting it as one is a common way to understate forecast uncertainty. Pass `seed` in density mode to make the drawn shocks reproducible.
 
 # %%
 mean_fcast = fitted.forecast(steps=8, include_shock_uncertainty=False)
@@ -142,7 +142,7 @@ for i, name in enumerate(data.endog_names):
 _ = plotting.legend_below(axes[0][0], per_row=2)
 
 # %% [markdown]
-# The understatement is worst at the shortest horizons. At `h=1`, parameter uncertainty is small — the data pin the coefficients down — so a mean-only band is almost invisible, yet the true one-step forecast still carries the full shock variance. The ratio of band widths makes this concrete:
+# The understatement is worst at the shortest horizons. At `h=1`, parameter uncertainty is small (the data pin the coefficients down), so a mean-only band is almost invisible, yet the true one-step forecast still carries the full shock variance. The ratio of band widths makes this concrete:
 
 # %%
 width_mean = mean_hdi.upper - mean_hdi.lower
@@ -154,7 +154,7 @@ ratio.index.name = "horizon"
 ratio
 
 # %% [markdown]
-# Each entry is how many times wider the honest band is than the parameter-only band. The multiple is largest at `h=1` and shrinks as parameter uncertainty grows into the total — the opposite of the intuition that near-term forecasts are the certain ones.
+# Each entry is how many times wider the honest band is than the parameter-only band. The multiple is largest at `h=1` and shrinks as parameter uncertainty grows into the total, the opposite of the intuition that near-term forecasts are the certain ones.
 #
 # ## Tidy export
 #
@@ -166,5 +166,5 @@ fcast.to_dataframe()
 # %% [markdown]
 # ## Summary
 #
-# Bayesian VAR forecasts provide more than point predictions. The full posterior predictive distribution lets you quantify and communicate forecast uncertainty honestly. For structural questions — what happens to inflation when the central bank raises rates? — see the [Structural Analysis tutorial](structural-analysis.py).
+# Bayesian VAR forecasts provide more than point predictions. The full posterior predictive distribution lets you quantify and communicate forecast uncertainty honestly. For structural questions (what happens to inflation when the central bank raises rates?), see the [Structural Analysis tutorial](structural-analysis.py).
 #

@@ -33,7 +33,7 @@
 #
 # {cite:t}`kaenzig2021` uses this timing to ask what happens after expectations of future oil supply deteriorate. The distinction from an unexpected loss of current production is important: {cite:t}`kilian2009` shows that oil-price movements with different origins have different macroeconomic consequences. A shortage today forces users to draw down inventories. News of a shortage tomorrow instead gives them a reason to build inventories whilst oil is still available, which is why inventories carry identifying information in structural models of the oil market.
 #
-# This tutorial reproduces Känzig's six-variable oil-market VAR and then demonstrates how inference may be done in a Bayesian manner with Impulso. Identification is done through external instrument, or proxy {cite:p}`stockWatson2012,mertensRavn2013`, that we just described around changes in oil futures prices around OPEC announcements.
+# This tutorial reproduces Känzig's six-variable oil-market VAR and then demonstrates how inference may be done in a Bayesian manner with Impulso. Identification is done through an external instrument, or proxy {cite:p}`stockWatson2012,mertensRavn2013`, built from the changes in oil futures prices around OPEC announcements that we just described.
 #
 # The aim is deliberately narrow. The proxy identifies the shock associated with news about future oil supply; it does not turn every oil-price movement into an oil supply shock, nor does it identify all the other shocks in the system.
 

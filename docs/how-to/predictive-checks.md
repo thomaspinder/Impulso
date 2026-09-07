@@ -18,7 +18,7 @@ prior = spec.prior_predictive(data, draws=500, random_seed=0)
 az.plot_ppc(prior, group="prior", num_pp_samples=50)
 ```
 
-The returned object has `prior` (every latent — inspect `prior["B"]` to see what the Minnesota prior actually implies for the coefficients), `prior_predictive` (the simulated `obs`), and `observed_data`.
+The returned object has `prior` (every latent: inspect `prior["B"]` to see what the Minnesota prior actually implies for the coefficients), `prior_predictive` (the simulated `obs`), and `observed_data`.
 
 If the prior band does not contain the data, the prior is fighting the likelihood. If it is orders of magnitude wider, the prior is uninformative and you are paying for it in sampling efficiency.
 
@@ -59,13 +59,13 @@ $$
 y^{rep}_t = c + B x^{obs}_t + B_{exog} z_t + L_t \varepsilon_t, \qquad \varepsilon_t \sim N(0, I)
 $$
 
-That is the standard posterior-predictive object for a conditional model, and the one `az.plot_ppc` expects. It is *not* a path simulated forward from initial conditions — for that, use `fitted.forecast(steps=...)`, which iterates its own predictions.
+That is the standard posterior-predictive object for a conditional model, and the one `az.plot_ppc` expects. It is *not* a path simulated forward from initial conditions. For that, use `fitted.forecast(steps=...)`, which iterates its own predictions.
 
 `L_t` comes from the volatility process, so under `volatility="sv"` the replicate spread genuinely varies with `t`.
 
 ### Coverage
 
-A quick calibration check — what fraction of the observed data lands inside the 95% predictive band:
+A quick calibration check is the fraction of the observed data that lands inside the 95% predictive band:
 
 ```python
 import numpy as np
@@ -104,7 +104,7 @@ az.plot_ppc(fitted.idata)
 
 :::{admonition} Memory
 :class: warning
-The replicate array is dense: `chains × draws × T × n_vars` float64 values — roughly 19 MB at 4 chains, 1000 draws, 200 dates and 3 variables, and it grows linearly in all four. Thin the posterior before calling if that is too large.
+The replicate array is dense: `chains × draws × T × n_vars` float64 values, roughly 19 MB at 4 chains, 1000 draws, 200 dates and 3 variables, and it grows linearly in all four. Thin the posterior before calling if that is too large.
 :::
 
 ## Which method for which question

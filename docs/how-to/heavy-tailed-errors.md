@@ -16,8 +16,8 @@ by hand.
 - The estimated innovation covariance looks implausibly large relative to the
   bulk of the sample.
 
-If instead the volatility level *drifts* over the sample — quiet decades and
-turbulent ones — that is a stochastic-volatility problem, not a heavy-tails
+If instead the volatility level *drifts* over the sample (quiet decades and
+turbulent ones), that is a stochastic-volatility problem, not a heavy-tails
 problem. The two cannot currently be combined (see
 [Limitations](#limitations)).
 
@@ -40,7 +40,7 @@ from impulso import VAR, StudentT
 fitted = VAR(lags=4, error_dist=StudentT(nu=5.0)).fit(data)
 ```
 
-`nu` must be strictly greater than 2 — below that the t has infinite variance
+`nu` must be strictly greater than 2: below that the t has infinite variance
 and forecast bands, variance decompositions and the innovation covariance all
 stop being defined. Values around 4–6 are aggressively robust; above roughly 30
 the fit is indistinguishable from Gaussian.
@@ -59,7 +59,7 @@ az.summary(fitted.idata, var_names=["nu"])
 Under inference the free parameter is `nu_excess` and `nu = 2 + nu_excess`.
 The shift means the prior has zero density at the boundary, so the sampler is
 never dragged toward the infinite-variance edge. A posterior median below about
-10 says the data genuinely want heavy tails; a median that has drifted up toward
+10 says the data want heavy tails; a median that has drifted up toward
 the prior mean (22 by default) says the sample carries little information about
 the tail, and a fixed `nu` is the more honest specification.
 
@@ -77,12 +77,12 @@ distinction propagates predictably:
 
 | Quantity | Effect |
 | --- | --- |
-| `fitted.sigma()` | Returns Ω unchanged — the scale matrix, no longer the covariance |
+| `fitted.sigma()` | Returns Ω unchanged: the scale matrix, no longer the covariance |
 | `fitted.innovation_covariance()` | New accessor; returns `nu/(nu−2)·Ω`, the actual second moment |
 | `fitted.forecast()` | Innovations follow the t, so bands have fatter tails at the same interquartile width |
 | `identified.impulse_response()` | A "unit shock" is one *scale* unit = `sqrt((nu−2)/nu)` unconditional sd |
-| `identified.fevd()` | **Exactly unchanged** — shares are ratios, and the scale cancels |
-| `identified.historical_decomposition()` | **Exactly unchanged** — shocks are backed out and re-propagated |
+| `identified.fevd()` | **Exactly unchanged**: shares are ratios, and the scale cancels |
+| `identified.historical_decomposition()` | **Exactly unchanged**: shocks are backed out and re-propagated |
 | `identified.counterfactual()` | **Exactly unchanged** for zero edits; non-zero `ShockPath` values are in scale units |
 | `fitted.conditional_forecast()` | Raises `NotImplementedError` |
 | `identified.structural_scenario()` | Raises `NotImplementedError` |

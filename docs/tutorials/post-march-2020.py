@@ -19,7 +19,7 @@
 # In March, April, and May 2020 the U.S. economy moved by amounts that no
 # post-war month had ever recorded. Unemployment jumped from 3.5% in February to
 # 14.7% in April; real consumption collapsed and then rebounded within a quarter.
-# For a linear vector autoregression these three months are not a new regime —
+# For a linear vector autoregression these three months are not a new regime;
 # they are outliers. A VAR estimates one residual covariance matrix $\Sigma$ for
 # the whole sample. Three observations that are twenty standard deviations from
 # anything before them inflate that single $\Sigma$ enormously, and every
@@ -34,14 +34,14 @@
 # takes free values $\bar s_{\text{Mar}}, \bar s_{\text{Apr}}, \bar s_{\text{May}}$
 # during the outbreak, and then decays geometrically, $s_t = 1 + (\bar s_{\text{May}}-1)\,\rho^{\,t-t^\ast-2}$.
 # The change is deliberately minimal: a single common scale multiplies the whole
-# covariance, so the *shape* of the shock correlations — and therefore the
-# economics of the impulse responses — is preserved, while the *size* of the
+# covariance, so the *shape* of the shock correlations (and therefore the
+# economics of the impulse responses) is preserved, while the *size* of the
 # shocks is allowed to spike and settle.
 #
 # This tutorial reproduces that method with Impulso's conjugate estimator,
 # `ConjugateVAR`. The scales $\bar s$ and the decay $\rho$ are estimated jointly
 # with the prior tightness $\lambda$ by maximising the closed-form marginal
-# likelihood and sampling around the mode — the hierarchical, empirical-Bayes
+# likelihood and sampling around the mode: the hierarchical, empirical-Bayes
 # treatment of $\lambda$ in {cite:t}`lenzaPrimiceri2022`, which is why Figure 1
 # below includes a posterior for $\lambda$ alongside the volatility scales.
 #
@@ -97,7 +97,7 @@ plotting.use_ledger_style()
 # ships with the documentation, so this notebook makes no network calls at build
 # time. We follow the paper's transformations: unemployment enters as a level (a
 # rate in percentage points), and every other series enters as $100\times\log$ of
-# a real quantity — nominal consumption is deflated by its own price index, and
+# a real quantity: nominal consumption is deflated by its own price index, and
 # the price indices themselves enter in logs. Unemployment is ordered first,
 # which matters later for the Cholesky identification.
 
@@ -175,7 +175,7 @@ fitted = ConjugateVAR(
 ).fit(VARData.from_df(model_df, endog=var_names))
 
 # %% [markdown]
-# ### Figure 1 — the estimated volatility break
+# ### Figure 1: the estimated volatility break
 #
 # The posteriors below reproduce Figure 1 of the paper. The three outbreak scales
 # are large: the residual standard deviation in March, April, and May 2020 is a
@@ -236,7 +236,7 @@ fig.suptitle(
 # ## The drop-the-pandemic-data baseline
 #
 # The natural comparison is a VAR that never sees the pandemic. We refit the same
-# specification — same variables, same 13 lags, same conjugate prior — but stop
+# specification (same variables, same 13 lags, same conjugate prior) but stop
 # the sample at February 2020 and set `volatility=None`, so there is no break to
 # estimate. This is the "throw the months away" strategy, and it is the honest
 # alternative the paper argues against.
@@ -258,7 +258,7 @@ fitted_base = ConjugateVAR(
 #
 # We identify both models with a Cholesky decomposition ordered as the columns
 # appear, unemployment first. For the pandemic model we read the impact matrix at
-# February 2020 — before the break, where the scale is one — so the response is
+# February 2020 (before the break, where the scale is one), so the response is
 # expressed in normal-time units rather than pandemic-inflated ones. The baseline
 # uses its single (constant) covariance.
 #
@@ -311,15 +311,15 @@ fig.suptitle(
 #
 # The paper's headline application is a conditional forecast: fix the future path
 # of unemployment and ask what the model implies for consumption and prices. Both
-# models are seeded from the *same* history — the thirteen months ending in May
-# 2020 — and conditioned on the *same* imposed unemployment path. Only the
+# models are seeded from the *same* history (the thirteen months ending in May
+# 2020) and conditioned on the *same* imposed unemployment path. Only the
 # estimated coefficients $\beta$ and covariance $\Sigma$ differ between them, so
 # any difference in the forecasts is attributable to how each model treated the
 # pandemic observations, not to different inputs.
 #
 # We reconstruct a 60-month unemployment path from June 2020 to May 2025. From
 # May 2020's rate it interpolates (log-linearly) down to 9% by December 2020,
-# then to 7% by December 2021 — a slow-recovery profile in the spirit of the
+# then to 7% by December 2021, a slow-recovery profile in the spirit of the
 # mid-2020 consensus. After 2021 it follows a smooth exponential glide toward a
 # long-run 4%. That post-2021 tail is an **extrapolation**, not a Blue Chip
 # survey path.
@@ -454,7 +454,7 @@ if not ci:
 #
 # **Preserved.** The economic content of {cite:t}`lenzaPrimiceri2022` carries over
 # intact: the seven-variable panel, 13 monthly lags, the natural-conjugate
-# Minnesota prior with an estimated tightness, and — the core idea — a single
+# Minnesota prior with an estimated tightness, and (the core idea) a single
 # common volatility scale that spikes in March–May 2020 and decays back to normal,
 # leaving the correlation structure of the shocks untouched.
 #
@@ -465,7 +465,7 @@ if not ci:
 # place of the proprietary Blue Chip trajectory.
 #
 # **Left open.** The Cholesky responses in Figure 2 are descriptive summaries, not
-# identified structural effects — a genuine structural analysis would need an
+# identified structural effects: a genuine structural analysis would need an
 # identification scheme the recursive ordering does not provide. And the decay
 # $\rho$ is essentially prior-driven: three months of pandemic data fix how large
 # the shocks were without pinning down how quickly volatility returns to normal.

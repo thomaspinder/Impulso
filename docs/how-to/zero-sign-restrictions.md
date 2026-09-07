@@ -31,16 +31,16 @@ irf = identified.impulse_response(horizon=20)
 
 ## Specifying restrictions
 
-- `shock_names` fixes the column order of the returned structural matrix. Name fewer shocks than you have variables and the rest are labelled `unidentified_1`, `unidentified_2`, ... — those columns carry no restrictions and are rotation-arbitrary, so `fevd()` masks their shares.
+- `shock_names` fixes the column order of the returned structural matrix. Name fewer shocks than you have variables and the rest are labelled `unidentified_1`, `unidentified_2`, and so on. Those columns carry no restrictions and are rotation-arbitrary, so `fevd()` masks their shares.
 - `zero_restrictions` maps a variable to the shocks that do not move it on impact. Zeros bind at horizon 0 only; long-run zeros are not supported.
 - `sign_restrictions` uses the same format as `SignRestriction`: variable → shock → `"+"` or `"-"`.
 - `restriction_horizon=H` imposes the *signs* at horizons `0..H`. The zeros stay at impact.
 
-A cell cannot be restricted to zero and to a sign at once — that is a contradiction at horizon 0, and construction fails with a `ValueError`.
+A cell cannot be restricted to zero and to a sign at once: that is a contradiction at horizon 0, and construction fails with a `ValueError`.
 
 ## How many zeros are admissible
 
-Sort the shocks by how many zeros they carry, most first. The shock in position `j` may carry at most `n - j` zeros. Break that and identification is impossible for *any* orthogonal matrix, so `identify()` raises before sampling starts rather than burning through rotations. At the limit — `n - 1`, `n - 2`, ..., `0` — the zeros exactly identify the system and reproduce the Cholesky factor.
+Sort the shocks by how many zeros they carry, most first. The shock in position `j` may carry at most `n - j` zeros. Break that and identification is impossible for *any* orthogonal matrix, so `identify()` raises before sampling starts rather than burning through rotations. At the limit (`n - 1`, `n - 2`, ..., `0`), the zeros exactly identify the system and reproduce the Cholesky factor.
 
 ## When draws fail
 

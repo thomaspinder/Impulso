@@ -103,9 +103,9 @@ _ = axes[1].legend()
 #
 # The two equations define a **linear Gaussian state-space system** in which the latent state controls the observation *variance* rather than the *mean*. Conditional on the full path $h_{1:T}$ the likelihood factorises, $$p(y_{1:T} \mid h_{1:T}, \mu) \;=\; \prod_{t=1}^{T} N\!\left(y_t;\, \mu,\, \exp(h_t)\right),$$ and each factor is cheap. The likelihood of the parameters $(\mu, \sigma_\eta)$ *alone* requires integrating the latent path out, $$p(y_{1:T} \mid \mu, \sigma_\eta) \;=\; \int p(y_{1:T} \mid h_{1:T}, \mu)\, p(h_{1:T} \mid \sigma_\eta)\, dh_{1:T}.$$ This $T$-dimensional integral has no closed form, which is why SV models are fit with MCMC or particle methods rather than direct maximum likelihood. MCMC sidesteps the integral by sampling the joint posterior $p(\mu, \sigma_\eta, h_{1:T} \mid y_{1:T})$ and reading off any marginal we need from the draws.
 #
-# Marginally over $h_t$, the observation is a **scale mixture of normals**: $y_t = \mu + \exp(h_t / 2)\,\varepsilon_t$ with $\varepsilon_t \sim N(0, 1)$ independent of $h_t$. Three consequences follow that a fixed-variance model cannot reproduce. The marginal distribution of $y_t$ has heavier tails than a Gaussian. Squared residuals $(y_t - \mu)^2$ are positively autocorrelated — volatility clustering. And a realised large $|y_t|$ is evidence of a large $h_t$, which raises the posterior probability that $|y_{t+1}|$ is also large. These are exactly the stylised facts that motivate the model for macro and financial series.
+# Marginally over $h_t$, the observation is a **scale mixture of normals**: $y_t = \mu + \exp(h_t / 2)\,\varepsilon_t$ with $\varepsilon_t \sim N(0, 1)$ independent of $h_t$. Three consequences follow that a fixed-variance model cannot reproduce. The marginal distribution of $y_t$ has heavier tails than a Gaussian. Squared residuals $(y_t - \mu)^2$ are positively autocorrelated: volatility clustering. And a realised large $|y_t|$ is evidence of a large $h_t$, which raises the posterior probability that $|y_{t+1}|$ is also large. These are exactly the stylised facts that motivate the model for macro and financial series.
 #
-# It is worth contrasting this setup with the GARCH family, which targets the same stylised facts by a different route. In GARCH, the conditional variance is a deterministic function of past observations, $h_t = \omega + \alpha\,(y_{t-1} - \mu)^2 + \beta\,h_{t-1}$, so given $(y_{1:t-1}, \omega, \alpha, \beta)$ the variance at $t$ is a known number and the likelihood factorises without an integral. The SV variance has its *own* innovation $\eta_t$ that is not observed, which makes it a random variable even after conditioning on the full history. That extra source of randomness is what lets SV allow volatility surprises — moments when the conditional variance jumps in a way not foreseeable from past squared returns — and it is also the reason the SV likelihood is intractable in closed form.
+# It is worth contrasting this setup with the GARCH family, which targets the same stylised facts by a different route. In GARCH, the conditional variance is a deterministic function of past observations, $h_t = \omega + \alpha\,(y_{t-1} - \mu)^2 + \beta\,h_{t-1}$, so given $(y_{1:t-1}, \omega, \alpha, \beta)$ the variance at $t$ is a known number and the likelihood factorises without an integral. The SV variance has its *own* innovation $\eta_t$ that is not observed, which makes it a random variable even after conditioning on the full history. That extra source of randomness is what lets SV allow volatility surprises (moments when the conditional variance jumps in a way not foreseeable from past squared returns), and it is also the reason the SV likelihood is intractable in closed form.
 #
 # The random-walk specification for $h_t$ is non-stationary. Conditional on $h_0$, $$h_t \mid h_0, \sigma_\eta \;\sim\; N\!\left(h_0,\, t\,\sigma_\eta^2\right),$$ so the unconditional variance of log-volatility grows linearly in $t$. That is the appropriate prior when there is no reason to anchor volatility to a particular level and we want the data to decide how far it drifts. The AR(1) variant introduced later replaces this with a mean-reverting state equation and restores stationarity.
 #
@@ -177,7 +177,7 @@ for start, end in nber_recessions:
     )
 
 # %% [markdown]
-# The posterior volatility is elevated throughout the 1970s and peaks during the 1973-75 and 1980-82 recessions. From the mid-1980s onward the conditional SD drops to roughly a third of its 1970s level — the Great Moderation signature that a constant-variance model could not capture — with only mild bumps around the 1990-91 and 2001 recessions. The 2007-09 financial crisis produces a visible uptick, and the 2020 COVID shock and the post-2021 inflation surge push the conditional SD back toward levels not seen since the early 1980s.
+# The posterior volatility is elevated throughout the 1970s and peaks during the 1973-75 and 1980-82 recessions. From the mid-1980s onward the conditional SD drops to roughly a third of its 1970s level (the Great Moderation signature that a constant-variance model could not capture), with only mild bumps around the 1990-91 and 2001 recessions. The 2007-09 financial crisis produces a visible uptick, and the 2020 COVID shock and the post-2021 inflation surge push the conditional SD back toward levels not seen since the early 1980s.
 #
 # ## Posterior SD versus rolling SD
 #
@@ -209,13 +209,13 @@ _ = plotting.serif_title("SV posterior SD vs rolling SD — US CPI inflation", a
 # %% [markdown]
 # Both estimators agree on the overall shape: high in the 1970s and early 1980s, low from the mid-1980s onward. The SV posterior is visibly smoother and avoids the sharp step changes the rolling estimator produces when a single unusual month enters or leaves the window. The posterior also pools information across the full sample through the random-walk prior on $h_t$, whereas the rolling SD uses only the most recent 12 observations.
 #
-# The gap between the two estimators is most striking in the 1970s and early 1980s, and it almost vanishes in 2008 and 2020. That asymmetry is not about volatility at all — it is about how each estimator treats the *mean*. The rolling SD subtracts a *local* 12-month average before squaring, so slow drift in the level of inflation is absorbed into the mean and never shows up as variance. The SV model has a single *global* $\mu$, so every observation is residualised against one constant over the whole sample. When inflation ran at roughly 1% a month for years at a stretch, those deviations from the full-sample mean were enormous, and $\exp(h_t/2)$ had to stretch to accommodate them. The spikes in 2008 and 2020 were short and the level around them was close to the long-run mean, so a local window and a global constant see almost the same residuals and the two lines coincide.
+# The gap between the two estimators is most striking in the 1970s and early 1980s, and it almost vanishes in 2008 and 2020. That asymmetry is not about volatility at all; it is about how each estimator treats the *mean*. The rolling SD subtracts a *local* 12-month average before squaring, so slow drift in the level of inflation is absorbed into the mean and never shows up as variance. The SV model has a single *global* $\mu$, so every observation is residualised against one constant over the whole sample. When inflation ran at roughly 1% a month for years at a stretch, those deviations from the full-sample mean were enormous, and $\exp(h_t/2)$ had to stretch to accommodate them. The spikes in 2008 and 2020 were short and the level around them was close to the long-run mean, so a local window and a global constant see almost the same residuals and the two lines coincide.
 #
 # ## AR(1) dynamics for log-volatility
 #
 # The random-walk specification places no anchor on the level of log-volatility: if $\sigma_\eta$ is small the path drifts slowly, if it is large the path wanders. An AR(1) alternative adds explicit mean reversion, $$h_t = \alpha + \phi\,(h_{t-1} - \alpha) + \sigma_\eta\, \eta_t,$$ with $|\phi| < 1$. This lets the data speak to whether log-volatility tends to return to a long-run level $\alpha$ and, if so, how fast. A persistence parameter $\phi$ posterior concentrated near 1 is consistent with the random-walk approximation being adequate; values meaningfully below 1 indicate stronger mean reversion than a pure random walk allows.
 #
-# Instead of the `"ar1"` shorthand used above, we pass an explicit `AR1()` dynamics object. Both forms are equivalent; the object form is the extension point if you want to add a new dynamics (e.g. SVt or SV with leverage) without editing the library — implement the `SVDynamics` protocol and pass an instance here.
+# Instead of the `"ar1"` shorthand used above, we pass an explicit `AR1()` dynamics object. Both forms are equivalent; the object form is the extension point if you want to add a new dynamics (e.g. SVt or SV with leverage) without editing the library: implement the `SVDynamics` protocol and pass an instance here.
 
 # %% mystnb={"image": {"alt": "Posterior conditional standard deviation from the AR(1) stochastic volatility fit, qualitatively similar to the random-walk path."}}
 if ci:
@@ -307,9 +307,9 @@ print(h.dims, h.shape)
 #
 # When the volatility is time-varying, the structural impact matrix is too. The `at=` parameter on `impulse_response`, `fevd`, and `historical_decomposition` selects which date's Cholesky factor (and hence which structural impact matrix) the computation uses:
 #
-# - `at="last"` — most recent in-sample period (the default when the volatility is stochastic)
-# - `at=t` — a specific integer index into the lag-trimmed sample
-# - `at="all"` — every in-sample period; the result carries a `time` dim
+# - `at="last"`: most recent in-sample period (the default when the volatility is stochastic)
+# - `at=t`: a specific integer index into the lag-trimmed sample
+# - `at="all"`: every in-sample period; the result carries a `time` dim
 #
 # For constant-volatility VARs, `at=` is a no-op (the same `L` applies at every date), so existing tutorials that omit it keep working unchanged.
 
@@ -319,7 +319,7 @@ identified = fitted_var.set_identification_strategy(
 )
 
 # %% [markdown]
-# A single date — the most recent in-sample period:
+# A single date, the most recent in-sample period:
 
 # %%
 irf_latest = identified.impulse_response(horizon=12, at="last")
@@ -336,7 +336,7 @@ irf_1982 = identified.impulse_response(horizon=12, at=t_1982)
 print(irf_1982.idata.posterior_predictive["irf"].shape)
 
 # %% [markdown]
-# Every in-sample date in one call. The result is a six-dimensional array — `(chains, draws, time, horizon+1, n_vars, n_vars)` — that you usually post-process directly via `irf_all.idata` rather than `.median()` / `.plot()`, which intentionally raise for the time-aware result:
+# Every in-sample date in one call. The result is a six-dimensional array, `(chains, draws, time, horizon+1, n_vars, n_vars)`, that you usually post-process directly via `irf_all.idata` rather than `.median()` / `.plot()`, which intentionally raise for the time-aware result:
 
 # %%
 irf_all = identified.impulse_response(horizon=12, at="all")

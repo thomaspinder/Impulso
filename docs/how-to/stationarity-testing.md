@@ -79,7 +79,7 @@ KPSS p-values are interpolated from a published table and clipped to
 First, the KPSS decision compares the **statistic against the critical value**
 for your `alpha`, not the p-value against `alpha`. A p-value rule would never
 reject at `alpha=0.01`, however extreme the statistic. This is why `alpha`
-for `kpss_test` — and for `integration_order`, which runs KPSS internally —
+for `kpss_test` (and for `integration_order`, which runs KPSS internally)
 is restricted to the four tabulated levels `0.10`, `0.05`, `0.025`, `0.01`.
 `adf_test` has a genuine p-value and accepts any level in `(0, 1)`.
 
@@ -140,7 +140,7 @@ result.summary()        # both sequences, statistic against critical value
 ```
 
 `k_ar_diff` counts lagged *differences*, so it is `p - 1` for a VAR(p) in
-levels — pick `p` first, then subtract one.
+levels: pick `p` first, then subtract one.
 
 Reading the rank, with `n` series:
 
@@ -177,5 +177,5 @@ diagnostics = {
 ```
 
 Anyone reading your results later needs to know which pretests you ran, at
-what significance level, with which deterministic terms — and where the tests
+what significance level, with which deterministic terms, and where the tests
 disagreed.
