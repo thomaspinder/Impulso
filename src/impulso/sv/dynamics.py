@@ -19,12 +19,25 @@ class SVDynamics(Protocol):
     path and the forward simulation used for density forecasts.
     """
 
-    name: str
-    has_explicit_level: bool
-    """Whether the dynamics owns the log-vol level via an explicit intercept
-    (e.g. AR(1)'s `alpha`). Multivariate adapters use this to avoid a
-    redundant outer `mu_i` shift when the dynamics already carries the
-    level. `True` for AR(1), `False` for random-walk."""
+    @property
+    def name(self) -> str:
+        """Registry key for this dynamics adapter.
+
+        Declared read-only so concrete adapters may narrow it to a
+        `Literal`. A mutable protocol member is invariant, which would
+        reject `name: Literal["random_walk"]` as an implementation of
+        `name: str` and make `SV_DYNAMICS_REGISTRY` unassignable.
+        """
+        ...
+
+    @property
+    def has_explicit_level(self) -> bool:
+        """Whether the dynamics owns the log-vol level via an explicit intercept
+        (e.g. AR(1)'s `alpha`). Multivariate adapters use this to avoid a
+        redundant outer `mu_i` shift when the dynamics already carries the
+        level. `True` for AR(1), `False` for random-walk.
+        """
+        ...
 
     def build_latent_path(
         self,

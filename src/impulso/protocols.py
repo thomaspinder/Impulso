@@ -226,6 +226,12 @@ class VolatilityProcess(Protocol):
     the lower-triangular Cholesky factor L_t such that Σ_t = L_t @ L_t.T.
     See docs/adr/0001-volatility-process-seam-exposes-cholesky-factor.md.
 
+    A VolatilityProcess owns how *big* the error is and never what shape its
+    tails take — that is the `ErrorDistribution` seam, which chooses the law
+    the standardised innovations are drawn from. The two are siblings and the
+    separation is strict in both directions: no adapter here may widen a tail,
+    and no error distribution may set a scale.
+
     Adapters own their downstream computation: time-`t` query and
     forward simulation for forecasts.
     """

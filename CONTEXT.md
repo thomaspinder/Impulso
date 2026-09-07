@@ -2,169 +2,189 @@
 
 Bayesian Vector Autoregression (VAR) with structural identification and stochastic volatility extensions. This file defines the load-bearing terms used in the codebase, docs, and public API. Add new terms here as they're sharpened in design discussions; don't drift into synonyms.
 
+Definitions only. Formulas, field names, exact value sets and failure rules live in the docstring or ADR that owns the behaviour — this file says what a thing *is*, not how it works.
+
 ## Language
 
 **VAR (Vector Autoregression)**:
-A multivariate linear time-series model where each variable is regressed on its own lags and the lags of every other variable. The class `VAR` represents the *reduced-form* specification (lags + prior + volatility process); structural meaning is layered on top via identification.
+A multivariate linear time-series model where each variable is regressed on its own lags and the lags of every other variable. The class `VAR` is the *reduced-form* specification; structural meaning is layered on afterwards through identification.
 _Avoid_: "VAR model" (redundant), "autoregression" (the singular form is misleading for multivariate models).
+
+**Endogenous / exogenous**:
+The two blocks of a dataset. Endogenous variables are modelled jointly and each carries a structural shock; exogenous regressors enter contemporaneously and carry none. The split is a modelling assumption the data cannot check, and it decides which questions are askable — identification lives only on the endogenous block.
+_Avoid_: "dependent" / "independent" variables (regression vocabulary that hides the jointness); "controls" for the exogenous block.
+
+**VARData**:
+The validated entry point of the pipeline: an endogenous block, an optional exogenous block, their names, and a time index. Frozen and read-only, so a fitted model can never be re-pointed at data that changed underneath it.
+_Avoid_: "dataset" / "dataframe" — a DataFrame is what `from_df` consumes, not what the pipeline holds.
 
 **Reduced-form / Structural**:
 The reduced-form VAR fits dynamics without economic interpretation; the structural VAR adds an identification scheme that maps reduced-form residuals to economically-meaningful shocks. In code, `FittedVAR` is reduced-form; `IdentifiedVAR` is structural.
 _Avoid_: "raw" / "interpretable" — they obscure the technical meaning.
 
+**Posterior schema**:
+The reduced-form parameter block every estimator must produce and every consumer may assume — lag coefficients, intercept, and exogenous coefficients. It is what lets two unrelated estimators feed identical downstream code. The volatility and error-distribution seams name their own parameters and sit deliberately outside it.
+_Avoid_: `B` for anything but the lag coefficients — the structural shock matrix is `P`, and `A_1..A_p` are the per-lag matrices `B` splits into.
+
 **Identification scheme**:
-A rule for recovering structural shocks from reduced-form covariance, implemented as adapters of the `IdentificationScheme` Protocol (`Cholesky`, `SignRestriction`, `ZeroSignRestriction`, `LongRunRestriction`, `ProxySVAR`). The scheme is pure in its output — it consumes a Cholesky factor `L` and produces a structural shock matrix `B = identify(L)` — with one declared side effect: per-call **identification diagnostics** exposed via `last_diagnostics`. It does not own time iteration.
-_Avoid_: "identification strategy" (used colloquially; the Protocol is named "scheme").
+A rule for recovering structural shocks from reduced-form covariance. Pure in its output — it consumes a Cholesky factor and produces a structural shock matrix — with one declared side effect, its identification diagnostics. It does not own time iteration.
+_Avoid_: "identification strategy" (used colloquially; the Protocol is named "scheme"). `B` for the structural shock matrix — that name belongs to the reduced-form coefficient block.
 
 **Identification diagnostics (`last_diagnostics`)**:
-Per-`identify()`-call diagnostic scalars — acceptance rates, first-stage instrument strength, long-run screen condition numbers, cache-hit flags (0.0/1.0) — a flat `dict[str, float]` under scheme-prefixed keys, surfaced onto `shock_matrix().attrs`. A single-call scratchpad, not state: each `identify()` overwrites it and the pipeline reads it back immediately. An optional capability of the identification-scheme seam: schemes with nothing to report (`Cholesky`) simply lack it.
-_Avoid_: treating it as cumulative or reentrant state; the private spellings `_last_diagnostics` / `_last_acceptance_rate` (retired).
+The scalars a scheme reports about its own work — acceptance rates, instrument strength, screen conditioning. A single-call scratchpad rather than accumulated state, and an optional capability of the seam: a scheme with nothing to report simply lacks it.
+_Avoid_: treating it as cumulative or reentrant state; reading the private backing attribute rather than the property.
 
 **Long-run multiplier (C(1))**:
-The sum of the moving-average coefficients of a stable reduced-form VAR, `C(1) = Σ_h Φ_h = (I − Σ_j A_j)^{-1}` — the total effect of a one-off reduced-form innovation on the *level* of each variable. Exists only when the companion spectral radius is below one; `I − Σ_j A_j` near-singular means it is numerically undefined, which is a distinct failure from divergence.
+The total effect of a one-off reduced-form innovation on the *level* of each variable — the sum of the moving-average coefficients. Defined only for a stable VAR, and numerical near-singularity is a distinct failure from outright divergence.
 
 **Cumulative MA impact matrix (Θ(1))**:
-The structural counterpart, `Θ(1) = C(1) P`: the total effect of each structural shock on each variable's level. Where `Cholesky` and `SignRestriction` constrain the impact matrix `Θ(0) = P`, `LongRunRestriction` constrains `Θ(1)` to be lower-triangular in a stated variable ordering, with positive diagonal (shock `j` raises variable `j`'s long-run level).
-_Avoid_: "Blanchard-Quah identification" as an API name — the scheme is named for what it restricts, not for its first users (the prose citation is fine). "Permanent shock" for anything but the first column: only the shock restricted nowhere is unambiguously permanent.
+The structural counterpart: the total effect of each structural shock on each variable's level. Where most schemes constrain the impact matrix Θ(0), `LongRunRestriction` constrains Θ(1).
+_Avoid_: "Blanchard-Quah identification" as an API name — the scheme is named for what it restricts, not for its first users (the prose citation is fine). "Permanent shock" for anything but the shock restricted nowhere.
 
 **Zero-and-sign restrictions (ARW construction)**:
-Identification combining exact zeros on the impact matrix with sign restrictions on impulse responses, via the recursive orthogonalisation of Arias, Rubio-Ramírez & Waggoner (2018). With `P = L Q`, a zero is a *linear* condition on one column of `Q` (`Z_j L q_j = 0`), so columns are built one at a time — each drawn uniformly from the unit sphere of the null space of the stacked zero conditions and the already-drawn columns. The zeros hold by construction; only the signs are accept/reject. Admissibility is the Rubio-Ramírez, Waggoner & Zha (2010) counting condition `z_j <= n - j` on shocks sorted by zero count, checked before sampling. Equality throughout is exact identification and reproduces the Cholesky factor; anything looser is set identification. Draws are *unweighted* — no volume-element correction for the ARW uniform-conditional prior — which is documented rather than silent. Failed draws are `NaN`, never a fallback to `L`, because a fallback would violate the zeros the scheme exists to impose.
-_Avoid_: "penalty-function zeros" — that is a different (Uhlig-style loss-minimising) construction that only approximates the zeros; these are exact.
+Identification combining exact zeros on the impact matrix with sign restrictions on impulse responses, via the recursive orthogonalisation of Arias, Rubio-Ramírez & Waggoner (2018). The zeros hold by construction; only the signs are accept/reject.
+_Avoid_: "penalty-function zeros" — that is a different (Uhlig-style, loss-minimising) construction that only approximates the zeros; these are exact.
 
 **Volatility process**:
-The seam that owns how the structural-shock covariance Σ_t is constructed (in PyMC), evolved over time, and queried. Concrete adapters of the `VolatilityProcess` Protocol: `Constant` (homoscedastic Σ; the default) and `StochasticVolatility` (time-varying). The volatility process owns its downstream computation — forecast covariance paths, time-`t` Cholesky query, per-variable volatility paths — so the pipeline never branches on adapter type.
+The seam that owns how the structural-shock covariance Σ_t is built, evolved and queried. It owns its downstream computation too — forecast paths, time-`t` query, per-variable volatility paths — so the pipeline never branches on adapter type.
 _Avoid_: "variance model", "covariance specification" — these describe the *output*, not the process.
 
 **Constant volatility**:
-The default volatility process: a single Σ shared across all time points. Today's manual Cholesky parameterisation in `spec.py:_build_pymc_model` lifted into the `Constant` adapter.
+The default volatility process: one Σ shared across all time points, carried as its Cholesky factor rather than re-decomposed on demand.
 
 **Stochastic volatility**:
-Time-varying volatility where Σ_t evolves stochastically. Two flavours:
-- **Clark-style** — per-variable log-volatility process (AR(1) or random walk on `h_i,t`) plus a constant correlation Cholesky `R`. The first concrete `StochasticVolatility` adapter.
-- **Primiceri-style** — TVP correlations on top of per-variable log-vol. Planned future adapter; the seam is shaped to admit it without redesign.
-The class `StochasticVolatility` serves a dual role: a standalone univariate model (via `.fit(SVData)`) and a `VolatilityProcess` plugged into VAR.
+Time-varying volatility where Σ_t evolves stochastically. The shipped flavour is Clark-style — per-variable log-volatility with a constant correlation factor; Primiceri-style time-varying correlations are a future adapter the seam is shaped to admit. The class serves a dual role: a standalone univariate model, and a volatility process plugged into a VAR.
+
+**Log-volatility dynamics (`SVDynamics`)**:
+The seam *inside* stochastic volatility that owns the law of the latent log-volatility path — how it is built and how it is simulated forward. One rung below the volatility process: that owns Σ_t, this owns the path driving it.
+_Avoid_: "SV prior" for the dynamics (the prior is a separate seam); "the SV model" when the dynamics adapter is what's meant.
 
 **Observation error distribution**:
-The seam that owns *which law the observation error follows* — the likelihood registered inside PyMC and the innovation law used on the forecast side. Concrete adapters of the `ErrorDistribution` Protocol: `Gaussian` (the default) and `StudentT`. It is the sibling of the volatility process, which owns how *big* the error is: the error distribution never touches Σ, and the volatility process never touches the shape of the tails. A `VAR` selects it with `error_dist=`.
+The seam that owns *which law* the observation error follows. Sibling of the volatility process, which owns how *big* the error is; the separation is strict in both directions — this seam never touches Σ, and the volatility process never touches tail shape.
 _Avoid_: "likelihood" as the name of the seam (the likelihood is what the adapter *builds*, and the word also gets used for the whole model's `logp`); "error model", "noise distribution".
 
 **Degrees of freedom (ν)**:
-The tail-weight parameter of `StudentT`. Either a fixed float strictly greater than 2, or `"infer"` (the default) to estimate it. The bound at 2 is hardcoded, not configurable: below it the t has infinite variance and every variance-shaped consumer stops being defined. Under both parameterisations the posterior carries `nu` as a deterministic; under inference the free random variable is `nu_excess`, with `nu = 2 + nu_excess` (a *shift*, not a truncation — `Gamma(α, ·)` has zero density at the origin for `α > 1`, so the prior vanishes exactly where `ν/(ν−2)` diverges; `prior_alpha` is constrained to `> 1` to keep that property).
+The tail-weight parameter of Student-t errors, either fixed or inferred. Bounded strictly above 2, and not configurable: below it the t has infinite variance and every variance-shaped consumer stops being defined.
 _Avoid_: "df" as a field name (collides with the DataFrame idiom); "tail parameter".
 
 **Scale matrix (Ω)**:
-What `L_t L_tᵀ` *is* under a heavy-tailed error distribution. It equals the innovation covariance under `Gaussian` errors, but under `StudentT` the covariance is `ν/(ν−2)·Ω`. `FittedVAR.sigma()` returns Ω in both cases — identification factorises the scale matrix — and `FittedVAR.innovation_covariance()` returns the covariance. FEVD, historical decompositions and zero-edit counterfactuals are *exactly* invariant to the distinction; impulse responses are in scale units. See ADR-0007.
+What a Cholesky factor squares to under a heavy-tailed error distribution. It equals the innovation covariance under Gaussian errors but not under Student-t, where the covariance is a tail-dependent multiple of it. Identification factorises the scale matrix, so impulse responses are in scale units while FEVD, historical decompositions and zero-edit counterfactuals are exactly invariant to the distinction (ADR-0007).
 _Avoid_: calling `sigma()` "the covariance" without qualification — true only under Gaussian errors.
 
 **L_t**:
-Lower-triangular Cholesky factor of the time-`t` structural-shock covariance: `Σ_t = L_t @ L_t.T`. The primary output of the volatility process. For constant volatility, `L_t` is constant in `t`. For stochastic volatility, `L_t` varies. Identification operates on `L_t` directly — no redundant Cholesky decomposition.
+Lower-triangular Cholesky factor of the time-`t` structural-shock covariance, and the primary output of the volatility process. Constant in `t` under constant volatility, varying under stochastic volatility. Identification operates on it directly — no redundant decomposition.
 
 **Impulse response function (IRF)**:
-The dynamic response of each variable to a unit structural shock at horizons `0..h`. Computed from the reduced-form lag matrices `A_1, ..., A_p` and the structural shock matrix `B`. With a stochastic volatility process, IRFs depend on the shock period; the `at` parameter on `IdentifiedVAR.impulse_response` selects which time slice.
+The dynamic response of each variable to a unit structural shock over a horizon. Under stochastic volatility an IRF depends on when the shock lands, which is what `at` selects.
 
 **Dynamic multiplier**:
-The response of each endogenous variable to a unit impulse in an *exogenous* regressor at horizons `0..h`: `Psi_h = Phi_h @ B_exog`. Shares the moving-average coefficients `Phi_h` with the IRF, but needs no identification scheme — exogenous regressors are exogenous by assumption — so it lives on `FittedVAR`, not `IdentifiedVAR`, and takes no `at`. The cumulative variant is the response to a permanent unit *step* rather than a one-off impulse. All dynamics come from the endogenous lag structure; `B_exog` enters contemporaneously and carries no lags of its own.
+The response of each endogenous variable to a unit impulse in an *exogenous* regressor. Shares the moving-average coefficients with the IRF but needs no identification scheme — exogenous regressors are exogenous by assumption — so it lives on the reduced-form fit. The cumulative variant is the response to a permanent *step* rather than a one-off impulse.
 _Avoid_: "exogenous IRF" — IRF is reserved for responses to identified structural shocks.
 
 **Historical decomposition (HD)**:
-The attribution of each in-sample observation to a deterministic baseline (initial conditions, intercept, and any exogenous path) plus the *propagated* contribution of each structural shock: `c_{j,t} = P_t[:,j] ε_{j,t} + Σ_i A_i c_{j,t-i}`, with `y_t = baseline_t + Σ_j c_{j,t}` holding exactly. "Propagated" is load-bearing: a shock's contribution carries forward through the lag dynamics beyond its impact period.
-_Avoid_: presenting the contemporaneous split of the one-step forecast error (`u_t = Σ_j P[:,j] ε_{j,t}`) as HD — that is a residual decomposition, and was the (incorrect) behaviour of the implementation prior to the scenario-analysis stack (2026-07).
+The attribution of each in-sample observation to a deterministic baseline plus the *propagated* contribution of each structural shock. "Propagated" is load-bearing: a shock's contribution carries forward through the lag dynamics beyond its impact period.
+_Avoid_: presenting the contemporaneous split of the one-step forecast error as HD — that is a residual decomposition, and was the (incorrect) behaviour prior to the scenario-analysis stack (2026-07).
 
 **Historical counterfactual**:
-The in-sample "what if": back out the realised structural shocks per posterior draw (`ε_t = P_t⁻¹ u_t`), overwrite a chosen shock's path over a window, and re-propagate the system to get the path history would have followed. Computed by `IdentifiedVAR.counterfactual(shocks=[ShockPath(...)])`. Realised shocks are edited, never re-drawn, so the posterior spread of a counterfactual reflects parameter and identification uncertainty only. `actual − counterfactual` for a shock zeroed over the full sample equals that shock's HD contribution.
-_Avoid_: bare "counterfactual" for forecast-side operations (those are conditional forecasts or structural scenarios); "policy counterfactual" (rule replacement is a different, out-of-scope object — and the Lucas-critique caveat documented on the method applies even to fixed-path edits).
+The in-sample "what if": back out the realised structural shocks, overwrite a chosen shock's path over a window, and re-propagate the system. Shocks are edited, never re-drawn, so the posterior spread reflects parameter and identification uncertainty only.
+_Avoid_: bare "counterfactual" for forecast-side operations (those are conditional forecasts or structural scenarios); "policy counterfactual" — rule replacement is a different, out-of-scope object.
 
 **Predictive check (prior / posterior)**:
-Data simulated from the model on the *estimation window*, to be compared against the data itself. `VAR.prior_predictive(data)` draws from the PyMC graph before conditioning on the likelihood; `FittedVAR.posterior_predictive()` replicates the sample from the posterior. Both are **one step ahead given the observed lags** — `y_t = c + B x_t^obs + L_t ε_t` — so they sit on the data's own time axis and feed `az.plot_ppc` directly. The posterior-predictive innovations come from the volatility seam's `L_t`, so their spread is time-varying under SV (ADR-0011).
+Data simulated from the model on the *estimation window*, to be compared against the data itself. Both variants are one step ahead given the observed lags, so they sit on the data's own time axis.
 _Avoid_: "forecast" for either — a forecast leaves the sample and iterates its own predictions; a predictive check never does.
 
 **Conditional forecast**:
-An h-step forecast constrained so chosen endogenous variables follow pinned future paths, with *all* structural shocks free to adjust (Waggoner–Zha 1999). Identification-free: the observable-space answer is invariant to the identification scheme, so it lives on `FittedVAR.conditional_forecast()` — the same placement logic as the dynamic multiplier. Hard (point) conditions are the v1 default — pins hold pathwise on every draw; a second v1 mode, `path_uncertainty="unconditional"` (ADPRR's Ω_f = DD′), restricts the forecast *mean* only while bands keep their unconditional width. `NaN` entries in a pinned path mean "unconstrained at that step".
+A forecast constrained so chosen endogenous variables follow pinned future paths, with *all* structural shocks free to adjust (Waggoner–Zha 1999). Identification-free: the observable-space answer does not depend on the scheme, so it lives on the reduced-form fit — the same placement logic as the dynamic multiplier.
 _Avoid_: "scenario" for an all-shocks-adjust conditional forecast — scenarios restrict *who* adjusts.
 
 **Structural scenario**:
-A conditional forecast with structural attribution (Antolín-Díaz, Petrella & Rubio-Ramírez 2021): pinned variable paths must be absorbed by a named `adjusting` set of shocks (non-adjusting shocks keep their unconditional draws), and/or future shock paths are prescribed directly. Computed by `IdentifiedVAR.structural_scenario()`.
+A conditional forecast with structural attribution (Antolín-Díaz, Petrella & Rubio-Ramírez 2021): pinned variable paths must be absorbed by a named set of adjusting shocks, and/or future shock paths are prescribed directly.
 _Avoid_: "conditional forecast" when an adjusting set is named — the restriction is the point.
 
 **Condition vocabulary (`ShockPath`, `VariablePath`)**:
-Frozen spec objects expressing scenario content. `ShockPath(shock, values, start, end)` sets a structural shock's path — values in one-standard-deviation units, scalar broadcast (`0.0` = "switch the shock off") or explicit array; `start`/`end` timestamps window it in-sample (counterfactual), while on the forecast axis values run from step 1 with `NaN` marking free entries. `VariablePath(variable, values)` pins a future endogenous path the same NaN-masked way. A scalar stays scalar until *application* time, where it broadcasts to the full resolved window — deliberately not the same as a length-1 array, which pins exactly one period. Each method accepts only the condition types legal for it — illegal combinations are unrepresentable rather than validated away.
+The frozen spec objects expressing scenario content: a structural shock's path, and a pinned future path for an endogenous variable. Each scenario method accepts only the condition types legal for it and rejects the rest by type.
 _Avoid_: "Conditions object" / "Scenario object" for these primitives — a bundling `Scenario` container may arrive later for connector round-trips; the primitives are paths.
 
 **Adjusting shocks**:
-The subset of structural shocks permitted to absorb a structural scenario's conditions (`adjusting=[...]`). Existence is a per-draw rank condition (enough adjusting-shock dimensions to span the conditions); under-determination resolves through the conditional Gaussian, over-determination errors.
+The subset of structural shocks permitted to absorb a structural scenario's conditions. Existence is a per-draw rank condition: enough adjusting-shock dimensions to span the conditions asked of them.
 _Avoid_: "driving" / "offsetting" shocks in API surface (fine in prose, where ADPRR and Leeper–Zha use them).
 
 **Plausibility statistic (q)**:
-Per-draw squared Mahalanobis distance of a scenario's binding restriction values from their unconditional law, `q = c̄′(C C′)⁻¹ c̄ = ‖μ*‖²`, plus `‖v_S‖²` for prescribed shock paths — distributed `χ²_r` under the model when all shocks adjust (`r` = number of binding restrictions), reported with `r` and the tail probability `P(χ²_r ≥ q)`. The Leeper–Zha "modest interventions" check in the ADPRR lineage: large `q` (tiny tail probability) means the scenario demands incredible shocks and the model's answer should not be trusted. Stored per draw as a `plausibility` variable on `ConditionalForecastResult` and `ScenarioResult`, alongside the ADPRR-calibrated companion `q_cal ∈ [0.5, 1]` (`plausibility_calibrated`; McCulloch binomial matching with `z = q/2`) — finite only under the unconditional-variance mode, pegged at its ceiling of 1 under hard pins, floored at 0.5 with no conditions.
+How far a scenario reaches beyond what the model considers ordinary — the per-draw distance of its binding restrictions from their unconditional law, reported with a calibrated companion on a bounded scale. The Leeper–Zha "modest interventions" check in the ADPRR lineage: a large `q` means the scenario demands incredible shocks and the model's answer should not be trusted.
 _Avoid_: calling it a Kullback–Leibler divergence under hard conditions — the conditional law is singular there and that KL is infinite; the KL form applies only to future *soft* conditioning. "Modesty statistic" stays prose-only.
 
 **at**:
-The time-index parameter on time-varying queries (`impulse_response(at=...)`, `fevd(at=...)`). Accepts an integer `t`, the literal `"last"` (most recent), `"all"` (full T-axis returned in the result), or `None` (default; resolves to `"last"` for stochastic volatility, ignored for constant volatility).
+The time-index parameter on time-varying queries: a specific index, the most recent slice, or the whole time axis. Ignored under constant volatility, where there is nothing to select.
 
 **Estimation paradigm (`VAR` vs `ConjugateVAR`)**:
-Two ways to estimate the reduced-form VAR. `VAR` uses independent-Normal coefficient priors sampled by NUTS (the `Sampler` seam). `ConjugateVAR` uses a conjugate Normal-Inverse-Wishart prior with closed-form posteriors and marginal-likelihood hyperparameter selection (Giannone et al. 2015): it draws (β, Σ) analytically and samples only the hyperparameters by Metropolis. Both return a `FittedVAR`, so identification and forecasting are identical downstream.
+Two ways to estimate the reduced-form VAR: independent-Normal coefficient priors sampled by NUTS, or a conjugate Normal-Inverse-Wishart prior with closed-form posteriors and a Metropolis step on hyperparameters (Giannone et al. 2015). Both return a `FittedVAR`, so identification and forecasting are identical downstream.
 _Reader-facing shorthand_: "the conjugate VAR" (`ConjugateVAR`) vs "the NUTS VAR" (`VAR`) — the contrast axis is the mode of inference (closed-form vs MCMC).
 _Avoid_: "the Bayesian VAR" as if there were one estimator; name the paradigm.
 
 **NIW prior (`NIWPrior`)**:
 The conjugate Normal-Inverse-Wishart Minnesota prior consumed by `ConjugateVAR`, encoded via dummy observations. Distinct from `MinnesotaPrior`, which parameterises the independent-Normal prior for the NUTS path.
-_Avoid_: conflating with `MinnesotaPrior` — different priors for different estimators.
+_Avoid_: conflating the two — different priors for different estimators.
 
 **Minnesota tightness (λ)**:
-The overall standard deviation of the Minnesota prior — the scalar controlling how hard all coefficients shrink toward the random-walk prior mean. `MinnesotaPrior.tightness` is this λ, held fixed; `ConjugateVAR` instead selects λ by maximising / sampling the marginal likelihood (hierarchical, à la Giannone et al. 2015).
+The scalar controlling how hard all coefficients shrink toward the random-walk prior mean. Fixed on the NUTS path; the conjugate prior can instead treat it as a hyperparameter selected against the marginal likelihood, which makes selection a property of the prior's configuration rather than of the estimator.
 _Avoid_: bare "shrinkage" (ambiguous with cross-variable shrinkage).
 
+**Contribution space (`exog_prior_scale`)**:
+The units a prior on exogenous coefficients is stated in. Such a coefficient converts a regressor's units into a variable's, so a prior fixed in *coefficient* space is not a fixed belief — rescaling a regressor silently changes it. Stating the belief as a fraction of the variable's own residual scale is invariant to both (ADR-0012).
+_Avoid_: reading `exog_prior_scale` as a tightness — it runs the opposite direction from **Minnesota tightness (λ)**, and lowering it is what shrinks.
+
 **Model evidence (`ModelEvidence`)**:
-The conjugate VAR's closed-form log marginal likelihood of the observed response block, `log p(y_{p+1:T} | y_{1:p}, hyperparameters, model)`, attached to `FittedVAR.evidence` by `ConjugateVAR.fit` (`None` on the NUTS path, which has no closed form). Because the value includes the volatility-rescaling Jacobian it is a density over the *observed* data, so a break model and a homoscedastic model on the same observations are directly comparable. It is conditional on the presample and on the hyperparameters it was evaluated at, so with `NIWPrior(select=True)` a ratio of two evidences is an empirical-Bayes Bayes factor. `compare_evidence(**fits)` checks comparability (same variable set, effective sample, window and response digest) and returns an `EvidenceComparison` of Bayes factors and posterior model probabilities.
+The conjugate estimator's closed-form log marginal likelihood of the observed data. Because it accounts for any volatility rescaling it is a density over the observations themselves, so a break model and a homoscedastic model fitted to the same data are directly comparable. The NUTS path has no closed form and carries none.
 _Avoid_: "log ML" in the API surface (spell out marginal likelihood); "model probability" for a raw Bayes factor — the probability requires prior model weights.
 
 **Deterministic volatility break (`ConjugateVolatility`)**:
-A volatility process whose per-period scale `s_t` follows a deterministic, hyperparameter-driven path with a known break date — not a stochastic process. Used only by `ConjugateVAR`: the scale enters as data rescaling `ỹ_t = y_t / s_t` with a Jacobian in the marginal likelihood, and its hyperparameters are estimated jointly with λ. `PandemicBreak` (three outbreak scales + geometric decay from March 2020) is the concrete case reproducing Lenza & Primiceri (2020).
+A volatility process whose per-period scale follows a deterministic, hyperparameter-driven path with a known break date. Used only by the conjugate estimator, where the scale enters as a rescaling of the data. `PandemicBreak` is the concrete case, reproducing Lenza & Primiceri (2020).
 _Avoid_: "stochastic volatility" — the break is deterministic given its hyperparameters.
 
 **Stationarity pretest**:
-A classical frequentist test run *before* a VAR is specified, to decide levels versus differences. `adf_test` (Augmented Dickey-Fuller; null = unit root) and `kpss_test` (Kwiatkowski-Phillips-Schmidt-Shin; null = stationarity) have opposite nulls, so both are reported and their `conclusion` columns are oriented per test. ADF decides on its p-value; **KPSS decides on statistic vs critical value**, because statsmodels clips the KPSS p-value to `[0.01, 0.10]` — which is also why `kpss_test` (and `integration_order`, which runs it) restricts `alpha` to the tabulated 0.10 / 0.05 / 0.025 / 0.01. Lives behind the optional `impulso[diagnostics]` extra (statsmodels). The pretests report and never decide: no mechanical "difference it" rule is applied, because unit-root tests have low power against persistent alternatives and are sensitive to deterministic terms and breaks.
+A classical frequentist test run *before* a VAR is specified, to decide levels versus differences. ADF and KPSS have opposite nulls, so both are reported. The pretests report and never decide: no mechanical "difference it" rule is applied, because unit-root tests have low power against persistent alternatives and are sensitive to deterministic terms and breaks.
 _Avoid_: "stationarity check" / "unit-root check" — "pretest" carries the sequencing (it precedes specification) and the pretesting-bias caveat.
 
 **Integration order (`d`, `d_max`)**:
-The number of differences a series needs before ADF rejects a unit root, per variable in `IntegrationOrderResult.order`. `d_max = max(order.values())` is the system-wide maximum and is the augmentation term a Toda-Yamamoto procedure consumes — **the names `order` and `d_max` are the frozen contract for that consumer**. ADF drives the stopping rule; KPSS is recorded at every level as a `joint_status` 2×2 (`stationary` / `unit_root` / `conflicting` / `inconclusive`). Variables that are still integrated at `max_order`, or whose tests conflict where the search stopped, are listed in `inconclusive` — human judgement, not a silent verdict. **`d_max` understates whenever `inconclusive` is non-empty**: a variable still non-stationary at `max_order` is recorded at `max_order`, which is a floor rather than a finding, so a Toda-Yamamoto consumer must read `inconclusive` before trusting the augmentation.
-_Avoid_: "order of differencing" for `d_max` — `d_max` is the maximum across the system, not any one series' `d`.
+The number of differences a series needs before ADF rejects a unit root, per variable, plus the system-wide maximum a Toda-Yamamoto procedure consumes. Variables whose tests conflict, or that are still integrated where the search stopped, are reported as inconclusive rather than given a silent verdict — so the maximum is a floor rather than a finding whenever that list is non-empty.
+_Avoid_: "order of differencing" for `d_max` — it is the maximum across the system, not any one series' `d`.
 
 **Cointegration rank**:
-The number of independent long-run relationships among integrated series, from the Johansen procedure (`johansen_test`). Both sequential tests are reported — `rank_trace` and `rank_max_eigen` — and `rank` is `rank_trace` by documented convention. Decisions rest on **critical values, not p-values** (MacKinnon-Haug-Michelis 1996 tables, as vendored by statsmodels), which is why `alpha` is restricted to 0.10 / 0.05 / 0.01. Rank ≥ 1 means differencing every series discards the long-run relationship. A vector error-correction model (VECM) is **out of scope**; the recommended response is a VAR in levels (the Sims–Stock–Watson stance; the Minnesota prior already shrinks toward random walks).
-_Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "cointegration test" without saying which statistic, since trace and max-eigen can disagree.
+The number of independent long-run relationships among integrated series, from the Johansen procedure. Both sequential tests are reported, because trace and max-eigen can disagree. A non-zero rank means differencing every series discards the long-run relationship; the recommended response is a VAR in levels, since a vector error-correction model is deliberately out of scope.
+_Avoid_: "number of cointegrating vectors" in API surface (fine in prose); "cointegration test" without saying which statistic.
 
 **Granger causality**:
-Conditional predictive precedence: the past of one variable improves the prediction of another beyond that other's own past, *within the fitted system of variables*. Reported by `FittedVAR.granger_causality(cause, effect)` as the posterior of the strength norm `‖b‖` over the tested lags of the cause in the effect's equation, with the per-lag posteriors alongside. Ordered and directional — the two orderings are separate queries with unrelated answers. Reduced-form: no identification scheme is involved, and `B` is time-invariant under every volatility process, so it needs no `at`.
+Conditional predictive precedence: the past of one variable improves the prediction of another beyond that other's own past, *within the fitted system of variables*. Ordered and directional — the two orderings are separate queries with unrelated answers. Reduced-form, so no identification scheme is involved.
 _Avoid_: "X causes Y" for a Granger result, and "causal effect" — the finding is about information sets, not interventions; an omitted common driver manufactures it. Reserve "effect" for identified structural objects (IRFs, counterfactuals).
 
 **ROPE (region of practical equivalence)**:
-The magnitude below which the analyst declares a relationship practically negligible, supplied as `rope=` and echoed on the result. `p_rope = P(‖b‖ < rope | data)` is the only probability statement the Granger surface makes. There is deliberately no default: the threshold is the analyst's judgement, and it travels with the number that came from it. Without a `rope` the result reports the distribution and `p_rope` is `None`.
-_Avoid_: "probability of no causality" / "probability the coefficient is zero" for `p_rope` — under continuous coefficient priors `P(b = 0) = 0` before and after the data, and an edge-inclusion probability needs a spike-and-slab prior Impulso does not fit (see ADR-0010). Also avoid bare "threshold" — the ROPE is on the magnitude, not on a p-value.
+The magnitude below which the analyst declares a relationship practically negligible, and the only input from which the Granger surface will make a probability statement. There is deliberately no default: the threshold is the analyst's judgement, and it travels with the number that came from it.
+_Avoid_: "probability of no causality" / "probability the coefficient is zero" — under continuous coefficient priors that probability is zero before and after the data, and an edge-inclusion probability needs a spike-and-slab prior Impulso does not fit (ADR-0010). Also avoid bare "threshold" — the ROPE is on the magnitude, not on a p-value.
 
 **Toda-Yamamoto augmentation**:
-Fitting a VAR in levels with `p + d` lags and testing only the first `p`, which restores standard Granger inference on possibly-integrated series without differencing (Toda & Yamamoto 1995). `n_lags_tested` and `n_lags_fitted` are separate fields on `GrangerCausalityResult` — the test lag order is never silently changed to match the fit, and the augmented lags never appear in `summary()`. `toda_yamamoto` consumes the frozen `IntegrationOrderResult` contract (`order` / `d_max` / `inconclusive`): it **refuses to run** when `inconclusive` is non-empty, because `d_max` is then a floor and an under-augmented test is invalid rather than imprecise. `augmentation_source` records the provenance — `"user"` for an explicit `d=` (which skips the diagnostics entirely), `"integration_order"` when they were consulted, including when they returned `d_max = 0`.
+Fitting a VAR in levels with extra lags and testing only the original ones, which restores standard Granger inference on possibly-integrated series without differencing (Toda & Yamamoto 1995). The augmented lags are never reported, and the procedure refuses to run on inconclusive integration diagnostics — an under-augmented test is invalid rather than imprecise.
 _Avoid_: "extra lags" without saying they are untested; "corrected for non-stationarity" — nothing is corrected, the asymptotics are restored.
 
 ## Relationships
 
 - A **VAR** carries one **prior**, one **volatility process**, and one **observation error distribution**.
 - A **FittedVAR** plus an **identification scheme** produces an **IdentifiedVAR**.
-- An **identification scheme** consumes an `L_t` (queried from the volatility process) and produces a structural shock matrix `B`.
-- An **identification scheme** may additionally consume the posterior lag coefficients: `LongRunRestriction` needs them for the **long-run multiplier**, as `SignRestriction(restriction_horizon > 0)` and `ProxySVAR` already do. `L_t` alone is the minimum, not the maximum, of what a scheme may ask for.
+- An **identification scheme** consumes an `L_t` (queried from the volatility process) and produces a structural shock matrix `P`.
+- An **identification scheme** may additionally consume the posterior lag coefficients: `LongRunRestriction` needs them for the **long-run multiplier**, as `SignRestriction(restriction_horizon > 0)`, `ZeroSignRestriction(restriction_horizon > 0)` and `ProxySVAR` already do. `L_t` alone is the minimum, not the maximum, of what a scheme may ask for.
 - An **IdentifiedVAR** computes **IRFs**, FEVDs, and historical decompositions by asking the volatility process for `L_t` at the requested `at`, then applying the identification scheme.
 - A **FittedVAR** fitted with exogenous regressors computes **dynamic multipliers** on its own; no identification scheme is involved, because the driver is already exogenous.
 - A **stochastic volatility** can plug into a **VAR** as its volatility process *or* be fitted standalone on a univariate series.
-- A **FittedVAR** computes **conditional forecasts** on its own — all shocks adjust, so no identification scheme is involved (the dynamic-multiplier placement logic). Under the hood it is the degenerate case of the structural scenario's three-way partition solve: no prescribed shocks, every shock adjusting, with the volatility process's `L` standing in for the structural matrix (the observable-space answer is rotation-invariant).
-- An **IdentifiedVAR** computes **historical counterfactuals** and **structural scenarios** through the four-layer scenario engine (back out → constrain → solve → propagate); the solve layer is one function shared with the conditional forecast, and the propagate layer is one function shared with `forecast()` and the **historical decomposition**.
-- The **condition vocabulary** is consumed by all three scenario methods; each method accepts only the condition types legal for it.
+- A **stochastic volatility** carries one **log-volatility dynamics** adapter and one SV prior; whether the dynamics pins its own level decides if the model adds an outer per-variable level term.
+- A **FittedVAR** computes **conditional forecasts** on its own — all shocks adjust, so no identification scheme is involved (the dynamic-multiplier placement logic). Under the hood it is the degenerate case of the structural scenario's three-way partition solve: no prescribed shocks, every shock adjusting, with the volatility process's `L` standing in for the structural matrix.
+- An **IdentifiedVAR** computes **historical counterfactuals** and **structural scenarios** through the four-layer scenario engine (back out → constrain → solve → propagate); the solve layer is one function shared with the conditional forecast, and the propagate layer is one lag recursion shared with `forecast()`, the counterfactual paths and the **historical decomposition**'s baseline.
+- The **condition vocabulary** is consumed by all three scenario methods; each method accepts only the condition types legal for it and rejects the rest by type.
 - A **VAR** simulates its own **prior predictive** from the graph it would fit; a **FittedVAR** replicates the estimation sample as a **posterior predictive**, computed in NumPy from the posterior and the volatility seam so the conjugate estimator gets it for free (ADR-0011).
 - A **VAR** is estimated by NUTS; a **ConjugateVAR** is estimated analytically with a Metropolis step on hyperparameters. Both produce a **FittedVAR**.
 - A **stationarity pretest** consumes `VARData` (endogenous block only), a DataFrame, or a Series, and produces a result object — never a modified dataset and never a specification. It sits *beside* the pipeline, not in it: nothing downstream of `VAR.fit()` reads its output.
-- **Integration order** feeds **cointegration rank**: the Johansen test is only meaningful for series that are individually integrated, and it is conditioned on a lag order (`k_ar_diff = p - 1`) that `select_lag_order` supplies.
-- A **FittedVAR** answers **Granger causality** queries on its own — the coefficients are reduced-form and time-invariant, so neither an identification scheme nor an `at` is involved. The query never refits: `test_lags` selects which of the already-fitted lags are tested.
-- **Toda-Yamamoto augmentation** consumes an **integration order**: `toda_yamamoto` reads `d_max` (after checking `inconclusive`), fits `p + d` lags with a **ConjugateVAR**, and produces the same `GrangerCausalityResult` the `FittedVAR` query does — which is why the manual route (`VAR(lags=p + d).fit(...)` then `granger_causality(..., test_lags=p)`) is equivalent and is the documented escape hatch for exogenous regressors, NUTS, and stochastic volatility.
-- A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a **PyMC volatility process** (`PyMCVolatilityProcess`, the `build_pymc_latent` extension of the `VolatilityProcess` query surface). Each estimator's fields accept only its compatible components, enforced by types + validators rather than a builder.
+- **Integration order** feeds **cointegration rank**: the Johansen test is only meaningful for series that are individually integrated, and it is conditioned on a lag order that `select_lag_order` supplies.
+- A **FittedVAR** answers **Granger causality** queries on its own — the coefficients are reduced-form and carry no time dimension, so neither an identification scheme nor an `at` is involved. The query never refits; it selects which of the already-fitted lags are tested.
+- **Toda-Yamamoto augmentation** consumes an **integration order**, fits the augmented lag order with a **ConjugateVAR**, and produces the same result object the `FittedVAR` query does — which is why the manual route is equivalent, and is the documented escape hatch for exogenous regressors, NUTS, and stochastic volatility.
+- A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a PyMC volatility process. Each estimator's fields accept only its compatible components, enforced by types and validators rather than a builder.
 
 ## Example dialogue
 
@@ -175,7 +195,7 @@ _Avoid_: "extra lags" without saying they are untested; "corrected for non-stati
 > **Library:** `VAR(lags=4).prior_predictive(data, draws=500)` then `az.plot_ppc(idata, group="prior")`. After fitting, `fitted.posterior_predictive()` returns the same-shaped in-sample replicates for the other end of the check.
 >
 > **User:** "Show me the IRF for shocks hitting in 2008Q3."
-> **Library:** `identified.impulse_response(horizon=20, at=t_2008Q3)`. The pipeline queries `volatility.cholesky_at(t_2008Q3)` for `L`, the identification scheme rotates it into `B`, and the IRF is computed from `A_1..A_p` and `B`.
+> **Library:** `identified.impulse_response(horizon=20, at=t_2008Q3)`. The pipeline queries `volatility.cholesky_at(t_2008Q3)` for `L`, the identification scheme rotates it into `P`, and the IRF is computed from `A_1..A_p` and `P`.
 >
 > **User:** "Just a univariate SV fit."
 > **Library:** `StochasticVolatility(dynamics="ar1").fit(SVData(y))`. Same class, standalone code path.
@@ -194,14 +214,17 @@ _Avoid_: "extra lags" without saying they are untested; "corrected for non-stati
 
 ## Conventions
 
-**Discriminator field on adapters**: every concrete adapter class (`Constant`, `RandomWalk`, `AR1`, …) declares its registry key with `name: Literal["x"] = "x"`, *not* `name: ClassVar[str] = "x"`. The Literal form is the modern Pydantic v2 idiom: it makes `name` a real instance attribute, fires `ValidationError` on construction-time mismatch (`Constant(name="other")`) and on post-construction mutation (under `frozen=True`), and participates in `model_dump`/`model_validate` round-trips. Class-level access (`Constant.name`) does *not* work with this pattern — registries that need the key value should hardcode the literal string.
+**Discriminator field on adapters**: adapters of the seams whose Protocol declares one — `VolatilityProcess`, `ErrorDistribution`, `SVDynamics`, plus the `ConjugateVolatility` base — declare their registry key as `name: Literal["x"] = "x"`, never `ClassVar`. `IdentificationScheme`, `Prior` and `Sampler` adapters carry no discriminator, because those Protocols do not declare one; they are selected by type or by an estimator-local registry instead. The Pydantic rationale and the class-level-access sharp edge are documented on `impulso._base`.
 
-**Scheme-prefixed diagnostic keys**: every key a scheme writes into `last_diagnostics` names its scheme family in a prefix (`sign_restriction_`, `zero_sign_`, `long_run_`, `proxy_`), so entries surfaced onto shared `attrs` can never collide with — or mislabel themselves as — another scheme's diagnostics. `sign_restriction_acceptance_rate` keeps its exact historical spelling; it is public behaviour.
+**Scheme-prefixed diagnostic keys**: every key a scheme writes into its **identification diagnostics** names its scheme family in a prefix, so entries surfaced onto shared `attrs` can never collide with — or mislabel themselves as — another scheme's. The existing spellings are public behaviour and do not get tidied.
+
+**The result quartet**: every result carrying posterior draws exposes `median()`, `hdi()`, `to_dataframe()` and `plot()`, and plotting consumes only that interface. Results that are not posterior-shaped — the Granger and the stationarity / cointegration / integration-order / lag-order diagnostics — deliberately opt out and offer `summary()` instead. "Result object" therefore does not imply the quartet; ask which shape it is.
 
 ## Flagged ambiguities
 
 - "SV" is both a noun (the model family — *stochastic volatility*) and an adjective ("an SV adapter"). The class `StochasticVolatility` is the canonical noun reference; the adjective form is fine in prose after the term has been spelled out.
 - "Volatility" alone is ambiguous between *volatility process* (the seam) and *volatility paths* (the per-variable σ_i,t time series, useful for plotting). Be explicit when the distinction matters.
 - "Minnesota prior" now denotes two distinct encodings: the independent-Normal `MinnesotaPrior` (NUTS path) and the conjugate `NIWPrior` (`ConjugateVAR`). Name the estimator when it matters.
-- "Σ" now means the *scale* matrix under `StudentT` errors and the covariance under `Gaussian` errors. `sigma()` returns the same object either way; when the number has to be a variance, say so and use `innovation_covariance()`.
+- "Σ" means the *scale* matrix under Student-t errors and the covariance under Gaussian errors. `sigma()` returns the same object either way; when the number has to be a variance, say so and use `innovation_covariance()`.
 - "Counterfactual" in the wider literature spans shock-path edits (Impulso's meaning), policy-rule replacement (Sims–Zha style; out of scope), and Lucas-robust constructions (McKay–Wolf; out of scope). When comparing with external work, say which one is meant.
+- `B` vs `P`. `B` is the reduced-form lag-coefficient block of the **posterior schema** (and `B_exog` its exogenous sibling); `P` is the structural shock matrix an identification scheme produces. Both are "the coefficient matrix" in casual speech and the literature uses `B` for either. Say which.

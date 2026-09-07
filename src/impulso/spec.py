@@ -111,6 +111,11 @@ def _exog_prior_sigma(
 class VAR(ImpulsoBaseModel):
     """Immutable VAR model specification.
 
+    `VAR` specifies the *reduced-form* model — lag order, coefficient prior,
+    volatility process, and observation error distribution. Nothing here says
+    which shock is which: structural meaning is layered on afterwards, by
+    applying an identification scheme to the `FittedVAR` that `fit` returns.
+
     Attributes:
         lags: Fixed lag order (int >= 1) or selection criterion string.
         max_lags: Upper bound for automatic selection. Only valid with string lags.

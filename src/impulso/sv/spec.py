@@ -126,7 +126,9 @@ class StochasticVolatility(ImpulsoBaseModel):
         diagonal is `1 + sum_j off[i,j]^2`. The diagonal pin is an
         *identifiability* device: all volatility scaling lives in `h`,
         so `R_chol` is identified only up to its off-diagonal mixing
-        entries. See CLAUDE.md for the broader LKJCholeskyCov workaround.
+        entries. The manual assembly avoids PyMC's `LKJCholeskyCov` /
+        `LKJCorr`, which are broken on the supported dependency set; see
+        docs/adr/0014-manual-cholesky-parameterisation.md.
 
         Args:
             n_vars: Number of structural shocks / endogenous variables.
@@ -177,7 +179,7 @@ class StochasticVolatility(ImpulsoBaseModel):
         pm.Deterministic("h", h)
 
         # Unit-diagonal lower-triangular mixing factor R_chol (n_vars x n_vars).
-        # Manual parameterisation per the LKJ workaround documented in CLAUDE.md.
+        # Manual parameterisation per ADR-0014 (docs/adr/0014-manual-cholesky-parameterisation.md).
         # Diagonal pinned to 1 for identification (vol scale lives in h, so the
         # mixing factor is identified only by its off-diagonals); off-diagonals
         # from Normal(0, 0.5). This does NOT make R_chol @ R_chol.T a correlation

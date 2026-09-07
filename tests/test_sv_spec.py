@@ -146,14 +146,14 @@ class TestSVDynamicsDiscriminator:
 
         rw = RandomWalk()
         with pytest.raises(ValidationError):
-            rw.name = "ar1"  # ty: ignore[invalid-assignment]
+            rw.name = "ar1"
 
     def test_ar1_name_is_frozen(self):
         from impulso.sv.dynamics import AR1
 
         ar = AR1()
         with pytest.raises(ValidationError):
-            ar.name = "random_walk"  # ty: ignore[invalid-assignment]
+            ar.name = "random_walk"
 
 
 class TestHasExplicitLevel:
@@ -212,7 +212,7 @@ class TestStochasticVolatilityIsVolatilityProcess:
 
         sv = StochasticVolatility()
         with pytest.raises(ValidationError):
-            sv.name = "constant"  # ty: ignore[invalid-assignment]
+            sv.name = "constant"
 
 
 class TestSVMultivariateBuild:

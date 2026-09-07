@@ -12,8 +12,15 @@ from impulso._conjugate import ar1_residual_sd, minnesota_dummies
 class MinnesotaPrior(ImpulsoModel):
     """Minnesota prior for VAR coefficient shrinkage.
 
+    `tightness` is always held fixed at the value supplied; there is no estimation path
+    for it. That is the deliberate contrast with :class:`NIWPrior`, whose ``select`` flag
+    estimates the tightness by marginal likelihood — the independent-Normal coefficient
+    prior used here has no closed-form marginal likelihood to maximise, so the shrinkage
+    stays a modelling choice rather than an estimand.
+
     Attributes:
-        tightness: Overall shrinkage toward prior mean. Must be > 0.
+        tightness: Overall shrinkage toward prior mean. Must be > 0. Always fixed, never
+            estimated from the data.
         decay: How coefficients shrink on longer lags.
         cross_shrinkage: Shrinkage on other variables' lags vs own. 0 = only own lags, 1 = equal.
     """
