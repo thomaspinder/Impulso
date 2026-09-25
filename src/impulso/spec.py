@@ -157,6 +157,25 @@ def _resolve_sigma(
     return sigma
 
 
+def _check_plain_2d_tensor(endog: "pt.TensorVariable") -> None:
+    """Reject a symbolic `endog` that is a dimmed xtensor or not 2-D.
+
+    Raises:
+        TypeError: If `endog` is a dimmed `XTensorVariable`.
+        ValueError: If `endog` is not 2-D.
+    """
+    # `isinstance(endog, Variable)` also admits a dimmed xtensor, which then
+    # fails deep inside PyTensor's slicing. Checked by class name so this
+    # works on PyTensor versions without `pytensor.xtensor`.
+    if any(cls.__name__ == "XTensorVariable" for cls in type(endog).__mro__):
+        raise TypeError(
+            "endog is a dimmed XTensorVariable (e.g. a `pymc.dims.Data` container); build_in_model "
+            "needs a plain 2-D tensor. Pass its `.values` instead."
+        )
+    if endog.ndim != 2:
+        raise ValueError(f"endog must be 2-D (T, n_vars), got a {endog.ndim}-D tensor")
+
+
 def _symbolic_endog_n_vars(
     endog: "pt.TensorVariable",
     endog_scales: np.ndarray | Sequence[float] | None,
@@ -176,16 +195,7 @@ def _symbolic_endog_n_vars(
         ValueError: If `endog` is not 2-D, if `endog_scales` is `None`, or if
             the static column count differs from `len(endog_names)`.
     """
-    # `isinstance(endog, Variable)` also admits a dimmed xtensor, which then
-    # fails deep inside PyTensor's slicing. Checked by class name so this
-    # works on PyTensor versions without `pytensor.xtensor`.
-    if any(cls.__name__ == "XTensorVariable" for cls in type(endog).__mro__):
-        raise TypeError(
-            "endog is a dimmed XTensorVariable (e.g. a `pymc.dims.Data` container); build_in_model "
-            "needs a plain 2-D tensor. Pass its `.values` instead."
-        )
-    if endog.ndim != 2:
-        raise ValueError(f"endog must be 2-D (T, n_vars), got a {endog.ndim}-D tensor")
+    _check_plain_2d_tensor(endog)
     if endog_scales is None:
         raise ValueError(
             "endog_scales is required when endog is symbolic: the default scale comes from "
@@ -198,6 +208,203 @@ def _symbolic_endog_n_vars(
     if static_n_vars is not None and static_n_vars != n_vars:
         raise ValueError(f"endog has {static_n_vars} columns but endog_names has {n_vars} names")
     return n_vars
+
+
+def _check_latent_endog_shape(
+    endog: "np.ndarray | pt.TensorVariable",
+    exog: np.ndarray | None,
+    observed_names: Sequence[str],
+) -> None:
+    """Check the observed `endog` and `exog` shapes on the latent-series path (issue 09b).
+
+    Raises:
+        TypeError: If `endog` is a dimmed `XTensorVariable`.
+        ValueError: If `endog` is not 2-D, if its column count is not
+            `len(observed_names)`, or if `exog`'s row count differs from its.
+    """
+    from pytensor.graph.basic import Variable
+
+    if isinstance(endog, Variable):
+        _check_plain_2d_tensor(endog)
+        n_rows, n_cols = endog.type.shape
+    elif endog.ndim != 2:
+        raise ValueError(f"endog must be 2-D (T, n_observed), got a {endog.ndim}-D array")
+    else:
+        n_rows, n_cols = endog.shape
+    # Without latent series `build_lag_design_matrix` trims both blocks
+    # together and the mean catches a mismatch; here the exogenous block
+    # enters the latent drive and the observed mean separately, so check it.
+    if exog is not None and n_rows is not None and exog.shape[0] != n_rows:
+        raise ValueError(f"exog has {exog.shape[0]} rows but endog has {n_rows}; both must cover the same periods.")
+    n_obs = len(observed_names)
+    if n_cols is not None and n_cols != n_obs:
+        raise ValueError(
+            f"endog has {n_cols} columns but endog_names lists {n_obs} observed series after the latent ones "
+            f"({_format_names(list(observed_names))}). Pass only the observed columns: latent series "
+            "are generated inside the model, not passed in."
+        )
+
+
+def _latent_n_vars(
+    endog: "np.ndarray | pt.TensorVariable",
+    exog: np.ndarray | None,
+    endog_names: Sequence[str],
+    endog_scales: np.ndarray | Sequence[float] | None,
+    latent_names: Sequence[str],
+    error_dist: ErrorDistribution,
+) -> int:
+    """Validate `VAR.build_in_model`'s latent-series inputs and return `n_vars` (issue 09b).
+
+    With latent series, `endog_names` is the full VAR order and `endog` holds
+    only the observed columns, which follow the latent ones. `n_vars` is
+    therefore `len(endog_names)`, not `endog`'s column count.
+
+    Raises:
+        TypeError: If `endog` is a dimmed `XTensorVariable`.
+        ValueError: If `endog_names` does not start with exactly
+            `latent_names`, if no observed series is left, if `endog`'s
+            column count is not the number of observed series, if `exog`'s
+            row count differs from `endog`'s, if `endog_scales` is missing
+            or does not cover the latent series, or if the error
+            distribution is not Gaussian.
+    """
+    n_latent = len(latent_names)
+    n_vars = len(endog_names)
+    if len(set(latent_names)) != n_latent:
+        raise ValueError(f"latent_names lists a name more than once: {_format_names(list(latent_names))}.")
+    if list(endog_names[:n_latent]) != list(latent_names):
+        raise ValueError(
+            f"latent_names ({_format_names(list(latent_names))}) must come first in endog_names, in the same "
+            f"order; got endog_names {_format_names(list(endog_names))}. The latent series lead the Cholesky "
+            "ordering, which is what makes the observed block's likelihood conditional on the latent "
+            "innovations exact."
+        )
+    n_obs = n_vars - n_latent
+    if n_obs < 1:
+        raise ValueError("build_in_model needs at least one observed series; every name in endog_names is latent.")
+    if not isinstance(error_dist, Gaussian):
+        raise ValueError(  # noqa: TRY004
+            f"latent series require Gaussian errors, got {type(error_dist).__name__}. The observed block's "
+            "likelihood conditional on the latent innovations has a simple closed form only for Gaussian "
+            "errors (a multivariate Student-t's conditional is not a Student-t with the same `nu`)."
+        )
+    _check_latent_endog_shape(endog, exog, endog_names[n_latent:])
+    if endog_scales is None:
+        raise ValueError(
+            "endog_scales is required when latent_names is given: a latent series has no data to compute "
+            "its scale from. Pass one scale per name in endog_names, latent series included."
+        )
+    if np.shape(endog_scales) == (n_obs,):
+        raise ValueError(
+            f"endog_scales has {n_obs} entries, one per observed series, but it must cover the latent "
+            f"series too ({_format_names(list(latent_names))}): pass one scale per name in endog_names."
+        )
+    return n_vars
+
+
+def _latent_init_sigma(latent_init_sigma: float | Sequence[float], n_latent: int) -> np.ndarray:
+    """Coerce `latent_init_sigma` to a positive array of shape `(n_latent,)`."""
+    sigma = np.asarray(latent_init_sigma, dtype=float)
+    if sigma.ndim == 0:
+        sigma = np.full(n_latent, float(sigma))
+    if sigma.shape != (n_latent,):
+        raise ValueError(f"latent_init_sigma must be a scalar or have {n_latent} entries, got shape {sigma.shape}")
+    if not np.all(np.isfinite(sigma) & (sigma > 0)):
+        raise ValueError(f"latent_init_sigma must be positive and finite, got {sigma.tolist()}")
+    return sigma
+
+
+def _scan(fn: Any, **kwargs: Any) -> "pt.TensorVariable":
+    """`pytensor.scan` returning outputs only, on PyTensor versions with and without `return_updates`."""
+    import inspect
+
+    import pytensor
+
+    if "return_updates" in inspect.signature(pytensor.scan).parameters:
+        return pytensor.scan(fn, return_updates=False, **kwargs)
+    outputs, _ = pytensor.scan(fn, **kwargs)
+    return outputs
+
+
+def _latent_path(
+    obs: "np.ndarray | pt.TensorVariable",
+    x_exog: np.ndarray | None,
+    n_lags: int,
+    n_vars: int,
+    n_latent: int,
+    intercept_term: "pt.TensorVariable",
+    B: "pt.TensorVariable",
+    B_exog: "pt.TensorVariable | None",
+    L: "pt.TensorVariable",
+    init_sigma: np.ndarray,
+) -> "tuple[pt.TensorVariable, pt.TensorVariable]":
+    """Register and generate the latent series non-centred (issue 09b).
+
+    Registers `latent_init`, a `Normal(0, init_sigma)` prior on each latent
+    series' first `n_lags` values, shape `(n_lags, n_latent)`, and
+    `latent_innovations`, standard-normal `z` of shape `(T - n_lags,
+    n_latent)`. For `t >= n_lags` the latent block follows its VAR equations,
+
+        latent_t = c_lat + sum_l A_l[lat, :] full_{t-l} + B_exog[lat] x_t + L[lat, lat] z_t,
+
+    where `full` stacks the latent path with the observed columns. The terms
+    that do not depend on the latent path are computed in one vectorised
+    step; `scan` carries only the latent own- and cross-lag recursion.
+
+    Returns:
+        Tuple `(path, z)`: the full latent path, shape `(T, n_latent)` and
+        including the initial values, registered as the `Deterministic`
+        `latent`; and the innovations `z`.
+    """
+    import pymc as pm
+    import pytensor.tensor as pt
+
+    obs = pt.as_tensor_variable(obs)
+    static_T = obs.type.shape[0]
+    T = static_T if static_T is not None else obs.shape[0]
+
+    init = pm.Normal("latent_init", mu=0.0, sigma=init_sigma, shape=(n_lags, n_latent))
+    z = pm.Normal("latent_innovations", mu=0.0, sigma=1.0, shape=(T - n_lags, n_latent))
+
+    # `B` is lag-major over the full VAR order: column `l * n_vars + j` is
+    # variable `j`'s lag `l + 1`. Split each lag's block into its latent and
+    # observed columns.
+    latent_cols = [lag * n_vars + j for lag in range(n_lags) for j in range(n_latent)]
+    obs_cols = [lag * n_vars + j for lag in range(n_lags) for j in range(n_latent, n_vars)]
+    B_lat = B[:n_latent]
+    _, obs_lags, _ = build_lag_design_matrix(obs, n_lags)
+    drive = intercept_term[:n_latent] + pt.dot(obs_lags, B_lat[:, obs_cols].T) + pt.dot(z, L[:n_latent, :n_latent].T)
+    if x_exog is not None and B_exog is not None:
+        drive = drive + pt.dot(x_exog, B_exog[:n_latent].T)
+    # (n_lags, n_latent, n_latent): A_lat[l] is the latent-on-latent block of lag l + 1.
+    A_lat = B_lat[:, latent_cols].reshape((n_latent, n_lags, n_latent)).dimshuffle(1, 0, 2)
+    # Pin the static shapes scan sees. Scan checks that a rebuilt node's
+    # inputs broadcast like the originals, and a rewrite that substitutes the
+    # value variables (nutpie's compile does) can make a length-1 axis static
+    # that was unknown when the scan was built, which then fails that check.
+    drive = pt.specify_shape(drive, (None, n_latent))
+    A_lat = pt.specify_shape(A_lat, (n_lags, n_latent, n_latent))
+
+    def step(drive_t, *args):
+        # `args` is the last `n_lags` latent values, oldest first (scan's
+        # tap order), then `A_lat`.
+        *history, A = args
+        new = drive_t
+        for lag, value in enumerate(reversed(history)):
+            new = new + pt.dot(A[lag], value)
+        return new
+
+    # With a single tap scan takes the state itself (a vector), not a
+    # one-row history.
+    initial = init[0] if n_lags == 1 else init
+    history = _scan(
+        step,
+        sequences=[drive],
+        outputs_info=[{"initial": initial, "taps": list(range(-n_lags, 0))}],
+        non_sequences=[A_lat],
+    )
+    path = pm.Deterministic("latent", pt.concatenate([init, history], axis=0))
+    return path, z
 
 
 def _ols_residuals(Y: np.ndarray, X_lag: np.ndarray, X_exog: np.ndarray | None) -> np.ndarray:
@@ -285,6 +492,55 @@ def _intercept_mask(endog_names: Sequence[str], intercept_equations: Sequence[st
     if duplicates:
         raise ValueError(f"intercept_equations lists {_format_names(duplicates)} more than once.")
     return np.array([name in intercept_equations for name in endog_names], dtype=bool)
+
+
+def _register_intercept(intercept_mask: np.ndarray) -> "tuple[pt.TensorVariable | None, pt.TensorVariable]":
+    """Register `VAR.build_in_model`'s intercept (issue 08b).
+
+    Returns:
+        Tuple `(intercept, intercept_term)`: the free variable (`None` when
+        every equation is excluded) and the length-`n_vars` vector added to
+        the mean, with literal zeros for excluded equations.
+    """
+    import pymc as pm
+    import pytensor.tensor as pt
+
+    n_vars = intercept_mask.size
+    if intercept_mask.all():
+        intercept = pm.Normal(INTERCEPT, mu=0, sigma=1, dims="var")
+        return intercept, intercept
+    if intercept_mask.any():
+        intercept = pm.Normal(INTERCEPT, mu=0, sigma=1, dims="var_intercept")
+        return intercept, pt.zeros(n_vars)[np.flatnonzero(intercept_mask)].set(intercept)
+    return None, pt.zeros(n_vars)
+
+
+def _register_likelihood(
+    error_dist: ErrorDistribution,
+    mu: "pt.TensorVariable",
+    L: "pt.TensorVariable",
+    Y: "np.ndarray | pt.TensorVariable",
+    *,
+    potential: bool,
+    n_latent: int,
+    z: "pt.TensorVariable | None",
+) -> "pt.TensorVariable":
+    """Register `VAR.build_in_model`'s observation likelihood, named `"obs"`.
+
+    A numpy `endog` without latent series gets an observed RV. Otherwise the
+    likelihood is `error_dist.logp` wrapped in a `pm.Potential`. With latent
+    series, only the observed block enters, conditional on the latent
+    innovations `z`: the latent series lead the Cholesky ordering, so
+    `resid_obs - L[obs, lat] z ~ MvN(0, L[obs, obs] L[obs, obs]')` exactly.
+    """
+    import pymc as pm
+
+    if n_latent:
+        mu_obs = mu[:, n_latent:] + pm.math.dot(z, L[n_latent:, :n_latent].T)
+        return pm.Potential("obs", error_dist.logp(mu=mu_obs, chol=L[n_latent:, n_latent:], value=Y[:, n_latent:]))
+    if potential:
+        return pm.Potential("obs", error_dist.logp(mu=mu, chol=L, value=Y))
+    return error_dist.build_likelihood("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
 
 
 def _exog_prior_sigma(
@@ -381,7 +637,18 @@ class VARModelHandles:
             `error_dist.logp`: not a random variable, so it has no dims,
             is invisible to both `sample_prior_predictive` and
             `sample_posterior_predictive`, and cannot be predicted. Named
-            `"obs"` either way.
+            `"obs"` either way. With latent series, the `pm.Potential` of the
+            observed block's log-likelihood conditional on the latent
+            innovations.
+        latent: The generated latent path, shape `(T, n_latent)` including
+            the `n_lags` initial values, registered as the `Deterministic`
+            `"latent"`; `None` without latent series. Its columns follow
+            `latent_names`. The latent variables carry no dims and the names
+            live on `latent_names` instead, because Impulso's coordinates are
+            not prefixed by a nested model and a latent coordinate would
+            collide between VARs embedded in the same model.
+        latent_names: Names of the latent series, in the path's column
+            order; empty without latent series.
     """
 
     intercept: "pt.TensorVariable | None"
@@ -389,6 +656,8 @@ class VARModelHandles:
     B_exog: "pt.TensorVariable | None"
     L: "pt.TensorVariable"
     obs: "pt.TensorVariable"
+    latent: "pt.TensorVariable | None" = None
+    latent_names: tuple[str, ...] = ()
 
 
 class VAR(ImpulsoBaseModel):
@@ -575,6 +844,8 @@ class VAR(ImpulsoBaseModel):
         exog_names: Sequence[str] | None = None,
         endog_scales: np.ndarray | Sequence[float] | None = None,
         intercept_equations: Sequence[str] | None = None,
+        latent_names: Sequence[str] = (),
+        latent_init_sigma: float | Sequence[float] = 1.0,
     ) -> VARModelHandles:
         """Register this VAR specification into the active PyMC model.
 
@@ -603,6 +874,34 @@ class VAR(ImpulsoBaseModel):
         them. Callers resolve string lag-selection criteria (e.g.
         via `select_lag_order`) before calling this method — it always
         takes a concrete integer `n_lags`.
+
+        Latent series: `latent_names` declares endogenous series that have no
+        data. They come first in `endog_names`, and `endog` holds only the
+        observed columns that follow them. Their paths are generated inside
+        the model, non-centred: `latent_init` puts a `Normal(0,
+        latent_init_sigma)` prior on each latent series' first `n_lags`
+        values, `latent_innovations` holds standard-normal innovations `z`
+        of shape `(T - n_lags, n_latent)`, and for `t >= n_lags` a `scan`
+        runs the latent equations of the VAR, `latent_t = c + sum_l
+        A_l[lat, :] full_{t-l} + B_exog[lat] x_t + L[lat, lat] z_t`, where
+        `full` stacks the latent path with the observed columns. The path,
+        shape `(T, n_latent)` including the initial values, is registered as
+        the `Deterministic` `"latent"` and returned as `handles.latent`, its
+        columns ordered like `handles.latent_names`. Because the latent series
+        lead the Cholesky ordering, the observed block's likelihood
+        conditional on `z` is exact: `resid_obs - L[obs, lat] z ~ MvN(0,
+        L[obs, obs] L[obs, obs]')`, evaluated with `error_dist.logp` on that
+        sub-block and registered as a `pm.Potential` named `"obs"`. This is
+        the non-centred design of `prototype/REPORT.md`: passing a free latent
+        column as symbolic `endog` instead gives a funnel in the latent
+        innovation scale. Latent series need Gaussian errors and an
+        `endog_scales` entry, since they have no data to compute a scale
+        from. `latent_init`, `latent_innovations` and `latent` carry no dims
+        (their time axis has no coordinate), so no new coordinate is
+        registered for them. `latent_init_sigma` sets only the start of the
+        path; the VAR is the latent series' only prior after that. Nothing
+        here keeps the latent equations stationary, so an explosive draw of
+        their own-lag coefficients makes the path explode over the sample.
 
         Nesting: open a `pm.Model(name=prefix)` before calling this method
         and every free random variable, `Deterministic` and the likelihood
@@ -643,20 +942,25 @@ class VAR(ImpulsoBaseModel):
 
         Args:
             endog: Endogenous data, shape `(T, n_vars)`: a numpy array, or a
-                2-D PyTensor variable (see "Symbolic `endog`" above).
+                2-D PyTensor variable (see "Symbolic `endog`" above). With
+                latent series, only the observed columns, shape `(T, n_vars
+                - n_latent)`.
             exog: Optional exogenous regressors, shape `(T, n_exog)`. `None`
                 if the model has no exogenous block.
             n_lags: Lag order. Always a concrete integer — resolving a
                 string selection criterion is the caller's job.
-            endog_names: Names for each endogenous column, length
-                `n_vars`. Labels the `var`/`var1`/`var2`/`coeff` coordinates.
+            endog_names: Names for each endogenous variable, length
+                `n_vars`, in VAR order: latent series first, then the
+                observed columns of `endog`. Labels the
+                `var`/`var1`/`var2`/`coeff` coordinates.
             exog_names: Names for each exogenous column, length `n_exog`.
                 Required when `exog` is given; labels the `exog` coordinate.
             endog_scales: Per-variable scale `sigma`, shape `(n_vars,)` — an
                 array or any array-like (e.g. a plain list) accepted by
                 `np.asarray(..., dtype=float)`. `None` (the default) computes
                 it from `endog` with `ar1_residual_sd`; required when `endog`
-                is symbolic. The same array feeds
+                is symbolic or there are latent series, and then covering
+                every name in `endog_names`. The same array feeds
                 both the prior's Minnesota cross-lag scaling `sigma_i /
                 sigma_j` (`Prior.build_priors`, docs/adr/0015) and the
                 exogenous prior (`_exog_prior_sigma`, docs/adr/0012), so it
@@ -674,6 +978,17 @@ class VAR(ImpulsoBaseModel):
                 like every Impulso coordinate it is not prefixed by a nested
                 model. An empty sequence registers no intercept variable,
                 and the returned handles' `intercept` is `None`.
+                Latent series may be excluded, e.g. to model a latent
+                series as a zero-mean deviation.
+            latent_names: Names of the latent endogenous series (see "Latent
+                series" above), which must be the first entries of
+                `endog_names`, in the same order. Empty (the default) means
+                no latent series and the graph described above for observed
+                data only.
+            latent_init_sigma: Standard deviation of the zero-mean Normal
+                prior on each latent series' first `n_lags` values: a scalar
+                shared by every latent series, or one entry per latent
+                series. Ignored without latent series.
 
         Returns:
             `VARModelHandles` wrapping the intercept, coefficient,
@@ -695,6 +1010,14 @@ class VAR(ImpulsoBaseModel):
                 from `len(endog_names)` (issue 09a).
             ValueError: If `intercept_equations` names an equation not in
                 `endog_names`, or names one more than once.
+            ValueError: With latent series (issue 09b): if `endog_names`
+                does not start with exactly `latent_names`, if no observed
+                series is left, if `endog`'s column count is not the number
+                of observed series, if `exog` has a different number of
+                rows from `endog`, if `endog_scales` is missing or has
+                entries for the observed series only, if `latent_init_sigma`
+                has the wrong length or a non-positive entry, or if the
+                error distribution is not Gaussian.
         """
         import pymc as pm
         import pytensor.tensor as pt
@@ -706,7 +1029,18 @@ class VAR(ImpulsoBaseModel):
         # caller owns — cannot go through the numpy-only steps below:
         # `ar1_residual_sd`, the OLS pre-fit residuals, or an observed RV.
         symbolic = isinstance(endog, Variable)
-        n_vars = _symbolic_endog_n_vars(endog, endog_scales, endog_names) if symbolic else endog.shape[1]
+        error_dist = self.resolved_error_dist
+        latent_names = tuple(latent_names)
+        n_latent = len(latent_names)
+        if n_latent:
+            n_vars = _latent_n_vars(endog, exog, endog_names, endog_scales, latent_names, error_dist)
+            init_sigma = _latent_init_sigma(latent_init_sigma, n_latent)
+        else:
+            n_vars = _symbolic_endog_n_vars(endog, endog_scales, endog_names) if symbolic else endog.shape[1]
+        # With latent series (issue 09b) the observed block is conditioned on
+        # generated values, so its likelihood is a Potential, as for a
+        # symbolic `endog`, and the numpy-only steps are skipped.
+        potential = symbolic or n_latent > 0
 
         # `sigma` is the per-variable scale — computed once here (or taken
         # from the caller) and reused for both the Minnesota lag-coefficient
@@ -720,7 +1054,13 @@ class VAR(ImpulsoBaseModel):
         intercept_mask = _intercept_mask(endog_names, intercept_equations)
         prior_params = self.resolved_prior.build_priors(n_vars=n_vars, n_lags=n_lags, sigma=sigma)
 
-        Y, X_lag, X_exog = build_lag_design_matrix(endog, n_lags, exog)
+        # With latent series the design matrix needs the generated path, so
+        # it is built further down, once the coefficients exist; only the
+        # exogenous block is needed before then.
+        if n_latent:
+            X_exog = exog[n_lags:] if exog is not None else None
+        else:
+            Y, X_lag, X_exog = build_lag_design_matrix(endog, n_lags, exog)
 
         # Number of likelihood rows, `T - n_lags`. A symbolic `endog` only
         # knows it when its static shape does: `pm.Data` and
@@ -730,13 +1070,13 @@ class VAR(ImpulsoBaseModel):
             static_T = endog.type.shape[0]
             n_rows = None if static_T is None else static_T - n_lags
         else:
-            n_rows = Y.shape[0]
+            n_rows = endog.shape[0] - n_lags
 
         # OLS pre-fit residuals seed the volatility process's per-variable
-        # priors. Numpy-only: they need concrete data, so a symbolic `endog`
-        # passes `None`. Constant-volatility adapters ignore this; only
-        # stochastic ones use it.
-        resid = None if symbolic else _ols_residuals(Y, X_lag, X_exog)
+        # priors. Numpy-only: they need concrete data for every column, so a
+        # symbolic `endog` or a latent series passes `None`.
+        # Constant-volatility adapters ignore this; only stochastic ones use it.
+        resid = None if potential else _ols_residuals(Y, X_lag, X_exog)
 
         # Coordinates make the posterior self-describing: `B` comes back labelled
         # by variable and by "L<lag>.<variable>" coefficient instead of positional
@@ -763,15 +1103,7 @@ class VAR(ImpulsoBaseModel):
         # gets a shorter free variable on its own coord, scattered into a
         # length-`n_vars` vector with literal zeros for the excluded
         # equations; excluding every equation drops the term entirely.
-        if len(intercepted) == n_vars:
-            intercept = pm.Normal(INTERCEPT, mu=0, sigma=1, dims="var")
-            intercept_term = intercept
-        elif intercepted:
-            intercept = pm.Normal(INTERCEPT, mu=0, sigma=1, dims="var_intercept")
-            intercept_term = pt.zeros(n_vars)[np.flatnonzero(intercept_mask)].set(intercept)
-        else:
-            intercept = None
-            intercept_term = pt.zeros(n_vars)
+        intercept, intercept_term = _register_intercept(intercept_mask)
 
         # VAR coefficients with Minnesota prior
         B = pm.Normal(
@@ -791,10 +1123,8 @@ class VAR(ImpulsoBaseModel):
                 sigma=_exog_prior_sigma(sigma, X_exog, self.exog_prior_scale, exog_names),
                 dims=("var", "exog"),
             )
-            mu = intercept_term + pm.math.dot(X_lag, B.T) + pm.math.dot(X_exog, B_exog.T)
         else:
             B_exog = None
-            mu = intercept_term + pm.math.dot(X_lag, B.T)
 
         # Volatility process: registers latent vars, returns L (Cholesky factor of Σ_t).
         # For constant volatility, L is (n_vars, n_vars) and time-invariant.
@@ -802,7 +1132,9 @@ class VAR(ImpulsoBaseModel):
         volatility = self.resolved_volatility
         # `T` is ignored by `Constant`, the one adapter the symbolic path
         # supports; an unknown static length falls back to the symbolic one.
-        L = volatility.build_pymc_latent(n_vars=n_vars, T=Y.shape[0] if n_rows is None else n_rows, data=resid)
+        L = volatility.build_pymc_latent(
+            n_vars=n_vars, T=endog.shape[0] - n_lags if n_rows is None else n_rows, data=resid
+        )
         # Sigma deterministic is only registered for time-invariant L —
         # for SV, materialising (T, n, n) per draw is wasteful; users can
         # reconstruct per-t Σ via `volatility.cholesky_at(posterior, t)`.
@@ -819,13 +1151,25 @@ class VAR(ImpulsoBaseModel):
         # likelihood is the same density as a `pm.Potential` under the same
         # name. A Potential is not an RV: invisible to both prior and
         # posterior predictive sampling.
-        error_dist = self.resolved_error_dist
-        if symbolic:
-            obs = pm.Potential("obs", error_dist.logp(mu=mu, chol=L, value=Y))
-        else:
-            obs = error_dist.build_likelihood("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
+        #
+        # Latent series (issue 09b) are generated non-centred from
+        # standard-normal innovations `z`, and lead the Cholesky ordering, so
+        # the observed rows' residuals given `z` are exactly
+        # `resid_obs - L[obs, lat] z ~ MvN(0, L[obs, obs] L[obs, obs]')`.
+        latent = z = None
+        if n_latent:
+            latent, z = _latent_path(endog, X_exog, n_lags, n_vars, n_latent, intercept_term, B, B_exog, L, init_sigma)
+            full = pt.concatenate([latent, pt.as_tensor_variable(endog)], axis=1)
+            Y, X_lag, _ = build_lag_design_matrix(full, n_lags)
+        mu = intercept_term + pm.math.dot(X_lag, B.T)
+        if B_exog is not None:
+            mu = mu + pm.math.dot(X_exog, B_exog.T)
 
-        return VARModelHandles(intercept=intercept, B=B, B_exog=B_exog, L=L, obs=obs)
+        obs = _register_likelihood(error_dist, mu, L, Y, potential=potential, n_latent=n_latent, z=z)
+
+        return VARModelHandles(
+            intercept=intercept, B=B, B_exog=B_exog, L=L, obs=obs, latent=latent, latent_names=latent_names
+        )
 
     def _build_pymc_model(self, data: VARData) -> tuple[Any, int]:
         """Build the PyMC model graph for this specification.
