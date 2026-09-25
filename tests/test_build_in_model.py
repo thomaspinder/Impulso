@@ -1283,7 +1283,6 @@ class TestLatentSeries:
         total = float(values["obs"]) + stats.norm.logpdf(z).sum() + jacobian
         assert total == pytest.approx(joint, rel=1e-10)
 
-    @_LATENT_XFAIL
     @pytest.mark.parametrize("symbolic", [False, True])
     @pytest.mark.parametrize("n_lags", [1, 2])
     def test_compiles_under_nutpie_with_a_single_latent_series(self, rng, n_lags, symbolic):
@@ -1305,7 +1304,7 @@ class TestLatentSeries:
                 n_lags=n_lags,
                 endog_names=["b", "y"],
                 endog_scales=[1.0, 1.0],
-                latent_names=["b"],  # ty: ignore[unknown-argument]
+                latent_names=["b"],
             )
 
         nutpie.compile_pymc_model(model)
