@@ -1301,18 +1301,23 @@ class TestLatentSeries:
         assert total == pytest.approx(joint, rel=1e-10)
 
     @_LATENT_XFAIL
+    @pytest.mark.parametrize("symbolic", [False, True])
     @pytest.mark.parametrize("n_lags", [1, 2])
-    def test_compiles_under_nutpie_with_a_single_latent_series(self, rng, n_lags):
+    def test_compiles_under_nutpie_with_a_single_latent_series(self, rng, n_lags, symbolic):
         """nutpie swaps each value variable for a reshaped slice of one flat
         vector, which can make a length-1 axis static that was unknown when
         the scan was built; scan then rejects the rebuilt node unless its
         input shapes are pinned."""
         import pymc as pm
+        import pytensor
 
         nutpie = pytest.importorskip("nutpie")
+        obs = rng.standard_normal((30, 1))
+        # `pytensor.shared` leaves the time length symbolic.
+        endog = pytensor.shared(obs) if symbolic else obs
         with pm.Model() as model:
             VAR(lags=n_lags).build_in_model(
-                endog=rng.standard_normal((30, 1)),
+                endog=endog,
                 exog=None,
                 n_lags=n_lags,
                 endog_names=["b", "y"],
@@ -1321,3 +1326,55 @@ class TestLatentSeries:
             )
 
         nutpie.compile_pymc_model(model)
+
+    @_LATENT_XFAIL
+    def test_duplicate_latent_names_raise(self, rng):
+        import pymc as pm
+
+        kwargs = _latent_setup(rng)
+        kwargs["endog_names"] = ["b", "b", "y1", "y2"]
+        kwargs["latent_names"] = ["b", "b"]
+        kwargs["endog_scales"] = np.array([0.5, 0.5, 1.0, 2.0])
+        with pm.Model(), pytest.raises(ValueError, match="more than once"):
+            VAR(lags=2).build_in_model(**kwargs)
+
+    @_LATENT_XFAIL
+    def test_every_name_latent_raises(self, rng):
+        import pymc as pm
+
+        kwargs = _latent_setup(rng)
+        kwargs["endog"] = np.zeros((40, 0))
+        kwargs["endog_names"] = ["b"]
+        kwargs["endog_scales"] = np.array([0.5])
+        with pm.Model(), pytest.raises(ValueError, match="at least one observed series"):
+            VAR(lags=2).build_in_model(**kwargs)
+
+    @_LATENT_XFAIL
+    @pytest.mark.parametrize(
+        ("latent_init_sigma", "match"), [([1.0, 2.0], "entries"), (0.0, "positive"), (-1.0, "positive")]
+    )
+    def test_bad_latent_init_sigma_raises(self, rng, latent_init_sigma, match):
+        import pymc as pm
+
+        with pm.Model(), pytest.raises(ValueError, match=match):
+            VAR(lags=2).build_in_model(**_latent_setup(rng), latent_init_sigma=latent_init_sigma)  # ty: ignore[unknown-argument]
+
+    @_LATENT_XFAIL
+    def test_symbolic_endog_column_count_mismatch_raises(self, rng):
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        kwargs = _latent_setup(rng)
+        # Static shape knows 3 columns; endog_names has only 2 observed series.
+        kwargs["endog"] = pt.as_tensor_variable(rng.standard_normal((40, 3)))
+        with pm.Model(), pytest.raises(ValueError, match="observed"):
+            VAR(lags=2).build_in_model(**kwargs)
+
+    @_LATENT_XFAIL
+    def test_exog_row_count_mismatch_raises(self, rng):
+        import pymc as pm
+
+        kwargs = _latent_setup(rng)
+        kwargs["exog"] = kwargs["exog"][:-1]
+        with pm.Model(), pytest.raises(ValueError, match="exog has 39 rows"):
+            VAR(lags=2).build_in_model(**kwargs)
