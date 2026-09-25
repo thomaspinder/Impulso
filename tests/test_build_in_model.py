@@ -33,6 +33,8 @@ import pytest
 from impulso.data import VARData
 from impulso.spec import VAR
 
+xfail_09c = pytest.mark.xfail(strict=True, reason="issue 09c")
+
 
 def _make_data(
     rng: np.random.Generator,
@@ -1023,6 +1025,57 @@ def _numpy_latent_path(values: dict, obs: np.ndarray, exog: np.ndarray | None, n
     return full
 
 
+def _small_latent_var_data() -> np.ndarray:
+    """One latent and one observed series, `(120, 2)`, simulated from a stationary VAR(1)."""
+    rng = np.random.default_rng(7)
+    T = 120
+    A = np.array([[0.5, 0.0], [0.3, 0.3]])
+    full = np.zeros((T, 2))
+    for t in range(1, T):
+        full[t] = A @ full[t - 1] + np.array([0.5, 0.3]) * rng.standard_normal(2)
+    return full
+
+
+def _gentle_latent_volatility():
+    """`Constant` volatility with a tight prior on the latent innovation scale.
+
+    A latent series in a plain VAR has no data anchoring its scale (its
+    innovation sd trades off against its loadings); with the default prior
+    that ridge alone gives a few percent of divergences and slow mixing of
+    the latent scale (issue 09c report), whatever the own-lag does.
+    """
+    from impulso.volatility import Constant, InnovationScalePrior
+
+    return Constant(
+        innovation_scale_priors=[
+            InnovationScalePrior(family="halfnormal", scale=0.1),
+            InnovationScalePrior(family="halfnormal", scale=0.5),
+        ]
+    )
+
+
+def _assert_no_frozen_chain(idata) -> None:
+    """Fail if any chain froze on the latent own-lag (`B[0, 0]`) of a one-latent VAR(1).
+
+    A frozen chain sits at an explosive own-lag (about 1.1 in the 09b slow
+    test) with a collapsed step size, its draws differing only in late
+    decimals. So the checks are each chain's spread of the own-lag, each
+    chain's post-tuning step size, every draw inside the stationary region,
+    and R-hat on the own-lag and the latent innovation scale `L[0, 0]`.
+    """
+    import arviz as az
+
+    own_lag = np.asarray(idata.posterior["B"])[:, :, 0, 0]
+    latent_scale = np.asarray(idata.posterior["L"])[:, :, 0, 0]
+    step_size = np.asarray(idata.sample_stats["step_size"])
+    assert np.all(own_lag.std(axis=1) > 0.01), f"a chain froze: own-lag sd per chain {own_lag.std(axis=1)}"
+    assert np.all(step_size.min(axis=1) > 0.01), f"a step size collapsed: {step_size.min(axis=1)}"
+    assert np.abs(own_lag).max() < 1.0, f"explosive own-lag draw: {np.abs(own_lag).max()}"
+    for name, draws in [("own-lag", own_lag), ("latent scale", latent_scale)]:
+        rhat = float(az.rhat(draws))
+        assert rhat < 1.1, f"R-hat of the latent {name} is {rhat:.3f}"
+
+
 class TestLatentSeries:
     """`build_in_model(latent_names=...)`: non-centred latent series (issue 09b)."""
 
@@ -1180,34 +1233,25 @@ class TestLatentSeries:
         })
         np.testing.assert_allclose(np.ravel(logp), stats.norm(0, 3.0).logpdf([0.4, -1.2]))
 
+    @xfail_09c
     @pytest.mark.slow
-    def test_small_latent_var_samples(self):
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_small_latent_var_samples(self, seed):
         """One latent and one observed series, simulated from a stationary VAR(1).
 
-        A latent series in a plain VAR has no data anchoring its scale (its
-        innovation sd trades off against its loadings) and nothing yet keeps
-        its own-lag inside the stationary region (issue 09c), so the setup is
-        gentle: a weak loading, a tight prior on the latent innovation scale,
-        and a stationary starting point. The check is that sampling runs and
-        divergences stay a small fraction, not that the latent is recovered.
+        The setup is gentle: a weak loading and a tight prior on the latent
+        innovation scale (`_gentle_latent_volatility`). The latent own-lag
+        prior mean is 0: with the Minnesota mean of 1 this posterior presses
+        against the stationarity boundary and diverges heavily (issue 09c).
+        `build_in_model` starts the latent own-lag inside the stationary
+        region and keeps it there, so no `initvals` are passed. The check is
+        that sampling runs, no chain freezes and divergences stay a small
+        fraction, not that the latent is recovered.
         """
         import pymc as pm
 
-        from impulso.volatility import Constant, InnovationScalePrior
-
-        rng = np.random.default_rng(7)
-        T = 120
-        A = np.array([[0.5, 0.0], [0.3, 0.3]])
-        full = np.zeros((T, 2))
-        for t in range(1, T):
-            full[t] = A @ full[t - 1] + np.array([0.5, 0.3]) * rng.standard_normal(2)
-
-        volatility = Constant(
-            innovation_scale_priors=[
-                InnovationScalePrior(family="halfnormal", scale=0.1),
-                InnovationScalePrior(family="halfnormal", scale=0.5),
-            ]
-        )
+        full = _small_latent_var_data()
+        volatility = _gentle_latent_volatility()
         draws, chains = 200, 2
         with pm.Model():
             VAR(lags=1, volatility=volatility).build_in_model(
@@ -1219,21 +1263,22 @@ class TestLatentSeries:
                 latent_names=["b"],
                 latent_init_sigma=0.5,
                 intercept_equations=["y"],
+                latent_own_lag_mean=0.0,  # ty: ignore[unknown-argument]
             )
             idata = pm.sample(
                 draws=draws,
                 tune=300,
                 chains=chains,
                 cores=1,
-                random_seed=1,
+                random_seed=seed,
                 progressbar=False,
                 nuts_sampler="pymc",
                 target_accept=0.9,
-                initvals={"B": np.array([[0.5, 0.0], [0.0, 0.5]])},
             )
 
+        _assert_no_frozen_chain(idata)
         divergences = int(np.asarray(idata.sample_stats["diverging"]).sum())
-        assert divergences < 0.1 * draws * chains
+        assert divergences < 0.1 * draws * chains, f"{divergences} divergences out of {draws * chains}"
         assert np.all(np.isfinite(np.asarray(idata.posterior["latent"])))
 
     @pytest.mark.parametrize("n_lags", [1, 3])
@@ -1355,3 +1400,256 @@ class TestLatentSeries:
         kwargs["exog"] = kwargs["exog"][:-1]
         with pm.Model(), pytest.raises(ValueError, match="exog has 39 rows"):
             VAR(lags=2).build_in_model(**kwargs)
+
+
+def _two_latent_setup(rng: np.random.Generator, n_lags: int = 2) -> dict:
+    """Two latent series `b0`, `b1` ahead of two observed series."""
+    return {
+        "endog": rng.standard_normal((40, 2)),
+        "exog": None,
+        "n_lags": n_lags,
+        "endog_names": ["b0", "b1", "y1", "y2"],
+        "endog_scales": np.array([0.5, 0.8, 1.0, 2.0]),
+        "latent_names": ["b0", "b1"],
+    }
+
+
+def _minnesota_b_mu(kwargs: dict) -> np.ndarray:
+    from impulso.priors import MinnesotaPrior
+
+    n_vars = len(kwargs["endog_names"])
+    return MinnesotaPrior().build_priors(n_vars=n_vars, n_lags=kwargs["n_lags"], sigma=kwargs["endog_scales"])["B_mu"]
+
+
+def _prior_mu(rv) -> np.ndarray:
+    """The `mu` input of a registered `pm.Normal`.
+
+    Assumes PyMC's `normal_rv` node inputs are `(rng, size, mu, sigma)`, so
+    `mu` is second from the end.
+    """
+    return np.asarray(rv.owner.inputs[-2].eval())
+
+
+class TestLatentOwnLagMeanAndInit:
+    """`latent_own_lag_mean` and the stationary initial point for latent equations (issue 09c)."""
+
+    @xfail_09c
+    @pytest.mark.parametrize(("own_lag_mean", "expected"), [(0.0, [0.0, 0.0]), ([0.0, 0.3], [0.0, 0.3])])
+    def test_own_lag_mean_applies_to_latent_rows_only(self, rng, own_lag_mean, expected):
+        import pymc as pm
+
+        kwargs = _two_latent_setup(rng)
+        with pm.Model() as model:
+            VAR(lags=2).build_in_model(**kwargs, latent_own_lag_mean=own_lag_mean)  # ty: ignore[unknown-argument]
+
+        want = _minnesota_b_mu(kwargs)
+        want[0, 0], want[1, 1] = expected
+        np.testing.assert_allclose(_prior_mu(model["B"]), want)
+
+    def test_default_own_lag_mean_keeps_the_minnesota_mean(self, rng):
+        import pymc as pm
+
+        kwargs = _two_latent_setup(rng)
+        with pm.Model() as model:
+            VAR(lags=2).build_in_model(**kwargs)
+
+        np.testing.assert_allclose(_prior_mu(model["B"]), _minnesota_b_mu(kwargs))
+
+    @xfail_09c
+    @pytest.mark.parametrize("n_lags", [1, 2])
+    def test_initial_point_puts_latent_rows_in_the_stationary_region(self, rng, n_lags):
+        import pymc as pm
+
+        kwargs = _two_latent_setup(rng, n_lags=n_lags)
+        with pm.Model() as model:
+            VAR(lags=n_lags).build_in_model(**kwargs)
+
+        B0 = model.initial_point(random_seed=0)["B"]
+        latent_rows = np.zeros((2, 4 * n_lags))
+        latent_rows[0, 0] = latent_rows[1, 1] = 0.5
+        np.testing.assert_array_equal(B0[:2], latent_rows)
+        # Observed rows keep PyMC's default start, the prior mean.
+        np.testing.assert_allclose(B0[2:], _minnesota_b_mu(kwargs)[2:])
+
+    def test_without_latent_series_the_initial_point_is_the_prior_mean(self, rng):
+        import pymc as pm
+
+        kwargs = _two_latent_setup(rng)
+        kwargs["endog"] = rng.standard_normal((40, 4))
+        del kwargs["latent_names"]
+        with pm.Model() as model:
+            VAR(lags=2).build_in_model(**kwargs)
+
+        np.testing.assert_allclose(model.initial_point(random_seed=0)["B"], _minnesota_b_mu(kwargs))
+
+    @xfail_09c
+    @pytest.mark.parametrize(("own_lag_mean", "match"), [([0.0, 0.1, 0.2], "entries"), (np.nan, "finite")])
+    def test_bad_own_lag_mean_raises(self, rng, own_lag_mean, match):
+        import pymc as pm
+
+        with pm.Model(), pytest.raises(ValueError, match=match):
+            VAR(lags=2).build_in_model(**_two_latent_setup(rng), latent_own_lag_mean=own_lag_mean)  # ty: ignore[unknown-argument]
+
+    @xfail_09c
+    @pytest.mark.slow
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_default_init_samples_with_own_lag_mean_zero(self, seed):
+        """The 09b slow-test data with PyMC's defaults (`jitter+adapt_diag`
+        start, `target_accept`, `latent_init_sigma`): no chain freezes or
+        explodes. Only the latent innovation scale gets a tighter prior."""
+        import pymc as pm
+
+        full = _small_latent_var_data()
+
+        draws, chains = 200, 2
+        with pm.Model():
+            VAR(lags=1, volatility=_gentle_latent_volatility()).build_in_model(
+                endog=full[:, 1:],
+                exog=None,
+                n_lags=1,
+                endog_names=["b", "y"],
+                endog_scales=[0.5, 0.3],
+                latent_names=["b"],
+                intercept_equations=["y"],
+                latent_own_lag_mean=0.0,  # ty: ignore[unknown-argument]
+            )
+            idata = pm.sample(
+                draws=draws,
+                tune=300,
+                chains=chains,
+                cores=1,
+                random_seed=seed,
+                progressbar=False,
+                nuts_sampler="pymc",
+            )
+
+        _assert_no_frozen_chain(idata)
+        divergences = int(np.asarray(idata.sample_stats["diverging"]).sum())
+        assert divergences < 0.1 * draws * chains, f"{divergences} divergences out of {draws * chains}"
+        assert np.all(np.isfinite(np.asarray(idata.posterior["latent"])))
+
+
+def _latent_setup_n(rng: np.random.Generator, n_latent: int, n_lags: int) -> dict:
+    """`n_latent` latent series `b0, b1, ...` ahead of two observed series."""
+    latent_names = [f"b{i}" for i in range(n_latent)]
+    return {
+        "endog": rng.standard_normal((40, 2)),
+        "exog": None,
+        "n_lags": n_lags,
+        "endog_names": [*latent_names, "y1", "y2"],
+        "endog_scales": np.ones(n_latent + 2),
+        "latent_names": latent_names,
+    }
+
+
+def _numpy_companion(B: np.ndarray, n_latent: int, n_vars: int, n_lags: int) -> np.ndarray:
+    """Reference companion matrix of the latent-on-latent block of lag-major `B`."""
+    size = n_latent * n_lags
+    companion = np.zeros((size, size))
+    for lag in range(n_lags):
+        for i in range(n_latent):
+            for j in range(n_latent):
+                companion[i, lag * n_latent + j] = B[i, lag * n_vars + j]
+    for k in range(n_latent, size):
+        companion[k, k - n_latent] = 1.0
+    return companion
+
+
+class TestLatentStationarity:
+    """The `latent_stationarity` Potential: -inf outside the stationary region of the latent block (issue 09c)."""
+
+    @staticmethod
+    def _potential(model, B: np.ndarray) -> float:
+        (potential,) = model.replace_rvs_by_values([model["latent_stationarity"]])
+        fn = model.compile_fn(potential, inputs=model.value_vars, on_unused_input="ignore")
+        return float(fn({**model.initial_point(random_seed=0), "B": B}))
+
+    @xfail_09c
+    @pytest.mark.parametrize("n_lags", [1, 2])
+    @pytest.mark.parametrize("n_latent", [1, 2])
+    def test_potential_is_zero_inside_and_minus_inf_outside(self, rng, n_lags, n_latent):
+        import pymc as pm
+
+        with pm.Model() as model:
+            VAR(lags=n_lags).build_in_model(**_latent_setup_n(rng, n_latent, n_lags))
+
+        B0 = model.initial_point(random_seed=0)["B"]
+        assert self._potential(model, B0) == 0.0
+
+        # Observed equations do not enter the constraint.
+        observed_explosive = B0.copy()
+        observed_explosive[n_latent, n_latent] = 1.5
+        assert self._potential(model, observed_explosive) == 0.0
+
+        own_lag_explosive = B0.copy()
+        own_lag_explosive[0, 0] = 1.2
+        assert self._potential(model, own_lag_explosive) == -np.inf
+
+        # Each coefficient below 1, the block explosive: own lags 0.6 at every lag
+        # (n_lags 2), or latent-on-latent coupling 0.8 (n_latent 2).
+        combined = B0.copy()
+        n_vars = n_latent + 2
+        if n_lags == 2:
+            combined[0, 0] = combined[0, n_vars] = 0.6
+        if n_latent == 2:
+            combined[0, 1] = combined[1, 0] = 0.8
+        if n_lags == 2 or n_latent == 2:
+            assert self._potential(model, combined) == -np.inf
+
+    @xfail_09c
+    @pytest.mark.parametrize("n_lags", [1, 2, 3])
+    @pytest.mark.parametrize("n_latent", [1, 2])
+    def test_companion_matches_numpy_reference(self, rng, n_lags, n_latent):
+        from impulso.spec import _latent_companion  # ty: ignore[unresolved-import]
+
+        n_vars = n_latent + 2
+        B = rng.standard_normal((n_vars, n_vars * n_lags))
+        np.testing.assert_array_equal(
+            np.asarray(_latent_companion(B, n_latent, n_vars, n_lags).eval()),
+            _numpy_companion(B, n_latent, n_vars, n_lags),
+        )
+
+    @xfail_09c
+    def test_jittered_explosive_starts_are_rejected(self, rng):
+        """PyMC's jitter moves the own-lag start of 0.5 by up to 1, so without the
+        constraint about a quarter of starts are explosive; the init retry
+        (`jitter_max_retries`) must reject them all."""
+        import pymc as pm
+        from pymc.sampling.mcmc import _init_jitter
+
+        with pm.Model() as model:
+            VAR(lags=1).build_in_model(**_latent_setup_n(rng, 1, 1))
+
+        points = _init_jitter(model, None, list(range(60)), jitter=True, jitter_max_retries=50)
+        own_lags = np.array([point["B"][0, 0] for point in points])
+        assert np.abs(own_lags).max() < 1.0
+
+    @xfail_09c
+    @pytest.mark.parametrize("n_lags", [1, 2])
+    @pytest.mark.parametrize("value", [np.nan, np.inf])
+    def test_non_finite_latent_block_gives_minus_inf_not_an_error(self, rng, value, n_lags):
+        """`eig` raises on a non-finite matrix; the Potential must turn that into
+        -inf so NUTS records a divergence instead of aborting."""
+        import pymc as pm
+
+        with pm.Model() as model:
+            VAR(lags=n_lags).build_in_model(**_latent_setup_n(rng, 1, n_lags))
+
+        point = model.initial_point(random_seed=0)
+        B = point["B"].copy()
+        B[0, 0] = value
+        assert self._potential(model, B) == -np.inf
+        assert not np.isfinite(model.compile_logp()({**point, "B": B}))
+
+    def test_logp_and_dlogp_compile_under_jax(self, rng):
+        """The latent model, `eig` and the zero-gradient `OpFromGraph` included,
+        compiles under the JAX backend."""
+        pytest.importorskip("jax")
+        import pymc as pm
+
+        with pm.Model() as model:
+            VAR(lags=2).build_in_model(**_latent_setup_n(rng, 2, 2))
+
+        point = model.initial_point(random_seed=0)
+        assert np.isfinite(model.compile_logp(mode="JAX")(point))
+        assert np.all(np.isfinite(model.compile_dlogp(mode="JAX")(point)))
