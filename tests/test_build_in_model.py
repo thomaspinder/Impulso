@@ -965,9 +965,6 @@ class TestSymbolicEndog:
             )
 
 
-_LATENT_XFAIL = pytest.mark.xfail(strict=True, reason="issue 09b")
-
-
 def _latent_setup(rng: np.random.Generator, n_lags: int = 2, T: int = 40, with_exog: bool = True):
     """Observed block, exog and names for a VAR with one latent series `b` first."""
     obs = rng.standard_normal((T, 2))
@@ -1029,7 +1026,6 @@ def _numpy_latent_path(values: dict, obs: np.ndarray, exog: np.ndarray | None, n
 class TestLatentSeries:
     """`build_in_model(latent_names=...)`: non-centred latent series (issue 09b)."""
 
-    @_LATENT_XFAIL
     @pytest.mark.parametrize("symbolic", [False, True])
     def test_returned_path_matches_numpy_recursion(self, rng, symbolic):
         import pymc as pm
@@ -1051,7 +1047,6 @@ class TestLatentSeries:
         expected = _numpy_latent_path(values, obs, kwargs["exog"], 2, values["intercept"])
         np.testing.assert_allclose(values["latent"][:, 0], expected[:, 0], rtol=1e-10, atol=1e-10)
 
-    @_LATENT_XFAIL
     @pytest.mark.parametrize("with_exog", [False, True])
     def test_conditional_logp_plus_innovations_equals_joint_var_logp(self, rng, with_exog):
         """Change of variables z -> latent residual `e_b = L[b, b] z`: the
@@ -1088,7 +1083,6 @@ class TestLatentSeries:
         jacobian = -n_rows * np.log(L[0, 0])
         assert conditional + innovations + jacobian == pytest.approx(joint, rel=1e-10)
 
-    @_LATENT_XFAIL
     def test_latent_series_can_be_excluded_from_intercept_equations(self, rng):
         import pymc as pm
 
@@ -1106,7 +1100,6 @@ class TestLatentSeries:
         expected = _numpy_latent_path(values, kwargs["endog"], kwargs["exog"], 2, intercept)
         np.testing.assert_allclose(values["latent"][:, 0], expected[:, 0], rtol=1e-10, atol=1e-10)
 
-    @_LATENT_XFAIL
     def test_handles_carry_latent_names(self, rng):
         import pymc as pm
 
@@ -1115,7 +1108,6 @@ class TestLatentSeries:
 
         assert handles.latent_names == ("b",)
 
-    @_LATENT_XFAIL
     def test_nested_named_model_prefixes_latent_variables(self, rng):
         import pymc as pm
 
@@ -1128,7 +1120,6 @@ class TestLatentSeries:
             assert name not in names
         assert handles.latent.name == "brand::latent"
 
-    @_LATENT_XFAIL
     def test_latent_path_is_finite_at_the_initial_point(self, rng):
         import pymc as pm
 
@@ -1137,7 +1128,6 @@ class TestLatentSeries:
 
         assert np.isfinite(_model_logp(model))
 
-    @_LATENT_XFAIL
     def test_missing_endog_scales_raises(self, rng):
         import pymc as pm
 
@@ -1146,7 +1136,6 @@ class TestLatentSeries:
         with pm.Model(), pytest.raises(ValueError, match="endog_scales"):
             VAR(lags=2).build_in_model(**kwargs)
 
-    @_LATENT_XFAIL
     def test_endog_scales_without_a_latent_entry_raises(self, rng):
         import pymc as pm
 
@@ -1155,7 +1144,6 @@ class TestLatentSeries:
         with pm.Model(), pytest.raises(ValueError, match=r"endog_scales.*latent"):
             VAR(lags=2).build_in_model(**kwargs)
 
-    @_LATENT_XFAIL
     def test_latent_name_not_at_start_of_endog_names_raises(self, rng):
         import pymc as pm
 
@@ -1164,7 +1152,6 @@ class TestLatentSeries:
         with pm.Model(), pytest.raises(ValueError, match="first"):
             VAR(lags=2).build_in_model(**kwargs)
 
-    @_LATENT_XFAIL
     def test_observed_column_count_mismatch_raises(self, rng):
         import pymc as pm
 
@@ -1173,20 +1160,18 @@ class TestLatentSeries:
         with pm.Model(), pytest.raises(ValueError, match="observed"):
             VAR(lags=2).build_in_model(**kwargs)
 
-    @_LATENT_XFAIL
     def test_non_gaussian_errors_raise(self, rng):
         import pymc as pm
 
         with pm.Model(), pytest.raises(ValueError, match="Gaussian"):
             VAR(lags=2, error_dist="student_t").build_in_model(**_latent_setup(rng))
 
-    @_LATENT_XFAIL
     def test_latent_init_sigma_sets_the_initial_value_prior(self, rng):
         import pymc as pm
         from scipy import stats
 
         with pm.Model() as model:
-            VAR(lags=2).build_in_model(**_latent_setup(rng), latent_init_sigma=3.0)  # ty: ignore[unknown-argument]
+            VAR(lags=2).build_in_model(**_latent_setup(rng), latent_init_sigma=3.0)
 
         point = {"latent_init": np.array([[0.4], [-1.2]])}
         (logp,) = model.compile_logp(vars=[model["latent_init"]], sum=False)({
@@ -1195,7 +1180,6 @@ class TestLatentSeries:
         })
         np.testing.assert_allclose(np.ravel(logp), stats.norm(0, 3.0).logpdf([0.4, -1.2]))
 
-    @_LATENT_XFAIL
     @pytest.mark.slow
     def test_small_latent_var_samples(self):
         """One latent and one observed series, simulated from a stationary VAR(1).
@@ -1232,8 +1216,8 @@ class TestLatentSeries:
                 n_lags=1,
                 endog_names=["b", "y"],
                 endog_scales=[0.5, 0.3],
-                latent_names=["b"],  # ty: ignore[unknown-argument]
-                latent_init_sigma=0.5,  # ty: ignore[unknown-argument]
+                latent_names=["b"],
+                latent_init_sigma=0.5,
                 intercept_equations=["y"],
             )
             idata = pm.sample(
