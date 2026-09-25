@@ -743,9 +743,6 @@ class TestInterceptEquations:
         assert _model_logp(model) == pytest.approx(-225.00961968371863)
 
 
-_ISSUE_09A = pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
-
-
 def _build(spec, endog, data, **kwargs):
     """`spec.build_in_model` on `data`'s names/exog, with `endog` swapped in."""
     return spec.build_in_model(
@@ -761,7 +758,6 @@ def _build(spec, endog, data, **kwargs):
 class TestSymbolicEndog:
     """`build_in_model` with the observed endog block as a PyTensor variable (issue 09a)."""
 
-    @_ISSUE_09A
     def test_pm_data_endog_compiles(self, rng):
         import pymc as pm
 
@@ -774,7 +770,6 @@ class TestSymbolicEndog:
 
         assert np.isfinite(_model_logp(model))
 
-    @_ISSUE_09A
     @pytest.mark.parametrize("error_dist", ["gaussian", "student_t"])
     @pytest.mark.parametrize("exog_names", [None, ["z"]])
     def test_logp_matches_numpy_path(self, rng, error_dist, exog_names):
@@ -796,7 +791,6 @@ class TestSymbolicEndog:
 
         assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
 
-    @_ISSUE_09A
     def test_logp_matches_numpy_path_with_pm_data(self, rng):
         import pymc as pm
 
@@ -813,7 +807,6 @@ class TestSymbolicEndog:
 
         assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
 
-    @_ISSUE_09A
     def test_likelihood_is_a_potential_named_obs(self, rng):
         """The handles' `obs` is the registered `pm.Potential`, named like
         the numpy path's observed RV."""
@@ -828,7 +821,6 @@ class TestSymbolicEndog:
         assert handles.obs in model.potentials
         assert not model.observed_RVs
 
-    @_ISSUE_09A
     def test_symbolic_endog_without_endog_scales_raises(self, rng):
         import pymc as pm
         import pytensor
@@ -837,7 +829,6 @@ class TestSymbolicEndog:
         with pm.Model(), pytest.raises(ValueError, match="endog_scales is required"):
             _build(VAR(lags=1), pytensor.shared(data.endog), data)
 
-    @_ISSUE_09A
     def test_endog_scales_flow_into_both_priors(self, rng):
         import pymc as pm
         import pytensor
@@ -858,7 +849,6 @@ class TestSymbolicEndog:
         np.testing.assert_allclose(b_sigma, expected_b)
         np.testing.assert_allclose(b_exog_sigma, expected_b_exog)
 
-    @_ISSUE_09A
     def test_intercept_equations_on_symbolic_path(self, rng):
         """Excluding an equation's intercept works the same on the symbolic
         path: same coord and dims, same log-probability as the numpy path."""
@@ -886,7 +876,6 @@ class TestSymbolicEndog:
         assert handles.intercept is not None
         assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
 
-    @_ISSUE_09A
     def test_static_length_registers_time_coord(self, rng):
         """A tensor with a known static length gets the same positional
         `time` coord as the numpy path."""
@@ -899,7 +888,6 @@ class TestSymbolicEndog:
 
         assert len(model.coords["time"]) == data.endog.shape[0] - 1
 
-    @_ISSUE_09A
     def test_static_length_mismatch_with_existing_time_coord_raises(self, rng):
         import pymc as pm
         import pytensor.tensor as pt
@@ -908,7 +896,6 @@ class TestSymbolicEndog:
         with pm.Model(coords={"time": range(5)}), pytest.raises(ValueError, match="'time' coordinate"):
             _build(VAR(lags=1), pt.constant(data.endog), data, endog_scales=np.ones(2))
 
-    @_ISSUE_09A
     def test_unknown_length_leaves_time_coord_alone(self, rng):
         """`pm.Data` has no static length, and a Potential carries no dims, so
         no `time` coord is registered or checked."""
