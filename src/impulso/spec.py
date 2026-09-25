@@ -245,13 +245,81 @@ def _check_latent_endog_shape(
         )
 
 
+def _reject_unsupported_for_embedded_path(
+    *,
+    lags: int | str,
+    volatility: PyMCVolatilityProcess,
+    error_dist: ErrorDistribution,
+    symbolic: bool,
+    n_latent: int,
+) -> None:
+    """Reject spec options the embedded path cannot support, before any variable is registered (issue 09d).
+
+    `build_in_model`'s plain numpy path — concrete `endog`, no latent series
+    — can run OLS on the data to pick a lag order and to seed stochastic-
+    volatility priors, and its likelihood can be any `ErrorDistribution`. The
+    embedded path drops each of those: a symbolic `endog` (issue 09a) has no
+    concrete values to run OLS on at graph-build time, and a latent series
+    (issue 09b) has none at all — it is generated inside the model. This
+    runs first in `build_in_model`, before `_latent_n_vars`/
+    `_symbolic_endog_n_vars` or any `pm.Normal`/`add_coords` call, so a spec
+    these options would misconfigure never leaves a partially-built model
+    behind.
+
+    Args:
+        lags: `self.lags` — the spec's lag order, an int or a selection
+            criterion string (`"aic"`, `"bic"`, `"hq"`).
+        volatility: `self.resolved_volatility`.
+        error_dist: `self.resolved_error_dist`.
+        symbolic: Whether `endog` is a PyTensor variable.
+        n_latent: Number of latent series (`0` for none).
+
+    Raises:
+        ValueError: If `lags` is a selection criterion string and `endog` is
+            symbolic or there are latent series (lag selection runs OLS on
+            data).
+        ValueError: If `volatility` is not `Constant` and `endog` is
+            symbolic or there are latent series (stochastic volatility seeds
+            its priors from OLS residuals).
+        ValueError: If there are latent series and `error_dist` is not
+            Gaussian (the conditional of a multivariate Student-t is not a
+            Student-t with the same `nu`, so the non-centred conditional
+            likelihood has no simple closed form).
+    """
+    if not (symbolic or n_latent):
+        return
+    if symbolic and n_latent:
+        reason = "endog is symbolic and latent series are present"
+    elif symbolic:
+        reason = "endog is symbolic"
+    else:
+        reason = "latent series are present"
+
+    if isinstance(lags, str):
+        raise ValueError(  # noqa: TRY004
+            f"lags={lags!r} selects the lag order by running OLS on concrete data, which is unavailable "
+            f"because {reason}. Pass an integer n_lags instead (resolve the selection criterion yourself "
+            "first, e.g. via select_lag_order)."
+        )
+    if not isinstance(volatility, Constant):
+        raise ValueError(  # noqa: TRY004
+            f"volatility={type(volatility).__name__} seeds its priors from OLS residuals of concrete data, "
+            f"which is unavailable because {reason}. Use volatility='constant' (the default) instead."
+        )
+    if n_latent and not isinstance(error_dist, Gaussian):
+        raise ValueError(
+            f"latent series require Gaussian errors, got {type(error_dist).__name__}: the conditional of a "
+            "multivariate Student-t is not a Student-t with the same `nu`, so the non-centred conditional "
+            "likelihood has no simple closed form."
+        )
+
+
 def _latent_n_vars(
     endog: "np.ndarray | pt.TensorVariable",
     exog: np.ndarray | None,
     endog_names: Sequence[str],
     endog_scales: np.ndarray | Sequence[float] | None,
     latent_names: Sequence[str],
-    error_dist: ErrorDistribution,
 ) -> int:
     """Validate `VAR.build_in_model`'s latent-series inputs and return `n_vars` (issue 09b).
 
@@ -259,14 +327,17 @@ def _latent_n_vars(
     only the observed columns, which follow the latent ones. `n_vars` is
     therefore `len(endog_names)`, not `endog`'s column count.
 
+    The error-distribution check that used to live here (a latent series
+    needs Gaussian errors) is now `_reject_unsupported_for_embedded_path`,
+    which runs before this function and raises the same way (issue 09d).
+
     Raises:
         TypeError: If `endog` is a dimmed `XTensorVariable`.
         ValueError: If `endog_names` does not start with exactly
             `latent_names`, if no observed series is left, if `endog`'s
             column count is not the number of observed series, if `exog`'s
-            row count differs from `endog`'s, if `endog_scales` is missing
-            or does not cover the latent series, or if the error
-            distribution is not Gaussian.
+            row count differs from `endog`'s, or if `endog_scales` is
+            missing or does not cover the latent series.
     """
     n_latent = len(latent_names)
     n_vars = len(endog_names)
@@ -282,12 +353,6 @@ def _latent_n_vars(
     n_obs = n_vars - n_latent
     if n_obs < 1:
         raise ValueError("build_in_model needs at least one observed series; every name in endog_names is latent.")
-    if not isinstance(error_dist, Gaussian):
-        raise ValueError(  # noqa: TRY004
-            f"latent series require Gaussian errors, got {type(error_dist).__name__}. The observed block's "
-            "likelihood conditional on the latent innovations has a simple closed form only for Gaussian "
-            "errors (a multivariate Student-t's conditional is not a Student-t with the same `nu`)."
-        )
     _check_latent_endog_shape(endog, exog, endog_names[n_latent:])
     if endog_scales is None:
         raise ValueError(
@@ -1129,10 +1194,18 @@ class VAR(ImpulsoBaseModel):
                 of observed series, if `exog` has a different number of
                 rows from `endog`, if `endog_scales` is missing or has
                 entries for the observed series only, if `latent_init_sigma`
-                has the wrong length or a non-positive entry, if
+                has the wrong length or a non-positive entry, or if
                 `latent_own_lag_mean` has the wrong length or a non-finite
-                entry (issue 09c), or if the
-                error distribution is not Gaussian.
+                entry (issue 09c).
+            ValueError: On the embedded path — `endog` symbolic or latent
+                series present (issue 09d): if `self.lags` is a selection
+                criterion string (lag selection runs OLS on data), or if
+                `self.volatility` is not `"constant"`/`Constant` (stochastic
+                volatility seeds its priors from OLS residuals). With latent
+                series specifically, also if `self.error_dist` is not
+                Gaussian (a multivariate Student-t's conditional is not a
+                Student-t with the same `nu`). Raised before anything is
+                registered into the model.
         """
         import pymc as pm
         import pytensor.tensor as pt
@@ -1147,8 +1220,17 @@ class VAR(ImpulsoBaseModel):
         error_dist = self.resolved_error_dist
         latent_names = tuple(latent_names)
         n_latent = len(latent_names)
+        # Reject options the embedded path (symbolic endog or latent series)
+        # cannot support before registering anything (issue 09d).
+        _reject_unsupported_for_embedded_path(
+            lags=self.lags,
+            volatility=self.resolved_volatility,
+            error_dist=error_dist,
+            symbolic=symbolic,
+            n_latent=n_latent,
+        )
         if n_latent:
-            n_vars = _latent_n_vars(endog, exog, endog_names, endog_scales, latent_names, error_dist)
+            n_vars = _latent_n_vars(endog, exog, endog_names, endog_scales, latent_names)
             init_sigma = _latent_init_sigma(latent_init_sigma, n_latent)
             own_lag_mean = _latent_own_lag_mean(latent_own_lag_mean, n_latent)
         else:
