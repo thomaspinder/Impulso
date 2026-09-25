@@ -355,14 +355,32 @@ def _latent_path(
         drive = drive + pt.dot(x_exog, B_exog[:n_latent].T)
     # (n_lags, n_latent, n_latent): A_lat[l] is the latent-on-latent block of lag l + 1.
     A_lat = B_lat[:, latent_cols].reshape((n_latent, n_lags, n_latent)).dimshuffle(1, 0, 2)
+    # Pin the static shapes scan sees. Scan checks that a rebuilt node's
+    # inputs broadcast like the originals, and a rewrite that substitutes the
+    # value variables (nutpie's compile does) can make a length-1 axis static
+    # that was unknown when the scan was built, which then fails that check.
+    drive = pt.specify_shape(drive, (None, n_latent))
+    A_lat = pt.specify_shape(A_lat, (n_lags, n_latent, n_latent))
 
-    def step(drive_t, state, A_lat):
-        # `state` holds the last `n_lags` latent values, most recent first.
-        new = drive_t + (A_lat * state[:, None, :]).sum(axis=(0, 2))
-        return pt.concatenate([new[None], state[:-1]], axis=0)
+    def step(drive_t, *args):
+        # `args` is the last `n_lags` latent values, oldest first (scan's
+        # tap order), then `A_lat`.
+        *history, A = args
+        new = drive_t
+        for lag, value in enumerate(reversed(history)):
+            new = new + pt.dot(A[lag], value)
+        return new
 
-    states = _scan(step, sequences=[drive], outputs_info=[init[::-1]], non_sequences=[A_lat])
-    path = pm.Deterministic("latent", pt.concatenate([init, states[:, 0]], axis=0))
+    # With a single tap scan takes the state itself (a vector), not a
+    # one-row history.
+    initial = init[0] if n_lags == 1 else init
+    history = _scan(
+        step,
+        sequences=[drive],
+        outputs_info=[{"initial": initial, "taps": list(range(-n_lags, 0))}],
+        non_sequences=[A_lat],
+    )
+    path = pm.Deterministic("latent", pt.concatenate([init, history], axis=0))
     return path, z
 
 
@@ -831,6 +849,34 @@ class VAR(ImpulsoBaseModel):
         via `select_lag_order`) before calling this method — it always
         takes a concrete integer `n_lags`.
 
+        Latent series: `latent_names` declares endogenous series that have no
+        data. They come first in `endog_names`, and `endog` holds only the
+        observed columns that follow them. Their paths are generated inside
+        the model, non-centred: `latent_init` puts a `Normal(0,
+        latent_init_sigma)` prior on each latent series' first `n_lags`
+        values, `latent_innovations` holds standard-normal innovations `z`
+        of shape `(T - n_lags, n_latent)`, and for `t >= n_lags` a `scan`
+        runs the latent equations of the VAR, `latent_t = c + sum_l
+        A_l[lat, :] full_{t-l} + B_exog[lat] x_t + L[lat, lat] z_t`, where
+        `full` stacks the latent path with the observed columns. The path,
+        shape `(T, n_latent)` including the initial values, is registered as
+        the `Deterministic` `"latent"` and returned as `handles.latent`, its
+        columns ordered like `handles.latent_names`. Because the latent series
+        lead the Cholesky ordering, the observed block's likelihood
+        conditional on `z` is exact: `resid_obs - L[obs, lat] z ~ MvN(0,
+        L[obs, obs] L[obs, obs]')`, evaluated with `error_dist.logp` on that
+        sub-block and registered as a `pm.Potential` named `"obs"`. This is
+        the non-centred design of `prototype/REPORT.md`: passing a free latent
+        column as symbolic `endog` instead gives a funnel in the latent
+        innovation scale. Latent series need Gaussian errors and an
+        `endog_scales` entry, since they have no data to compute a scale
+        from. `latent_init`, `latent_innovations` and `latent` carry no dims
+        (their time axis has no coordinate), so no new coordinate is
+        registered for them. `latent_init_sigma` sets only the start of the
+        path; the VAR is the latent series' only prior after that. Nothing
+        here keeps the latent equations stationary, so an explosive draw of
+        their own-lag coefficients makes the path explode over the sample.
+
         Nesting: open a `pm.Model(name=prefix)` before calling this method
         and every free random variable, `Deterministic` and the likelihood
         it registers come out named `prefix::...` — ordinary PyMC nested-
@@ -870,20 +916,25 @@ class VAR(ImpulsoBaseModel):
 
         Args:
             endog: Endogenous data, shape `(T, n_vars)`: a numpy array, or a
-                2-D PyTensor variable (see "Symbolic `endog`" above).
+                2-D PyTensor variable (see "Symbolic `endog`" above). With
+                latent series, only the observed columns, shape `(T, n_vars
+                - n_latent)`.
             exog: Optional exogenous regressors, shape `(T, n_exog)`. `None`
                 if the model has no exogenous block.
             n_lags: Lag order. Always a concrete integer — resolving a
                 string selection criterion is the caller's job.
-            endog_names: Names for each endogenous column, length
-                `n_vars`. Labels the `var`/`var1`/`var2`/`coeff` coordinates.
+            endog_names: Names for each endogenous variable, length
+                `n_vars`, in VAR order: latent series first, then the
+                observed columns of `endog`. Labels the
+                `var`/`var1`/`var2`/`coeff` coordinates.
             exog_names: Names for each exogenous column, length `n_exog`.
                 Required when `exog` is given; labels the `exog` coordinate.
             endog_scales: Per-variable scale `sigma`, shape `(n_vars,)` — an
                 array or any array-like (e.g. a plain list) accepted by
                 `np.asarray(..., dtype=float)`. `None` (the default) computes
                 it from `endog` with `ar1_residual_sd`; required when `endog`
-                is symbolic. The same array feeds
+                is symbolic or there are latent series, and then covering
+                every name in `endog_names`. The same array feeds
                 both the prior's Minnesota cross-lag scaling `sigma_i /
                 sigma_j` (`Prior.build_priors`, docs/adr/0015) and the
                 exogenous prior (`_exog_prior_sigma`, docs/adr/0012), so it
@@ -901,6 +952,17 @@ class VAR(ImpulsoBaseModel):
                 like every Impulso coordinate it is not prefixed by a nested
                 model. An empty sequence registers no intercept variable,
                 and the returned handles' `intercept` is `None`.
+                Latent series may be excluded, e.g. to model a latent
+                series as a zero-mean deviation.
+            latent_names: Names of the latent endogenous series (see "Latent
+                series" above), which must be the first entries of
+                `endog_names`, in the same order. Empty (the default) means
+                no latent series and the graph described above for observed
+                data only.
+            latent_init_sigma: Standard deviation of the zero-mean Normal
+                prior on each latent series' first `n_lags` values: a scalar
+                shared by every latent series, or one entry per latent
+                series. Ignored without latent series.
 
         Returns:
             `VARModelHandles` wrapping the intercept, coefficient,
@@ -922,6 +984,13 @@ class VAR(ImpulsoBaseModel):
                 from `len(endog_names)` (issue 09a).
             ValueError: If `intercept_equations` names an equation not in
                 `endog_names`, or names one more than once.
+            ValueError: With latent series (issue 09b): if `endog_names`
+                does not start with exactly `latent_names`, if no observed
+                series is left, if `endog`'s column count is not the number
+                of observed series, if `endog_scales` is missing or has
+                entries for the observed series only, if `latent_init_sigma`
+                has the wrong length or a non-positive entry, or if the
+                error distribution is not Gaussian.
         """
         import pymc as pm
         import pytensor.tensor as pt

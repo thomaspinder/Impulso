@@ -1236,7 +1236,6 @@ class TestLatentSeries:
         assert divergences < 0.1 * draws * chains
         assert np.all(np.isfinite(np.asarray(idata.posterior["latent"])))
 
-    @_LATENT_XFAIL
     @pytest.mark.parametrize("n_lags", [1, 3])
     @pytest.mark.parametrize("n_latent", [1, 2])
     def test_path_and_joint_logp_across_lag_orders_and_latent_counts(self, rng, n_lags, n_latent):
@@ -1259,7 +1258,7 @@ class TestLatentSeries:
                 endog_names=[*latent_names, "y1", "y2"],
                 exog_names=["x"],
                 endog_scales=np.linspace(0.5, 2.0, n_vars),
-                latent_names=latent_names,  # ty: ignore[unknown-argument]
+                latent_names=latent_names,
             )
 
         point = _perturbed_point(model, rng)
