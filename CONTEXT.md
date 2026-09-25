@@ -133,6 +133,18 @@ _Avoid_: bare "shrinkage" (ambiguous with cross-variable shrinkage).
 The units a prior on exogenous coefficients is stated in. Such a coefficient converts a regressor's units into a variable's, so a prior fixed in *coefficient* space is not a fixed belief — rescaling a regressor silently changes it. Stating the belief as a fraction of the variable's own residual scale is invariant to both (ADR-0012).
 _Avoid_: reading `exog_prior_scale` as a tightness — it runs the opposite direction from **Minnesota tightness (λ)**, and lowering it is what shrinks.
 
+**Embedded path (`build_in_model`)**:
+Registering a VAR into a PyMC model someone else owns, rather than the fresh model `fit` opens. There is one model-building path: `fit` and `prior_predictive` wrap it, so a standalone fit and an embedded VAR describe the same density. "Embedded" in the narrow sense, where the numpy-only steps and some spec options drop out, means a symbolic `endog` or any **latent endogenous series** (ADR-0016).
+_Avoid_: "custom VAR" or "VAR inside the MMM" for the mechanism: the host model is incidental. Avoid "prefix" as an Impulso option: namespacing comes from the caller's nested `pm.Model(name=...)`, and coordinates are not namespaced at all.
+
+**Latent endogenous series**:
+An endogenous variable with no data, generated inside the model from its own VAR equation driven by standard-normal innovations (non-centred). Latent series lead the VAR ordering and the Cholesky ordering, so the observed block's likelihood is exact once it is conditioned on the latent innovations. A latent series is a full member of the VAR, not an exogenous input: it has lags, a shock, and coefficients in every equation.
+_Avoid_: "missing data" or "unobserved column": nothing is imputed, and a latent series is never passed in. Avoid "state" (state-space vocabulary for a model Impulso does not fit).
+
+**Latent block / stationarity constraint**:
+The latent-on-latent part of the lag coefficients: the latent equations' coefficients on latent lags, across all lags. The observed series are data, so this block alone decides whether a generated path explodes. The stationarity constraint restricts it to the region where its companion matrix has spectral radius below 1. The posterior is the prior truncated to that region, and prior predictive sampling ignores the constraint.
+_Avoid_: "stationary VAR" for the constraint: the observed equations are unconstrained. Avoid "stationarity pretest", which is the unrelated frequentist test run before specification.
+
 **Model evidence (`ModelEvidence`)**:
 The conjugate estimator's closed-form log marginal likelihood of the observed data. Because it accounts for any volatility rescaling it is a density over the observations themselves, so a break model and a homoscedastic model fitted to the same data are directly comparable. The NUTS path has no closed form and carries none.
 _Avoid_: "log ML" in the API surface (spell out marginal likelihood); "model probability" for a raw Bayes factor — the probability requires prior model weights.
@@ -184,6 +196,8 @@ _Avoid_: "extra lags" without saying they are untested; "corrected for non-stati
 - **Integration order** feeds **cointegration rank**: the Johansen test is only meaningful for series that are individually integrated, and it is conditioned on a lag order that `select_lag_order` supplies.
 - A **FittedVAR** answers **Granger causality** queries on its own — the coefficients are reduced-form and carry no time dimension, so neither an identification scheme nor an `at` is involved. The query never refits; it selects which of the already-fitted lags are tested.
 - **Toda-Yamamoto augmentation** consumes an **integration order**, fits the augmented lag order with a **ConjugateVAR**, and produces the same result object the `FittedVAR` query does — which is why the manual route is equivalent, and is the documented escape hatch for exogenous regressors, NUTS, and stochastic volatility.
+- A **VAR** registers itself into a host model through the **embedded path**. The host owns sampling. `FittedVAR.from_posterior` turns a posterior into a **FittedVAR** after checking the **posterior schema**, by exact unprefixed names against a `VARData`. An embedding caller must first return its posterior to that schema: strip the nested-model prefix, and supply a `VARData`, with a plug-in column (e.g. the posterior-mean path) standing in for each latent series (ADR-0016).
+- A **latent endogenous series** exists only on the **embedded path**. Its **latent block** carries the **stationarity constraint**, and latent series require Gaussian errors and constant volatility.
 - A **ConjugateVAR** carries an **NIW prior** and optionally a **deterministic volatility break**; a **VAR** carries a **MinnesotaPrior** and a PyMC volatility process. Each estimator's fields accept only its compatible components, enforced by types and validators rather than a builder.
 
 ## Example dialogue
