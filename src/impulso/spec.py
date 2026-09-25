@@ -157,6 +157,115 @@ def _resolve_sigma(
     return sigma
 
 
+def _symbolic_endog_n_vars(
+    endog: "pt.TensorVariable",
+    endog_scales: np.ndarray | Sequence[float] | None,
+    endog_names: Sequence[str],
+) -> int:
+    """Validate a symbolic `endog` for `VAR.build_in_model` and return `n_vars` (issue 09a).
+
+    A symbolic `endog` (e.g. a `pm.Data` container the caller owns) cannot go
+    through the numpy-only steps: `ar1_residual_sd`, the OLS pre-fit
+    residuals, or an observed RV. Its column count may not be static, so
+    `n_vars` comes from `endog_names`, checked against the static count when
+    there is one.
+
+    Raises:
+        TypeError: If `endog` is a dimmed `XTensorVariable` (e.g. a
+            `pymc.dims.Data` container itself) rather than a plain tensor.
+        ValueError: If `endog` is not 2-D, if `endog_scales` is `None`, or if
+            the static column count differs from `len(endog_names)`.
+    """
+    # `isinstance(endog, Variable)` also admits a dimmed xtensor, which then
+    # fails deep inside PyTensor's slicing. Checked by class name so this
+    # works on PyTensor versions without `pytensor.xtensor`.
+    if any(cls.__name__ == "XTensorVariable" for cls in type(endog).__mro__):
+        raise TypeError(
+            "endog is a dimmed XTensorVariable (e.g. a `pymc.dims.Data` container); build_in_model "
+            "needs a plain 2-D tensor. Pass its `.values` instead."
+        )
+    if endog.ndim != 2:
+        raise ValueError(f"endog must be 2-D (T, n_vars), got a {endog.ndim}-D tensor")
+    if endog_scales is None:
+        raise ValueError(
+            "endog_scales is required when endog is symbolic: the default scale comes from "
+            "`ar1_residual_sd`, which needs concrete data. Pass the per-variable scales the "
+            "Minnesota cross-lag prior and the exogenous prior should use, e.g. "
+            "`impulso.ar1_residual_sd(values)` on the data behind the tensor."
+        )
+    n_vars = len(endog_names)
+    static_n_vars = endog.type.shape[1]
+    if static_n_vars is not None and static_n_vars != n_vars:
+        raise ValueError(f"endog has {static_n_vars} columns but endog_names has {n_vars} names")
+    return n_vars
+
+
+def _ols_residuals(Y: np.ndarray, X_lag: np.ndarray, X_exog: np.ndarray | None) -> np.ndarray:
+    """OLS residuals of `Y` on an intercept, `X_lag` and (optional) `X_exog`.
+
+    Seeds the volatility process's per-variable priors in
+    `VAR.build_in_model`. Numpy-only: it needs concrete data.
+    """
+    if X_exog is not None:
+        X_full = np.hstack([np.ones((Y.shape[0], 1)), X_lag, X_exog])
+    else:
+        X_full = np.hstack([np.ones((Y.shape[0], 1)), X_lag])
+    B_ols, *_ = np.linalg.lstsq(X_full, Y, rcond=None)
+    return Y - X_full @ B_ols
+
+
+def _time_coord(model: Any, n_rows: int | None) -> dict[str, object]:
+    """The `"time"` coord `VAR.build_in_model` must add, if any.
+
+    Returns `{}` when there is nothing to add, `{"time": range}` otherwise.
+
+    Args:
+        model: The active `pymc.Model`.
+        n_rows: Number of likelihood rows, `T - n_lags`, or `None` for a
+            symbolic `endog` whose static shape does not know `T`.
+
+    Raises:
+        ValueError: If `model` already has a `"time"` coord whose length is
+            not `n_rows`.
+    """
+    if n_rows is None:
+        # Symbolic `endog` of unknown length: its likelihood is a
+        # `pm.Potential`, which carries no dims, so nothing needs a
+        # "time" coord and there is no length to check one against.
+        return {}
+    if "time" in model.coords:
+        # A previous call (this VAR's own wrapper, or a second VAR
+        # embedded in the same model — coords are not prefixed by a
+        # nested `pm.Model(name=...)`, see `VAR.build_in_model`) already
+        # registered "time". `add_coords` only rejects a duplicate coord
+        # whose *values* differ, and a plain length mismatch has equal
+        # odds of matching by chance as differing, so silently reusing
+        # it would either pass by luck or hand the likelihood a "time"
+        # dim of the wrong length — a shape error that would only
+        # surface much later, e.g. inside `sample_prior_predictive`.
+        # Reject it here instead, at the point that actually knows both
+        # lengths.
+        existing_length = int(model.dim_lengths["time"].eval())
+        if existing_length != n_rows:
+            raise ValueError(
+                f"the active model already has a 'time' coordinate of length "
+                f"{existing_length}, but this call's likelihood has {n_rows} rows "
+                "(T - n_lags). Coordinates are not prefixed by a nested "
+                "pm.Model(name=...), so two VARs embedded in the same model share a "
+                "single 'time' coordinate and must agree on its length. Give both VARs "
+                "the same number of likelihood rows, or build them in separate "
+                "pm.Model() instances."
+            )
+        return {}
+    # PyMC requires a named dim used on an *observed* multivariate RV
+    # to already exist (unlike a free RV's `dims`, which it will
+    # auto-register). `_build_pymc_model` pre-registers "time" from
+    # `data.index` before calling `build_in_model`; a standalone call
+    # with no pre-registered "time" coord falls back to a plain
+    # positional index.
+    return {"time": list(range(n_rows))}
+
+
 def _intercept_mask(endog_names: Sequence[str], intercept_equations: Sequence[str] | None) -> np.ndarray:
     """Boolean mask over `endog_names`: which equations get an intercept.
 
@@ -266,8 +375,13 @@ class VARModelHandles:
         L: Lower-triangular Cholesky factor of the structural-shock scale
             matrix — `(n_vars, n_vars)` for constant volatility, `(T,
             n_vars, n_vars)` for stochastic volatility.
-        obs: The registered observation likelihood — `error_dist
-            .build_likelihood`'s return value.
+        obs: The registered observation likelihood. For a numpy `endog`,
+            `error_dist.build_likelihood`'s return value, an observed RV.
+            For a symbolic `endog`, the `pm.Potential` wrapping
+            `error_dist.logp`: not a random variable, so it has no dims,
+            is invisible to both `sample_prior_predictive` and
+            `sample_posterior_predictive`, and cannot be predicted. Named
+            `"obs"` either way.
     """
 
     intercept: "pt.TensorVariable | None"
@@ -454,7 +568,7 @@ class VAR(ImpulsoBaseModel):
 
     def build_in_model(
         self,
-        endog: np.ndarray,
+        endog: "np.ndarray | pt.TensorVariable",
         exog: np.ndarray | None,
         n_lags: int,
         endog_names: Sequence[str],
@@ -474,9 +588,19 @@ class VAR(ImpulsoBaseModel):
         same code path with a caller embedding a VAR inside a larger PyMC
         model — a marketing-mix model with a VAR-shaped baseline, say.
 
-        `endog` is a plain numpy array here: a symbolic/latent endogenous
-        block is a later extension of this method, not something it
-        supports yet. Callers resolve string lag-selection criteria (e.g.
+        Symbolic `endog`: `endog` may be a PyTensor variable instead of a
+        numpy array, e.g. a `pm.Data` container the caller registered. The
+        observed block's likelihood is then `error_dist.logp` wrapped in a
+        `pm.Potential` named `"obs"` (a symbolic value cannot be an RV's
+        `observed`), with the same density the numpy path's observed RV
+        contributes. A Potential is not a random variable: it is invisible
+        to both `sample_prior_predictive` and `sample_posterior_predictive`,
+        so the symbolic path's observations cannot be predicted. Pass a
+        plain tensor: for a `pymc.dims.Data` container, its `.values`. The numpy-only steps are skipped: `endog_scales` is
+        required, since `ar1_residual_sd` needs concrete data, and the
+        volatility process gets `data=None` instead of OLS pre-fit
+        residuals, which only `Constant` volatility accepts, as it ignores
+        them. Callers resolve string lag-selection criteria (e.g.
         via `select_lag_order`) before calling this method — it always
         takes a concrete integer `n_lags`.
 
@@ -511,10 +635,15 @@ class VAR(ImpulsoBaseModel):
         the same model — and its length does not match this call's number
         of likelihood rows (`T - n_lags`), this method raises `ValueError`
         rather than silently reusing the wrong length; equal length is
-        fine regardless of the actual values.
+        fine regardless of the actual values. A symbolic `endog` is handled
+        the same way when its static shape knows `T`. When it does not, as
+        for `pm.Data` or `pytensor.shared`, whose value can be swapped for
+        another length, no `"time"` coordinate is registered or checked:
+        the `pm.Potential` likelihood carries no dims.
 
         Args:
-            endog: Endogenous data, shape `(T, n_vars)`.
+            endog: Endogenous data, shape `(T, n_vars)`: a numpy array, or a
+                2-D PyTensor variable (see "Symbolic `endog`" above).
             exog: Optional exogenous regressors, shape `(T, n_exog)`. `None`
                 if the model has no exogenous block.
             n_lags: Lag order. Always a concrete integer — resolving a
@@ -526,7 +655,8 @@ class VAR(ImpulsoBaseModel):
             endog_scales: Per-variable scale `sigma`, shape `(n_vars,)` — an
                 array or any array-like (e.g. a plain list) accepted by
                 `np.asarray(..., dtype=float)`. `None` (the default) computes
-                it from `endog` with `ar1_residual_sd`. The same array feeds
+                it from `endog` with `ar1_residual_sd`; required when `endog`
+                is symbolic. The same array feeds
                 both the prior's Minnesota cross-lag scaling `sigma_i /
                 sigma_j` (`Prior.build_priors`, docs/adr/0015) and the
                 exogenous prior (`_exog_prior_sigma`, docs/adr/0012), so it
@@ -558,13 +688,25 @@ class VAR(ImpulsoBaseModel):
                 `endog_scales` — is zero, negative or non-finite (issue 07b).
             ValueError: If `endog_scales` does not have shape `(n_vars,)`
                 (issue 08c).
+            TypeError: If `endog` is a dimmed `XTensorVariable` rather than a
+                plain tensor — pass its `.values` (issue 09a).
+            ValueError: If `endog` is symbolic and `endog_scales` is `None`,
+                if it is not 2-D, or if its static column count differs
+                from `len(endog_names)` (issue 09a).
             ValueError: If `intercept_equations` names an equation not in
                 `endog_names`, or names one more than once.
         """
         import pymc as pm
         import pytensor.tensor as pt
+        from pytensor.graph.basic import Variable
 
         model = pm.modelcontext(None)
+
+        # A symbolic `endog` (issue 09a) — e.g. a `pm.Data` container the
+        # caller owns — cannot go through the numpy-only steps below:
+        # `ar1_residual_sd`, the OLS pre-fit residuals, or an observed RV.
+        symbolic = isinstance(endog, Variable)
+        n_vars = _symbolic_endog_n_vars(endog, endog_scales, endog_names) if symbolic else endog.shape[1]
 
         # `sigma` is the per-variable scale — computed once here (or taken
         # from the caller) and reused for both the Minnesota lag-coefficient
@@ -574,23 +716,27 @@ class VAR(ImpulsoBaseModel):
         # either path immediately: a zero/non-finite entry would blow up
         # both (issue 07b), and it tailors the error to the actual source
         # (issue 08c).
-        n_vars = endog.shape[1]
         sigma = _resolve_sigma(endog, endog_scales, endog_names, n_vars)
         intercept_mask = _intercept_mask(endog_names, intercept_equations)
         prior_params = self.resolved_prior.build_priors(n_vars=n_vars, n_lags=n_lags, sigma=sigma)
 
         Y, X_lag, X_exog = build_lag_design_matrix(endog, n_lags, exog)
 
-        # OLS pre-fit residuals seed the volatility process's per-variable
-        # priors. Stays on the numpy path deliberately — it needs concrete
-        # data even for a future caller whose `endog` is symbolic.
-        # Constant-volatility adapters ignore this; only stochastic ones use it.
-        if X_exog is not None:
-            X_full = np.hstack([np.ones((Y.shape[0], 1)), X_lag, X_exog])
+        # Number of likelihood rows, `T - n_lags`. A symbolic `endog` only
+        # knows it when its static shape does: `pm.Data` and
+        # `pytensor.shared` leave it `None`, since their value can be
+        # swapped for one of a different length. Then it stays `None`.
+        if symbolic:
+            static_T = endog.type.shape[0]
+            n_rows = None if static_T is None else static_T - n_lags
         else:
-            X_full = np.hstack([np.ones((Y.shape[0], 1)), X_lag])
-        B_ols, *_ = np.linalg.lstsq(X_full, Y, rcond=None)
-        resid = Y - X_full @ B_ols
+            n_rows = Y.shape[0]
+
+        # OLS pre-fit residuals seed the volatility process's per-variable
+        # priors. Numpy-only: they need concrete data, so a symbolic `endog`
+        # passes `None`. Constant-volatility adapters ignore this; only
+        # stochastic ones use it.
+        resid = None if symbolic else _ols_residuals(Y, X_lag, X_exog)
 
         # Coordinates make the posterior self-describing: `B` comes back labelled
         # by variable and by "L<lag>.<variable>" coefficient instead of positional
@@ -609,37 +755,7 @@ class VAR(ImpulsoBaseModel):
         intercepted = [name for name, keep in zip(endog_names, intercept_mask, strict=True) if keep]
         if 0 < len(intercepted) < n_vars:
             coords["var_intercept"] = intercepted
-        if "time" in model.coords:
-            # A previous call (this VAR's own wrapper, or a second VAR
-            # embedded in the same model — coords are not prefixed by a
-            # nested `pm.Model(name=...)`, see the docstring above) already
-            # registered "time". `add_coords` only rejects a duplicate coord
-            # whose *values* differ, and a plain length mismatch has equal
-            # odds of matching by chance as differing, so silently reusing
-            # it would either pass by luck or hand the likelihood a "time"
-            # dim of the wrong length — a shape error that would only
-            # surface much later, e.g. inside `sample_prior_predictive`.
-            # Reject it here instead, at the point that actually knows both
-            # lengths.
-            existing_length = int(model.dim_lengths["time"].eval())
-            if existing_length != Y.shape[0]:
-                raise ValueError(
-                    f"the active model already has a 'time' coordinate of length "
-                    f"{existing_length}, but this call's likelihood has {Y.shape[0]} rows "
-                    "(T - n_lags). Coordinates are not prefixed by a nested "
-                    "pm.Model(name=...), so two VARs embedded in the same model share a "
-                    "single 'time' coordinate and must agree on its length. Give both VARs "
-                    "the same number of likelihood rows, or build them in separate "
-                    "pm.Model() instances."
-                )
-        else:
-            # PyMC requires a named dim used on an *observed* multivariate RV
-            # to already exist (unlike a free RV's `dims`, which it will
-            # auto-register). `_build_pymc_model` pre-registers "time" from
-            # `data.index` before calling this method; a standalone call
-            # with no pre-registered "time" coord falls back to a plain
-            # positional index.
-            coords["time"] = list(range(Y.shape[0]))
+        coords.update(_time_coord(model, n_rows))
         model.add_coords(coords)
 
         # Intercept. Every equation gets one by default (`dims="var"`, the
@@ -684,7 +800,9 @@ class VAR(ImpulsoBaseModel):
         # For constant volatility, L is (n_vars, n_vars) and time-invariant.
         # For stochastic volatility, L is (T, n_vars, n_vars) — per-t.
         volatility = self.resolved_volatility
-        L = volatility.build_pymc_latent(n_vars=n_vars, T=Y.shape[0], data=resid)
+        # `T` is ignored by `Constant`, the one adapter the symbolic path
+        # supports; an unknown static length falls back to the symbolic one.
+        L = volatility.build_pymc_latent(n_vars=n_vars, T=Y.shape[0] if n_rows is None else n_rows, data=resid)
         # Sigma deterministic is only registered for time-invariant L —
         # for SV, materialising (T, n, n) per draw is wasteful; users can
         # reconstruct per-t Σ via `volatility.cholesky_at(posterior, t)`.
@@ -696,8 +814,16 @@ class VAR(ImpulsoBaseModel):
         # 2D L every observation uses the same chol; for 3D L (T, n, n)
         # observation t uses chol[t]). Under Student-t errors, L L' is the
         # *scale* matrix rather than the covariance — see ADR-0007.
+        #
+        # A symbolic `endog` cannot be an RV's `observed` value, so its
+        # likelihood is the same density as a `pm.Potential` under the same
+        # name. A Potential is not an RV: invisible to both prior and
+        # posterior predictive sampling.
         error_dist = self.resolved_error_dist
-        obs = error_dist.build_likelihood("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
+        if symbolic:
+            obs = pm.Potential("obs", error_dist.logp(mu=mu, chol=L, value=Y))
+        else:
+            obs = error_dist.build_likelihood("obs", mu=mu, chol=L, observed=Y, dims=("time", "var"))
 
         return VARModelHandles(intercept=intercept, B=B, B_exog=B_exog, L=L, obs=obs)
 
