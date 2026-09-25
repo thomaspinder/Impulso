@@ -210,8 +210,44 @@ def _symbolic_endog_n_vars(
     return n_vars
 
 
+def _check_latent_endog_shape(
+    endog: "np.ndarray | pt.TensorVariable",
+    exog: np.ndarray | None,
+    observed_names: Sequence[str],
+) -> None:
+    """Check the observed `endog` and `exog` shapes on the latent-series path (issue 09b).
+
+    Raises:
+        TypeError: If `endog` is a dimmed `XTensorVariable`.
+        ValueError: If `endog` is not 2-D, if its column count is not
+            `len(observed_names)`, or if `exog`'s row count differs from its.
+    """
+    from pytensor.graph.basic import Variable
+
+    if isinstance(endog, Variable):
+        _check_plain_2d_tensor(endog)
+        n_rows, n_cols = endog.type.shape
+    elif endog.ndim != 2:
+        raise ValueError(f"endog must be 2-D (T, n_observed), got a {endog.ndim}-D array")
+    else:
+        n_rows, n_cols = endog.shape
+    # Without latent series `build_lag_design_matrix` trims both blocks
+    # together and the mean catches a mismatch; here the exogenous block
+    # enters the latent drive and the observed mean separately, so check it.
+    if exog is not None and n_rows is not None and exog.shape[0] != n_rows:
+        raise ValueError(f"exog has {exog.shape[0]} rows but endog has {n_rows}; both must cover the same periods.")
+    n_obs = len(observed_names)
+    if n_cols is not None and n_cols != n_obs:
+        raise ValueError(
+            f"endog has {n_cols} columns but endog_names lists {n_obs} observed series after the latent ones "
+            f"({_format_names(list(observed_names))}). Pass only the observed columns: latent series "
+            "are generated inside the model, not passed in."
+        )
+
+
 def _latent_n_vars(
     endog: "np.ndarray | pt.TensorVariable",
+    exog: np.ndarray | None,
     endog_names: Sequence[str],
     endog_scales: np.ndarray | Sequence[float] | None,
     latent_names: Sequence[str],
@@ -227,12 +263,11 @@ def _latent_n_vars(
         TypeError: If `endog` is a dimmed `XTensorVariable`.
         ValueError: If `endog_names` does not start with exactly
             `latent_names`, if no observed series is left, if `endog`'s
-            column count is not the number of observed series, if
-            `endog_scales` is missing or does not cover the latent series, or
-            if the error distribution is not Gaussian.
+            column count is not the number of observed series, if `exog`'s
+            row count differs from `endog`'s, if `endog_scales` is missing
+            or does not cover the latent series, or if the error
+            distribution is not Gaussian.
     """
-    from pytensor.graph.basic import Variable
-
     n_latent = len(latent_names)
     n_vars = len(endog_names)
     if len(set(latent_names)) != n_latent:
@@ -253,19 +288,7 @@ def _latent_n_vars(
             "likelihood conditional on the latent innovations has a simple closed form only for Gaussian "
             "errors (a multivariate Student-t's conditional is not a Student-t with the same `nu`)."
         )
-    if isinstance(endog, Variable):
-        _check_plain_2d_tensor(endog)
-        n_cols = endog.type.shape[1]
-    else:
-        if endog.ndim != 2:
-            raise ValueError(f"endog must be 2-D (T, n_observed), got a {endog.ndim}-D array")
-        n_cols = endog.shape[1]
-    if n_cols is not None and n_cols != n_obs:
-        raise ValueError(
-            f"endog has {n_cols} columns but endog_names lists {n_obs} observed series after the latent ones "
-            f"({_format_names(list(endog_names[n_latent:]))}). Pass only the observed columns: latent series "
-            "are generated inside the model, not passed in."
-        )
+    _check_latent_endog_shape(endog, exog, endog_names[n_latent:])
     if endog_scales is None:
         raise ValueError(
             "endog_scales is required when latent_names is given: a latent series has no data to compute "
@@ -620,7 +643,10 @@ class VARModelHandles:
         latent: The generated latent path, shape `(T, n_latent)` including
             the `n_lags` initial values, registered as the `Deterministic`
             `"latent"`; `None` without latent series. Its columns follow
-            `latent_names`.
+            `latent_names`. The latent variables carry no dims and the names
+            live on `latent_names` instead, because Impulso's coordinates are
+            not prefixed by a nested model and a latent coordinate would
+            collide between VARs embedded in the same model.
         latent_names: Names of the latent series, in the path's column
             order; empty without latent series.
     """
@@ -987,7 +1013,8 @@ class VAR(ImpulsoBaseModel):
             ValueError: With latent series (issue 09b): if `endog_names`
                 does not start with exactly `latent_names`, if no observed
                 series is left, if `endog`'s column count is not the number
-                of observed series, if `endog_scales` is missing or has
+                of observed series, if `exog` has a different number of
+                rows from `endog`, if `endog_scales` is missing or has
                 entries for the observed series only, if `latent_init_sigma`
                 has the wrong length or a non-positive entry, or if the
                 error distribution is not Gaussian.
@@ -1006,7 +1033,7 @@ class VAR(ImpulsoBaseModel):
         latent_names = tuple(latent_names)
         n_latent = len(latent_names)
         if n_latent:
-            n_vars = _latent_n_vars(endog, endog_names, endog_scales, latent_names, error_dist)
+            n_vars = _latent_n_vars(endog, exog, endog_names, endog_scales, latent_names, error_dist)
             init_sigma = _latent_init_sigma(latent_init_sigma, n_latent)
         else:
             n_vars = _symbolic_endog_n_vars(endog, endog_scales, endog_names) if symbolic else endog.shape[1]
