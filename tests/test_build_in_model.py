@@ -920,3 +920,59 @@ class TestSymbolicEndog:
             _build(VAR(lags=1), endog, data, endog_scales=np.ones(2))
 
         assert len(model.coords["time"]) == 5
+
+    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+    def test_pmd_data_values_works(self, rng):
+        """The contract pymc-marketing uses: `pmd.Data(...).values`, a plain
+        `TensorVariable`, is accepted and matches the numpy path's logp."""
+        pmd = pytest.importorskip("pymc.dims")
+        import pymc as pm
+
+        from impulso import ar1_residual_sd
+
+        data = _make_data(rng)
+        spec = VAR(lags=1)
+
+        with pm.Model() as numpy_model:
+            _build(spec, data.endog, data)
+        with pm.Model(coords={"date": range(data.endog.shape[0]), "series": data.endog_names}) as symbolic_model:
+            endog = pmd.Data("endog", data.endog, dims=("date", "series"))
+            _build(spec, endog.values, data, endog_scales=ar1_residual_sd(data.endog))
+
+        assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
+
+    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+    def test_raw_xtensor_endog_raises_pointing_at_values(self, rng):
+        pmd = pytest.importorskip("pymc.dims")
+        import pymc as pm
+
+        data = _make_data(rng)
+        with pm.Model(coords={"date": range(data.endog.shape[0]), "series": data.endog_names}):
+            endog = pmd.Data("endog", data.endog, dims=("date", "series"))
+            with pytest.raises(TypeError, match=r"\.values"):
+                _build(VAR(lags=1), endog, data, endog_scales=np.ones(2))
+
+    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+    def test_non_2d_symbolic_endog_raises(self, rng):
+        import pymc as pm
+        import pytensor
+
+        data = _make_data(rng)
+        with pm.Model(), pytest.raises(ValueError, match="must be 2-D"):
+            _build(VAR(lags=1), pytensor.shared(data.endog[:, 0]), data, endog_scales=np.ones(2))
+
+    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+    def test_static_column_count_mismatch_raises(self, rng):
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        data = _make_data(rng, n_vars=3)
+        with pm.Model(), pytest.raises(ValueError, match="3 columns but endog_names has 2 names"):
+            spec = VAR(lags=1)
+            spec.build_in_model(
+                endog=pt.constant(data.endog),
+                exog=None,
+                n_lags=1,
+                endog_names=data.endog_names[:2],
+                endog_scales=np.ones(2),
+            )
