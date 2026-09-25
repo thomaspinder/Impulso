@@ -1623,3 +1623,33 @@ class TestLatentStationarity:
         points = _init_jitter(model, None, list(range(60)), jitter=True, jitter_max_retries=50)
         own_lags = np.array([point["B"][0, 0] for point in points])
         assert np.abs(own_lags).max() < 1.0
+
+    @xfail_09c
+    @pytest.mark.parametrize("n_lags", [1, 2])
+    @pytest.mark.parametrize("value", [np.nan, np.inf])
+    def test_non_finite_latent_block_gives_minus_inf_not_an_error(self, rng, value, n_lags):
+        """`eig` raises on a non-finite matrix; the Potential must turn that into
+        -inf so NUTS records a divergence instead of aborting."""
+        import pymc as pm
+
+        with pm.Model() as model:
+            VAR(lags=n_lags).build_in_model(**_latent_setup_n(rng, 1, n_lags))
+
+        point = model.initial_point(random_seed=0)
+        B = point["B"].copy()
+        B[0, 0] = value
+        assert self._potential(model, B) == -np.inf
+        assert not np.isfinite(model.compile_logp()({**point, "B": B}))
+
+    def test_logp_and_dlogp_compile_under_jax(self, rng):
+        """The latent model, `eig` and the zero-gradient `OpFromGraph` included,
+        compiles under the JAX backend."""
+        pytest.importorskip("jax")
+        import pymc as pm
+
+        with pm.Model() as model:
+            VAR(lags=2).build_in_model(**_latent_setup_n(rng, 2, 2))
+
+        point = model.initial_point(random_seed=0)
+        assert np.isfinite(model.compile_logp(mode="JAX")(point))
+        assert np.all(np.isfinite(model.compile_dlogp(mode="JAX")(point)))
