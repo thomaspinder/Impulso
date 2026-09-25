@@ -908,7 +908,6 @@ class TestSymbolicEndog:
 
         assert len(model.coords["time"]) == 5
 
-    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
     def test_pmd_data_values_works(self, rng):
         """The contract pymc-marketing uses: `pmd.Data(...).values`, a plain
         `TensorVariable`, is accepted and matches the numpy path's logp."""
@@ -928,7 +927,6 @@ class TestSymbolicEndog:
 
         assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
 
-    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
     def test_raw_xtensor_endog_raises_pointing_at_values(self, rng):
         pmd = pytest.importorskip("pymc.dims")
         import pymc as pm
@@ -939,7 +937,6 @@ class TestSymbolicEndog:
             with pytest.raises(TypeError, match=r"\.values"):
                 _build(VAR(lags=1), endog, data, endog_scales=np.ones(2))
 
-    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
     def test_non_2d_symbolic_endog_raises(self, rng):
         import pymc as pm
         import pytensor
@@ -948,7 +945,6 @@ class TestSymbolicEndog:
         with pm.Model(), pytest.raises(ValueError, match="must be 2-D"):
             _build(VAR(lags=1), pytensor.shared(data.endog[:, 0]), data, endog_scales=np.ones(2))
 
-    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
     def test_static_column_count_mismatch_raises(self, rng):
         import pymc as pm
         import pytensor.tensor as pt

@@ -171,9 +171,19 @@ def _symbolic_endog_n_vars(
     there is one.
 
     Raises:
+        TypeError: If `endog` is a dimmed `XTensorVariable` (e.g. a
+            `pymc.dims.Data` container itself) rather than a plain tensor.
         ValueError: If `endog` is not 2-D, if `endog_scales` is `None`, or if
             the static column count differs from `len(endog_names)`.
     """
+    # `isinstance(endog, Variable)` also admits a dimmed xtensor, which then
+    # fails deep inside PyTensor's slicing. Checked by class name so this
+    # works on PyTensor versions without `pytensor.xtensor`.
+    if any(cls.__name__ == "XTensorVariable" for cls in type(endog).__mro__):
+        raise TypeError(
+            "endog is a dimmed XTensorVariable (e.g. a `pymc.dims.Data` container); build_in_model "
+            "needs a plain 2-D tensor. Pass its `.values` instead."
+        )
     if endog.ndim != 2:
         raise ValueError(f"endog must be 2-D (T, n_vars), got a {endog.ndim}-D tensor")
     if endog_scales is None:
@@ -368,8 +378,10 @@ class VARModelHandles:
         obs: The registered observation likelihood. For a numpy `endog`,
             `error_dist.build_likelihood`'s return value, an observed RV.
             For a symbolic `endog`, the `pm.Potential` wrapping
-            `error_dist.logp`, which has no dims and does not appear in
-            `sample_prior_predictive`. Named `"obs"` either way.
+            `error_dist.logp`: not a random variable, so it has no dims,
+            is invisible to both `sample_prior_predictive` and
+            `sample_posterior_predictive`, and cannot be predicted. Named
+            `"obs"` either way.
     """
 
     intercept: "pt.TensorVariable | None"
@@ -581,7 +593,10 @@ class VAR(ImpulsoBaseModel):
         observed block's likelihood is then `error_dist.logp` wrapped in a
         `pm.Potential` named `"obs"` (a symbolic value cannot be an RV's
         `observed`), with the same density the numpy path's observed RV
-        contributes. The numpy-only steps are skipped: `endog_scales` is
+        contributes. A Potential is not a random variable: it is invisible
+        to both `sample_prior_predictive` and `sample_posterior_predictive`,
+        so the symbolic path's observations cannot be predicted. Pass a
+        plain tensor: for a `pymc.dims.Data` container, its `.values`. The numpy-only steps are skipped: `endog_scales` is
         required, since `ar1_residual_sd` needs concrete data, and the
         volatility process gets `data=None` instead of OLS pre-fit
         residuals, which only `Constant` volatility accepts, as it ignores
@@ -673,6 +688,8 @@ class VAR(ImpulsoBaseModel):
                 `endog_scales` — is zero, negative or non-finite (issue 07b).
             ValueError: If `endog_scales` does not have shape `(n_vars,)`
                 (issue 08c).
+            TypeError: If `endog` is a dimmed `XTensorVariable` rather than a
+                plain tensor — pass its `.values` (issue 09a).
             ValueError: If `endog` is symbolic and `endog_scales` is `None`,
                 if it is not 2-D, or if its static column count differs
                 from `len(endog_names)` (issue 09a).
@@ -800,7 +817,8 @@ class VAR(ImpulsoBaseModel):
         #
         # A symbolic `endog` cannot be an RV's `observed` value, so its
         # likelihood is the same density as a `pm.Potential` under the same
-        # name. A Potential is invisible to `sample_prior_predictive`.
+        # name. A Potential is not an RV: invisible to both prior and
+        # posterior predictive sampling.
         error_dist = self.resolved_error_dist
         if symbolic:
             obs = pm.Potential("obs", error_dist.logp(mu=mu, chol=L, value=Y))
