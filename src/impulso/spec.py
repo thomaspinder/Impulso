@@ -314,6 +314,88 @@ def _latent_init_sigma(latent_init_sigma: float | Sequence[float], n_latent: int
     return sigma
 
 
+def _latent_own_lag_mean(latent_own_lag_mean: float | Sequence[float], n_latent: int) -> np.ndarray:
+    """Coerce `latent_own_lag_mean` to a finite array of shape `(n_latent,)`."""
+    mean = np.asarray(latent_own_lag_mean, dtype=float)
+    if mean.ndim == 0:
+        mean = np.full(n_latent, float(mean))
+    if mean.shape != (n_latent,):
+        raise ValueError(f"latent_own_lag_mean must be a scalar or have {n_latent} entries, got shape {mean.shape}")
+    if not np.all(np.isfinite(mean)):
+        raise ValueError(f"latent_own_lag_mean must be finite, got {mean.tolist()}")
+    return mean
+
+
+def _latent_b_initval(b_mu: np.ndarray, n_latent: int) -> np.ndarray:
+    """Initial value for `B`: latent rows inside the stationary region, observed rows at the prior mean.
+
+    A latent equation starts with own first lag 0.5 and every other
+    coefficient 0. PyMC takes an initial value for the whole of `B`, so the
+    observed rows get their prior mean, which is PyMC's default start for a
+    `Normal` anyway.
+    """
+    initval = np.array(b_mu, dtype=float)
+    initval[:n_latent] = 0.0
+    idx = np.arange(n_latent)
+    initval[idx, idx] = 0.5
+    return initval
+
+
+def _latent_companion(B: Any, n_latent: int, n_vars: int, n_lags: int) -> "pt.TensorVariable":
+    """Companion matrix of the latent-on-latent block of `B`, shape `(n_latent * n_lags, n_latent * n_lags)`.
+
+    `B` is `(n_vars, n_vars * n_lags)` with lag-major columns, so lag `l`'s
+    latent-on-latent block `A_l[lat, lat]` is rows `:n_latent`, columns
+    `(l - 1) * n_vars` to `(l - 1) * n_vars + n_latent`. The top block row
+    stacks `A_1 ... A_p`; below it an identity shifts the lags down.
+    """
+    import pytensor.tensor as pt
+
+    B = pt.as_tensor_variable(B)
+    top = pt.concatenate([B[:n_latent, lag * n_vars : lag * n_vars + n_latent] for lag in range(n_lags)], axis=1)
+    if n_lags == 1:
+        return top
+    size = n_latent * n_lags
+    shift = pt.eye(size - n_latent, size)
+    return pt.concatenate([top, shift], axis=0)
+
+
+def _register_latent_stationarity(B: Any, n_latent: int, n_vars: int, n_lags: int) -> None:
+    """Register the `latent_stationarity` Potential: 0 inside the stationary region, `-inf` outside.
+
+    The region is a spectral radius below 1 for the latent block's companion
+    matrix. The observed series are data, so only this block decides whether
+    the generated path explodes.
+    """
+    import inspect
+
+    import pymc as pm
+    import pytensor.tensor as pt
+    from pytensor.compile.builders import OpFromGraph
+
+    # The Potential is piecewise constant in `B`, so its gradient is zero.
+    # PyTensor cannot differentiate the complex `eig`, and PyMC's graph
+    # rewrites strip `disconnected_grad`, so the radius is wrapped in an
+    # `OpFromGraph` whose gradient is overridden with zeros.
+    # Newer PyTensor renamed `lop_overrides` to `pullback`.
+    override = "pullback" if "pullback" in inspect.signature(OpFromGraph.__init__).parameters else "lop_overrides"
+    companion = pt.matrix("companion")
+    spectral_radius = OpFromGraph(
+        [companion],
+        [pt.max(pt.abs(pt.linalg.eig(companion)[0]))],
+        name="spectral_radius",
+        **{override: lambda inputs, outputs, output_grads: [pt.zeros_like(inputs[0])]},
+    )
+    # `eig` raises on a non-finite matrix, which would abort the sampler
+    # instead of recording a divergence. Swap such a matrix for an
+    # explosive one (radius 2) so the Potential is `-inf`.
+    matrix = _latent_companion(B, n_latent, n_vars, n_lags)
+    size = n_latent * n_lags
+    matrix = pt.switch(pt.all(pt.isfinite(matrix)), matrix, 2.0 * pt.eye(size))
+    radius = spectral_radius(matrix)
+    pm.Potential("latent_stationarity", pt.switch(pt.lt(radius, 1.0), np.float64(0.0), np.float64(-np.inf)))
+
+
 def _scan(fn: Any, **kwargs: Any) -> "pt.TensorVariable":
     """`pytensor.scan` returning outputs only, on PyTensor versions with and without `return_updates`."""
     import inspect
@@ -846,6 +928,7 @@ class VAR(ImpulsoBaseModel):
         intercept_equations: Sequence[str] | None = None,
         latent_names: Sequence[str] = (),
         latent_init_sigma: float | Sequence[float] = 1.0,
+        latent_own_lag_mean: float | Sequence[float] = 1.0,
     ) -> VARModelHandles:
         """Register this VAR specification into the active PyMC model.
 
@@ -899,9 +982,33 @@ class VAR(ImpulsoBaseModel):
         from. `latent_init`, `latent_innovations` and `latent` carry no dims
         (their time axis has no coordinate), so no new coordinate is
         registered for them. `latent_init_sigma` sets only the start of the
-        path; the VAR is the latent series' only prior after that. Nothing
-        here keeps the latent equations stationary, so an explosive draw of
-        their own-lag coefficients makes the path explode over the sample.
+        path; the VAR is the latent series' only prior after that.
+
+        Latent stationarity (issue 09c): an explosive draw of the latent
+        equations' coefficients makes the generated path explode over the
+        sample and can freeze a chain. Three things guard against it. The
+        `pm.Potential` `"latent_stationarity"` is 0 when the spectral radius
+        of the companion matrix of the latent-on-latent block (the latent
+        rows' coefficients on latent lags, over all `n_lags`) is below 1 and
+        `-inf` otherwise. The observed series are data, not generated, so
+        this block alone decides whether the path explodes. `B` stays a single
+        `Normal`, so the posterior is its prior truncated to the stationary
+        region of the latent block; with a latent own-lag prior mean near 1
+        the posterior can press against that boundary and give divergences.
+        `latent_own_lag_mean` replaces the Minnesota prior mean of each
+        latent equation's own first-lag coefficient: the default of 1
+        (random walk) keeps the Minnesota prior, and a caller modelling a
+        stationary deviation passes 0. And the model's initial point puts
+        every latent equation inside the stationary region: own first lag
+        0.5, every other coefficient in the latent rows 0. PyMC sets an
+        initial value for `B` as a whole, so the observed rows start at
+        their prior mean, which is PyMC's default start for them anyway.
+        PyMC's `jitter+adapt_diag` start moves this by up to +-1; a jittered
+        start outside the region has `-inf` log density, and PyMC redraws it
+        (`jitter_max_retries`). A Potential is not a random variable, so
+        `pm.sample_prior_predictive` ignores `"latent_stationarity"`:
+        prior-predictive latent paths are drawn from the untruncated prior
+        and can still explode.
 
         Nesting: open a `pm.Model(name=prefix)` before calling this method
         and every free random variable, `Deterministic` and the likelihood
@@ -989,6 +1096,12 @@ class VAR(ImpulsoBaseModel):
                 prior on each latent series' first `n_lags` values: a scalar
                 shared by every latent series, or one entry per latent
                 series. Ignored without latent series.
+            latent_own_lag_mean: Prior mean of each latent equation's own
+                first-lag coefficient, replacing the Minnesota mean: a scalar
+                shared by every latent series, or one entry per latent
+                series. The default of 1 leaves the Minnesota prior as it is;
+                pass 0 for a stationary deviation. Observed equations always
+                keep the prior's mean. Ignored without latent series.
 
         Returns:
             `VARModelHandles` wrapping the intercept, coefficient,
@@ -1016,7 +1129,9 @@ class VAR(ImpulsoBaseModel):
                 of observed series, if `exog` has a different number of
                 rows from `endog`, if `endog_scales` is missing or has
                 entries for the observed series only, if `latent_init_sigma`
-                has the wrong length or a non-positive entry, or if the
+                has the wrong length or a non-positive entry, if
+                `latent_own_lag_mean` has the wrong length or a non-finite
+                entry (issue 09c), or if the
                 error distribution is not Gaussian.
         """
         import pymc as pm
@@ -1035,6 +1150,7 @@ class VAR(ImpulsoBaseModel):
         if n_latent:
             n_vars = _latent_n_vars(endog, exog, endog_names, endog_scales, latent_names, error_dist)
             init_sigma = _latent_init_sigma(latent_init_sigma, n_latent)
+            own_lag_mean = _latent_own_lag_mean(latent_own_lag_mean, n_latent)
         else:
             n_vars = _symbolic_endog_n_vars(endog, endog_scales, endog_names) if symbolic else endog.shape[1]
         # With latent series (issue 09b) the observed block is conditioned on
@@ -1059,6 +1175,11 @@ class VAR(ImpulsoBaseModel):
         # exogenous block is needed before then.
         if n_latent:
             X_exog = exog[n_lags:] if exog is not None else None
+            # Latent equations' own first lags (issue 09c). `coeff` is
+            # lag-major, so lag 1 of series `i` is column `i`.
+            B_mu = np.array(prior_params["B_mu"], dtype=float)
+            B_mu[np.arange(n_latent), np.arange(n_latent)] = own_lag_mean
+            prior_params = {**prior_params, "B_mu": B_mu}
         else:
             Y, X_lag, X_exog = build_lag_design_matrix(endog, n_lags, exog)
 
@@ -1158,6 +1279,11 @@ class VAR(ImpulsoBaseModel):
         # `resid_obs - L[obs, lat] z ~ MvN(0, L[obs, obs] L[obs, obs]')`.
         latent = z = None
         if n_latent:
+            # Start the latent equations inside the stationary region: an
+            # explosive own-lag makes the generated path explode and freezes
+            # the chain (issue 09c, `prototype/REPORT.md`, "Caveat 1").
+            model.set_initval(B, _latent_b_initval(prior_params["B_mu"], n_latent))
+            _register_latent_stationarity(B, n_latent, n_vars, n_lags)
             latent, z = _latent_path(endog, X_exog, n_lags, n_vars, n_latent, intercept_term, B, B_exog, L, init_sigma)
             full = pt.concatenate([latent, pt.as_tensor_variable(endog)], axis=1)
             Y, X_lag, _ = build_lag_design_matrix(full, n_lags)
