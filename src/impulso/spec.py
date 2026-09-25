@@ -44,7 +44,12 @@ _ERROR_DIST_REGISTRY: dict[str, type] = {
 _EXOG_SD_FLOOR_FRACTION: float = 1e-3
 
 
-def _validate_sigma_is_usable(sigma: np.ndarray, endog_names: Sequence[str]) -> None:
+def _validate_sigma_is_usable(
+    sigma: np.ndarray,
+    endog_names: Sequence[str],
+    *,
+    source: Literal["ar1_residual_sd", "endog_scales"] = "ar1_residual_sd",
+) -> None:
     """Reject a per-variable scale that would break every prior dividing by it (issue 07b).
 
     `sigma` (`ar1_residual_sd(endog)`, or the caller's `endog_scales`) is resolved
@@ -65,26 +70,91 @@ def _validate_sigma_is_usable(sigma: np.ndarray, endog_names: Sequence[str]) -> 
     `MinnesotaPrior.build_priors`), not `inf` or `nan`, and that column is a real,
     varying measurement whose coefficient is still identified.
 
+    `source` only changes the wording of the error: `sigma` reaches this function
+    either computed from the data (`ar1_residual_sd`) or supplied directly by the
+    caller (`endog_scales`), and a message blaming `ar1_residual_sd` for a bad
+    `endog_scales` is simply wrong — that function never ran (issue 08c).
+
     Args:
-        sigma: Per-variable AR(1) residual standard deviation, shape `(n_vars,)`.
+        sigma: Per-variable scale, shape `(n_vars,)` — `ar1_residual_sd(endog)`,
+            or the caller's `endog_scales`.
         endog_names: Names for each endogenous variable, used only to name the
             offending columns in the error message.
+        source: Which one produced `sigma`. `"ar1_residual_sd"` (the default)
+            blames the data-derived residual scale; `"endog_scales"` blames the
+            caller-supplied array instead.
 
     Raises:
         ValueError: If any entry of `sigma` is zero, negative, or non-finite.
     """
     bad = np.flatnonzero(~np.isfinite(sigma) | (sigma <= 0.0))
-    if bad.size:
-        labels = [endog_names[i] for i in bad]
+    if not bad.size:
+        return
+    labels = [endog_names[i] for i in bad]
+    if source == "endog_scales":
         raise ValueError(
-            f"endog columns have a zero, negative, or non-finite scale: {_format_names(labels)}. "
-            "`ar1_residual_sd` came out non-positive (or non-finite) for these columns, and this scale "
-            "is shared by the Minnesota cross-lag prior (docs/adr/0015) and the exogenous-coefficient "
-            "prior, both of which divide by it. VARData already rejects columns that are constant over "
-            "the whole sample; this column varies but is nonetheless perfectly predictable from its own "
-            "first lag (e.g. a very short, noiseless sample), so its residual scale is exactly zero. Add "
-            "noise, drop the column, or otherwise make its scale identified."
+            f"endog_scales has a zero, negative, or non-finite entry for these columns: "
+            f"{_format_names(labels)}. This scale is shared by the Minnesota cross-lag prior "
+            "(docs/adr/0015) and the exogenous-coefficient prior, both of which divide by it. Supply a "
+            "strictly positive, finite scale for every variable, or omit `endog_scales` so it is "
+            "derived from the data instead."
         )
+    raise ValueError(
+        f"endog columns have a zero, negative, or non-finite scale: {_format_names(labels)}. "
+        "`ar1_residual_sd` came out non-positive (or non-finite) for these columns, and this scale "
+        "is shared by the Minnesota cross-lag prior (docs/adr/0015) and the exogenous-coefficient "
+        "prior, both of which divide by it. VARData already rejects columns that are constant over "
+        "the whole sample; this column varies but is nonetheless perfectly predictable from its own "
+        "first lag (e.g. a very short, noiseless sample), so its residual scale is exactly zero. Add "
+        "noise, drop the column, or otherwise make its scale identified."
+    )
+
+
+def _resolve_sigma(
+    endog: np.ndarray,
+    endog_scales: np.ndarray | Sequence[float] | None,
+    endog_names: Sequence[str],
+    n_vars: int,
+) -> np.ndarray:
+    """Resolve and validate `VAR.build_in_model`'s shared `sigma` (issue 08c).
+
+    `endog_scales=None` computes `sigma` from `endog` via `ar1_residual_sd`.
+    Otherwise the caller's array is coerced with `np.asarray(..., dtype=float)`
+    — a plain list is accepted, not only an ndarray — and its shape checked
+    against `n_vars` before validation, so a wrong-length `endog_scales` raises
+    a clear `ValueError` here instead of an opaque `TypeError`/`IndexError`
+    from numpy code further down. Either way, `_validate_sigma_is_usable` gets
+    told which path produced `sigma`, so its error names the actual source.
+
+    Args:
+        endog: Endogenous data, shape `(T, n_vars)`.
+        endog_scales: Caller-supplied scale, or `None` to derive it from `endog`.
+        endog_names: Names for each endogenous column, used to name offending
+            columns in a validation error.
+        n_vars: Expected length of `sigma` — `endog.shape[1]`.
+
+    Returns:
+        `sigma`, shape `(n_vars,)`.
+
+    Raises:
+        ValueError: If `endog_scales` does not have shape `(n_vars,)`.
+        ValueError: If any entry of the resolved `sigma` is zero, negative or
+            non-finite (issue 07b).
+    """
+    # Lazy: `_conjugate` imports scipy at module level, and `spec` is on the
+    # package import path.
+    from impulso._conjugate import ar1_residual_sd
+
+    if endog_scales is None:
+        sigma = ar1_residual_sd(endog)
+        _validate_sigma_is_usable(sigma, endog_names, source="ar1_residual_sd")
+        return sigma
+
+    sigma = np.asarray(endog_scales, dtype=float)
+    if sigma.shape != (n_vars,):
+        raise ValueError(f"endog_scales must have shape ({n_vars},) to match n_vars={n_vars}, got shape {sigma.shape}")
+    _validate_sigma_is_usable(sigma, endog_names, source="endog_scales")
+    return sigma
 
 
 def _intercept_mask(endog_names: Sequence[str], intercept_equations: Sequence[str] | None) -> np.ndarray:
@@ -389,7 +459,7 @@ class VAR(ImpulsoBaseModel):
         n_lags: int,
         endog_names: Sequence[str],
         exog_names: Sequence[str] | None = None,
-        endog_scales: np.ndarray | None = None,
+        endog_scales: np.ndarray | Sequence[float] | None = None,
         intercept_equations: Sequence[str] | None = None,
     ) -> VARModelHandles:
         """Register this VAR specification into the active PyMC model.
@@ -453,13 +523,14 @@ class VAR(ImpulsoBaseModel):
                 `n_vars`. Labels the `var`/`var1`/`var2`/`coeff` coordinates.
             exog_names: Names for each exogenous column, length `n_exog`.
                 Required when `exog` is given; labels the `exog` coordinate.
-            endog_scales: Per-variable scale `sigma`, shape `(n_vars,)`.
-                `None` (the default) computes it from `endog` with
-                `ar1_residual_sd`. The same array feeds both the prior's
-                Minnesota cross-lag scaling `sigma_i / sigma_j`
-                (`Prior.build_priors`, docs/adr/0015) and the exogenous
-                prior (`_exog_prior_sigma`, docs/adr/0012), so it matters
-                even when `exog` is `None`.
+            endog_scales: Per-variable scale `sigma`, shape `(n_vars,)` — an
+                array or any array-like (e.g. a plain list) accepted by
+                `np.asarray(..., dtype=float)`. `None` (the default) computes
+                it from `endog` with `ar1_residual_sd`. The same array feeds
+                both the prior's Minnesota cross-lag scaling `sigma_i /
+                sigma_j` (`Prior.build_priors`, docs/adr/0015) and the
+                exogenous prior (`_exog_prior_sigma`, docs/adr/0012), so it
+                matters even when `exog` is `None`.
             intercept_equations: Names of the endogenous equations that get
                 an intercept, a subset of `endog_names` in any order. `None`
                 (the default) means every equation — the same graph as
@@ -485,27 +556,26 @@ class VAR(ImpulsoBaseModel):
                 above.
             ValueError: If any entry of the scale — computed or supplied via
                 `endog_scales` — is zero, negative or non-finite (issue 07b).
+            ValueError: If `endog_scales` does not have shape `(n_vars,)`
+                (issue 08c).
             ValueError: If `intercept_equations` names an equation not in
                 `endog_names`, or names one more than once.
         """
         import pymc as pm
         import pytensor.tensor as pt
 
-        # Lazy: `_conjugate` imports scipy at module level, and `spec` is on
-        # the package import path.
-        from impulso._conjugate import ar1_residual_sd
-
         model = pm.modelcontext(None)
 
         # `sigma` is the per-variable scale — computed once here (or taken
         # from the caller) and reused for both the Minnesota lag-coefficient
         # prior (cross-lag sigma_i/sigma_j scaling, docs/adr/0015) and the
-        # exogenous-coefficient prior below (#192). Validated immediately,
-        # whichever way it arrived: a zero/non-finite entry would blow up
-        # both (issue 07b).
+        # exogenous-coefficient prior below (#192). `_resolve_sigma` coerces
+        # and shape-checks a caller-supplied `endog_scales` and validates
+        # either path immediately: a zero/non-finite entry would blow up
+        # both (issue 07b), and it tailors the error to the actual source
+        # (issue 08c).
         n_vars = endog.shape[1]
-        sigma = endog_scales if endog_scales is not None else ar1_residual_sd(endog)
-        _validate_sigma_is_usable(sigma, endog_names)
+        sigma = _resolve_sigma(endog, endog_scales, endog_names, n_vars)
         intercept_mask = _intercept_mask(endog_names, intercept_equations)
         prior_params = self.resolved_prior.build_priors(n_vars=n_vars, n_lags=n_lags, sigma=sigma)
 

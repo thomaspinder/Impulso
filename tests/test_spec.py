@@ -620,7 +620,6 @@ class TestValidateSigmaIsUsable:
         with pytest.raises(ValueError, match="ar1_residual_sd"):
             _validate_sigma_is_usable(np.array([1.0, 0.0]), ["y1", "y2"])
 
-    @pytest.mark.xfail(strict=True, reason="issue 08c: source kwarg not implemented yet")
     def test_endog_scales_source_drops_ar1_residual_sd_mention(self):
         """`source="endog_scales"` names the actual source instead of blaming
         `ar1_residual_sd`, which never ran on this path (issue 08c)."""
@@ -630,7 +629,7 @@ class TestValidateSigmaIsUsable:
             _validate_sigma_is_usable(
                 np.array([1.0, 0.0]),
                 ["y1", "y2"],
-                source="endog_scales",  # ty: ignore[unknown-argument]
+                source="endog_scales",
             )
         assert "ar1_residual_sd" not in str(exc_info.value)
         assert "'y2'" in str(exc_info.value)
