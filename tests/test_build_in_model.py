@@ -33,8 +33,6 @@ import pytest
 from impulso.data import VARData
 from impulso.spec import VAR
 
-xfail_09c = pytest.mark.xfail(strict=True, reason="issue 09c")
-
 
 def _make_data(
     rng: np.random.Generator,
@@ -1233,7 +1231,6 @@ class TestLatentSeries:
         })
         np.testing.assert_allclose(np.ravel(logp), stats.norm(0, 3.0).logpdf([0.4, -1.2]))
 
-    @xfail_09c
     @pytest.mark.slow
     @pytest.mark.parametrize("seed", [1, 2, 3])
     def test_small_latent_var_samples(self, seed):
@@ -1263,7 +1260,7 @@ class TestLatentSeries:
                 latent_names=["b"],
                 latent_init_sigma=0.5,
                 intercept_equations=["y"],
-                latent_own_lag_mean=0.0,  # ty: ignore[unknown-argument]
+                latent_own_lag_mean=0.0,
             )
             idata = pm.sample(
                 draws=draws,
@@ -1433,14 +1430,13 @@ def _prior_mu(rv) -> np.ndarray:
 class TestLatentOwnLagMeanAndInit:
     """`latent_own_lag_mean` and the stationary initial point for latent equations (issue 09c)."""
 
-    @xfail_09c
     @pytest.mark.parametrize(("own_lag_mean", "expected"), [(0.0, [0.0, 0.0]), ([0.0, 0.3], [0.0, 0.3])])
     def test_own_lag_mean_applies_to_latent_rows_only(self, rng, own_lag_mean, expected):
         import pymc as pm
 
         kwargs = _two_latent_setup(rng)
         with pm.Model() as model:
-            VAR(lags=2).build_in_model(**kwargs, latent_own_lag_mean=own_lag_mean)  # ty: ignore[unknown-argument]
+            VAR(lags=2).build_in_model(**kwargs, latent_own_lag_mean=own_lag_mean)
 
         want = _minnesota_b_mu(kwargs)
         want[0, 0], want[1, 1] = expected
@@ -1455,7 +1451,6 @@ class TestLatentOwnLagMeanAndInit:
 
         np.testing.assert_allclose(_prior_mu(model["B"]), _minnesota_b_mu(kwargs))
 
-    @xfail_09c
     @pytest.mark.parametrize("n_lags", [1, 2])
     def test_initial_point_puts_latent_rows_in_the_stationary_region(self, rng, n_lags):
         import pymc as pm
@@ -1482,15 +1477,13 @@ class TestLatentOwnLagMeanAndInit:
 
         np.testing.assert_allclose(model.initial_point(random_seed=0)["B"], _minnesota_b_mu(kwargs))
 
-    @xfail_09c
     @pytest.mark.parametrize(("own_lag_mean", "match"), [([0.0, 0.1, 0.2], "entries"), (np.nan, "finite")])
     def test_bad_own_lag_mean_raises(self, rng, own_lag_mean, match):
         import pymc as pm
 
         with pm.Model(), pytest.raises(ValueError, match=match):
-            VAR(lags=2).build_in_model(**_two_latent_setup(rng), latent_own_lag_mean=own_lag_mean)  # ty: ignore[unknown-argument]
+            VAR(lags=2).build_in_model(**_two_latent_setup(rng), latent_own_lag_mean=own_lag_mean)
 
-    @xfail_09c
     @pytest.mark.slow
     @pytest.mark.parametrize("seed", [1, 2, 3])
     def test_default_init_samples_with_own_lag_mean_zero(self, seed):
@@ -1511,7 +1504,7 @@ class TestLatentOwnLagMeanAndInit:
                 endog_scales=[0.5, 0.3],
                 latent_names=["b"],
                 intercept_equations=["y"],
-                latent_own_lag_mean=0.0,  # ty: ignore[unknown-argument]
+                latent_own_lag_mean=0.0,
             )
             idata = pm.sample(
                 draws=draws,
@@ -1564,7 +1557,6 @@ class TestLatentStationarity:
         fn = model.compile_fn(potential, inputs=model.value_vars, on_unused_input="ignore")
         return float(fn({**model.initial_point(random_seed=0), "B": B}))
 
-    @xfail_09c
     @pytest.mark.parametrize("n_lags", [1, 2])
     @pytest.mark.parametrize("n_latent", [1, 2])
     def test_potential_is_zero_inside_and_minus_inf_outside(self, rng, n_lags, n_latent):
@@ -1596,11 +1588,10 @@ class TestLatentStationarity:
         if n_lags == 2 or n_latent == 2:
             assert self._potential(model, combined) == -np.inf
 
-    @xfail_09c
     @pytest.mark.parametrize("n_lags", [1, 2, 3])
     @pytest.mark.parametrize("n_latent", [1, 2])
     def test_companion_matches_numpy_reference(self, rng, n_lags, n_latent):
-        from impulso.spec import _latent_companion  # ty: ignore[unresolved-import]
+        from impulso.spec import _latent_companion
 
         n_vars = n_latent + 2
         B = rng.standard_normal((n_vars, n_vars * n_lags))
@@ -1609,7 +1600,6 @@ class TestLatentStationarity:
             _numpy_companion(B, n_latent, n_vars, n_lags),
         )
 
-    @xfail_09c
     def test_jittered_explosive_starts_are_rejected(self, rng):
         """PyMC's jitter moves the own-lag start of 0.5 by up to 1, so without the
         constraint about a quarter of starts are explosive; the init retry
