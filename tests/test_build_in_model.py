@@ -1614,7 +1614,6 @@ class TestLatentStationarity:
         own_lags = np.array([point["B"][0, 0] for point in points])
         assert np.abs(own_lags).max() < 1.0
 
-    @xfail_09c
     @pytest.mark.parametrize("n_lags", [1, 2])
     @pytest.mark.parametrize("value", [np.nan, np.inf])
     def test_non_finite_latent_block_gives_minus_inf_not_an_error(self, rng, value, n_lags):

@@ -386,7 +386,13 @@ def _register_latent_stationarity(B: Any, n_latent: int, n_vars: int, n_lags: in
         name="spectral_radius",
         **{override: lambda inputs, outputs, output_grads: [pt.zeros_like(inputs[0])]},
     )
-    radius = spectral_radius(_latent_companion(B, n_latent, n_vars, n_lags))
+    # `eig` raises on a non-finite matrix, which would abort the sampler
+    # instead of recording a divergence. Swap such a matrix for an
+    # explosive one (radius 2) so the Potential is `-inf`.
+    matrix = _latent_companion(B, n_latent, n_vars, n_lags)
+    size = n_latent * n_lags
+    matrix = pt.switch(pt.all(pt.isfinite(matrix)), matrix, 2.0 * pt.eye(size))
+    radius = spectral_radius(matrix)
     pm.Potential("latent_stationarity", pt.switch(pt.lt(radius, 1.0), np.float64(0.0), np.float64(-np.inf)))
 
 
@@ -999,7 +1005,10 @@ class VAR(ImpulsoBaseModel):
         their prior mean, which is PyMC's default start for them anyway.
         PyMC's `jitter+adapt_diag` start moves this by up to +-1; a jittered
         start outside the region has `-inf` log density, and PyMC redraws it
-        (`jitter_max_retries`).
+        (`jitter_max_retries`). A Potential is not a random variable, so
+        `pm.sample_prior_predictive` ignores `"latent_stationarity"`:
+        prior-predictive latent paths are drawn from the untruncated prior
+        and can still explode.
 
         Nesting: open a `pm.Model(name=prefix)` before calling this method
         and every free random variable, `Deterministic` and the likelihood
