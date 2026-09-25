@@ -1231,3 +1231,51 @@ class TestLatentSeries:
         divergences = int(np.asarray(idata.sample_stats["diverging"]).sum())
         assert divergences < 20
         assert np.all(np.isfinite(np.asarray(idata.posterior["latent"])))
+
+    @_LATENT_XFAIL
+    @pytest.mark.parametrize("n_lags", [1, 3])
+    @pytest.mark.parametrize("n_latent", [1, 2])
+    def test_path_and_joint_logp_across_lag_orders_and_latent_counts(self, rng, n_lags, n_latent):
+        """The recursion and the change-of-variables identity hold for any
+        lag order and any number of latent series, including the `n_lags == 1`
+        and `n_latent == 1` edge cases whose static shapes scan must keep."""
+        import pymc as pm
+        from scipy import stats
+
+        T, n_obs = 30, 2
+        n_vars = n_latent + n_obs
+        obs = rng.standard_normal((T, n_obs))
+        exog = rng.standard_normal((T, 1))
+        latent_names = [f"b{i}" for i in range(n_latent)]
+        with pm.Model() as model:
+            VAR(lags=n_lags).build_in_model(
+                endog=obs,
+                exog=exog,
+                n_lags=n_lags,
+                endog_names=[*latent_names, "y1", "y2"],
+                exog_names=["x"],
+                endog_scales=np.linspace(0.5, 2.0, n_vars),
+                latent_names=latent_names,  # ty: ignore[unknown-argument]
+            )
+
+        point = _perturbed_point(model, rng)
+        values = _evaluate(
+            model, point, ["latent", "B", "B_exog", "L", "intercept", "latent_init", "latent_innovations", "obs"]
+        )
+        B, L, z, c = values["B"], values["L"], values["latent_innovations"], values["intercept"]
+
+        full = np.zeros((T, n_vars))
+        full[:, n_latent:] = obs
+        full[:n_lags, :n_latent] = values["latent_init"]
+        for t in range(n_lags, T):
+            x_lag = np.concatenate([full[t - lag] for lag in range(1, n_lags + 1)])
+            mean = c + B @ x_lag + values["B_exog"] @ exog[t]
+            full[t, :n_latent] = mean[:n_latent] + L[:n_latent, :n_latent] @ z[t - n_lags]
+        np.testing.assert_allclose(values["latent"], full[:, :n_latent], rtol=1e-10, atol=1e-10)
+
+        x_lag = np.array([np.concatenate([full[t - lag] for lag in range(1, n_lags + 1)]) for t in range(n_lags, T)])
+        resid = full[n_lags:] - (c + x_lag @ B.T + exog[n_lags:] @ values["B_exog"].T)
+        joint = stats.multivariate_normal(mean=np.zeros(n_vars), cov=L @ L.T).logpdf(resid).sum()
+        jacobian = -(T - n_lags) * np.log(np.diag(L)[:n_latent]).sum()
+        total = float(values["obs"]) + stats.norm.logpdf(z).sum() + jacobian
+        assert total == pytest.approx(joint, rel=1e-10)
