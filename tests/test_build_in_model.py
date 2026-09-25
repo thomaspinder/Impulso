@@ -1,4 +1,4 @@
-"""Tests for `VAR.build_in_model` (issues 08a, 08b).
+"""Tests for `VAR.build_in_model` (issues 08a, 08b, 09a).
 
 `VAR._build_pymc_model` becomes a thin wrapper: it opens a fresh
 `pymc.Model`, converts a `VARData` into arrays, and delegates to a new
@@ -16,6 +16,10 @@ model is active on entry. Several kinds of test live here:
   coord that a strict subset needs, and the two edge cases (`None`/every
   name given -> today's behaviour unchanged; every name excluded -> no
   intercept variable at all).
+* `TestSymbolicEndog` (issue 09a) passes the observed endogenous block as a
+  symbolic tensor (`pytensor.shared` or `pm.Data`). The likelihood becomes a
+  `pm.Potential` over `ErrorDistribution.logp`, and `endog_scales` is
+  required because `ar1_residual_sd` needs concrete data.
 """
 
 import numpy as np
@@ -737,3 +741,238 @@ class TestInterceptEquations:
         data = _make_data(rng)
         model, _ = VAR(lags=1)._build_pymc_model(data)
         assert _model_logp(model) == pytest.approx(-225.00961968371863)
+
+
+_ISSUE_09A = pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+
+
+def _build(spec, endog, data, **kwargs):
+    """`spec.build_in_model` on `data`'s names/exog, with `endog` swapped in."""
+    return spec.build_in_model(
+        endog=endog,
+        exog=data.exog,
+        n_lags=1,
+        endog_names=data.endog_names,
+        exog_names=data.exog_names,
+        **kwargs,
+    )
+
+
+class TestSymbolicEndog:
+    """`build_in_model` with the observed endog block as a PyTensor variable (issue 09a)."""
+
+    @_ISSUE_09A
+    def test_pm_data_endog_compiles(self, rng):
+        import pymc as pm
+
+        from impulso import ar1_residual_sd
+
+        data = _make_data(rng)
+        with pm.Model() as model:
+            endog = pm.Data("endog", data.endog)
+            _build(VAR(lags=1), endog, data, endog_scales=ar1_residual_sd(data.endog))
+
+        assert np.isfinite(_model_logp(model))
+
+    @_ISSUE_09A
+    @pytest.mark.parametrize("error_dist", ["gaussian", "student_t"])
+    @pytest.mark.parametrize("exog_names", [None, ["z"]])
+    def test_logp_matches_numpy_path(self, rng, error_dist, exog_names):
+        """With the tensor fixed to the data and `endog_scales` equal to the
+        data's own `ar1_residual_sd`, the Potential contributes the same
+        density the observed RV does, so the joint log-probabilities agree."""
+        import pymc as pm
+        import pytensor
+
+        from impulso import ar1_residual_sd
+
+        data = _make_data(rng, exog_names=exog_names)
+        spec = VAR(lags=1, error_dist=error_dist)
+
+        with pm.Model() as numpy_model:
+            _build(spec, data.endog, data)
+        with pm.Model() as symbolic_model:
+            _build(spec, pytensor.shared(data.endog), data, endog_scales=ar1_residual_sd(data.endog))
+
+        assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
+
+    @_ISSUE_09A
+    def test_logp_matches_numpy_path_with_pm_data(self, rng):
+        import pymc as pm
+
+        from impulso import ar1_residual_sd
+
+        data = _make_data(rng, exog_names=["z"])
+        spec = VAR(lags=1, error_dist="student_t")
+
+        with pm.Model() as numpy_model:
+            _build(spec, data.endog, data)
+        with pm.Model() as symbolic_model:
+            endog = pm.Data("endog", data.endog)
+            _build(spec, endog, data, endog_scales=ar1_residual_sd(data.endog))
+
+        assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
+
+    @_ISSUE_09A
+    def test_likelihood_is_a_potential_named_obs(self, rng):
+        """The handles' `obs` is the registered `pm.Potential`, named like
+        the numpy path's observed RV."""
+        import pymc as pm
+        import pytensor
+
+        data = _make_data(rng)
+        with pm.Model() as model:
+            handles = _build(VAR(lags=1), pytensor.shared(data.endog), data, endog_scales=np.ones(2))
+
+        assert handles.obs is model["obs"]
+        assert handles.obs in model.potentials
+        assert not model.observed_RVs
+
+    @_ISSUE_09A
+    def test_symbolic_endog_without_endog_scales_raises(self, rng):
+        import pymc as pm
+        import pytensor
+
+        data = _make_data(rng)
+        with pm.Model(), pytest.raises(ValueError, match="endog_scales is required"):
+            _build(VAR(lags=1), pytensor.shared(data.endog), data)
+
+    @_ISSUE_09A
+    def test_endog_scales_flow_into_both_priors(self, rng):
+        import pymc as pm
+        import pytensor
+
+        from impulso.spec import _exog_prior_sigma
+
+        data = _make_data(rng, exog_names=["z"])
+        spec = VAR(lags=1)
+        scales = np.array([2.5, 7.0])
+
+        with pm.Model():
+            handles = _build(spec, pytensor.shared(data.endog), data, endog_scales=scales)
+
+        b_sigma = handles.B.owner.op.dist_params(handles.B.owner)[1].eval()
+        b_exog_sigma = handles.B_exog.owner.op.dist_params(handles.B_exog.owner)[1].eval()
+        expected_b = spec.resolved_prior.build_priors(n_vars=2, n_lags=1, sigma=scales)["B_sigma"]
+        expected_b_exog = _exog_prior_sigma(scales, data.exog[1:], spec.exog_prior_scale)
+        np.testing.assert_allclose(b_sigma, expected_b)
+        np.testing.assert_allclose(b_exog_sigma, expected_b_exog)
+
+    @_ISSUE_09A
+    def test_intercept_equations_on_symbolic_path(self, rng):
+        """Excluding an equation's intercept works the same on the symbolic
+        path: same coord and dims, same log-probability as the numpy path."""
+        import pymc as pm
+        import pytensor
+
+        from impulso import ar1_residual_sd
+
+        data = _make_data(rng, n_vars=3)
+        spec = VAR(lags=1)
+
+        with pm.Model() as numpy_model:
+            _build(spec, data.endog, data, intercept_equations=["y1", "y3"])
+        with pm.Model() as symbolic_model:
+            handles = _build(
+                spec,
+                pytensor.shared(data.endog),
+                data,
+                endog_scales=ar1_residual_sd(data.endog),
+                intercept_equations=["y1", "y3"],
+            )
+
+        assert list(symbolic_model.coords["var_intercept"]) == ["y1", "y3"]
+        assert symbolic_model.named_vars_to_dims["intercept"] == ("var_intercept",)
+        assert handles.intercept is not None
+        assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
+
+    @_ISSUE_09A
+    def test_static_length_registers_time_coord(self, rng):
+        """A tensor with a known static length gets the same positional
+        `time` coord as the numpy path."""
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        data = _make_data(rng)
+        with pm.Model() as model:
+            _build(VAR(lags=1), pt.constant(data.endog), data, endog_scales=np.ones(2))
+
+        assert len(model.coords["time"]) == data.endog.shape[0] - 1
+
+    @_ISSUE_09A
+    def test_static_length_mismatch_with_existing_time_coord_raises(self, rng):
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        data = _make_data(rng)
+        with pm.Model(coords={"time": range(5)}), pytest.raises(ValueError, match="'time' coordinate"):
+            _build(VAR(lags=1), pt.constant(data.endog), data, endog_scales=np.ones(2))
+
+    @_ISSUE_09A
+    def test_unknown_length_leaves_time_coord_alone(self, rng):
+        """`pm.Data` has no static length, and a Potential carries no dims, so
+        no `time` coord is registered or checked."""
+        import pymc as pm
+
+        data = _make_data(rng)
+        with pm.Model(coords={"time": range(5)}) as model:
+            endog = pm.Data("endog", data.endog)
+            _build(VAR(lags=1), endog, data, endog_scales=np.ones(2))
+
+        assert len(model.coords["time"]) == 5
+
+    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+    def test_pmd_data_values_works(self, rng):
+        """The contract pymc-marketing uses: `pmd.Data(...).values`, a plain
+        `TensorVariable`, is accepted and matches the numpy path's logp."""
+        pmd = pytest.importorskip("pymc.dims")
+        import pymc as pm
+
+        from impulso import ar1_residual_sd
+
+        data = _make_data(rng)
+        spec = VAR(lags=1)
+
+        with pm.Model() as numpy_model:
+            _build(spec, data.endog, data)
+        with pm.Model(coords={"date": range(data.endog.shape[0]), "series": data.endog_names}) as symbolic_model:
+            endog = pmd.Data("endog", data.endog, dims=("date", "series"))
+            _build(spec, endog.values, data, endog_scales=ar1_residual_sd(data.endog))
+
+        assert _model_logp(symbolic_model) == pytest.approx(_model_logp(numpy_model))
+
+    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+    def test_raw_xtensor_endog_raises_pointing_at_values(self, rng):
+        pmd = pytest.importorskip("pymc.dims")
+        import pymc as pm
+
+        data = _make_data(rng)
+        with pm.Model(coords={"date": range(data.endog.shape[0]), "series": data.endog_names}):
+            endog = pmd.Data("endog", data.endog, dims=("date", "series"))
+            with pytest.raises(TypeError, match=r"\.values"):
+                _build(VAR(lags=1), endog, data, endog_scales=np.ones(2))
+
+    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+    def test_non_2d_symbolic_endog_raises(self, rng):
+        import pymc as pm
+        import pytensor
+
+        data = _make_data(rng)
+        with pm.Model(), pytest.raises(ValueError, match="must be 2-D"):
+            _build(VAR(lags=1), pytensor.shared(data.endog[:, 0]), data, endog_scales=np.ones(2))
+
+    @pytest.mark.xfail(strict=True, reason="issue 09a: symbolic observed endog not supported yet")
+    def test_static_column_count_mismatch_raises(self, rng):
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        data = _make_data(rng, n_vars=3)
+        with pm.Model(), pytest.raises(ValueError, match="3 columns but endog_names has 2 names"):
+            spec = VAR(lags=1)
+            spec.build_in_model(
+                endog=pt.constant(data.endog),
+                exog=None,
+                n_lags=1,
+                endog_names=data.endog_names[:2],
+                endog_scales=np.ones(2),
+            )
