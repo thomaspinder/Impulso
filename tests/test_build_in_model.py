@@ -1,4 +1,4 @@
-"""Tests for `VAR.build_in_model` (issues 08a, 08b, 09a, 09b).
+"""Tests for `VAR.build_in_model` (issues 08a, 08b, 09a, 09b, 09d).
 
 `VAR._build_pymc_model` becomes a thin wrapper: it opens a fresh
 `pymc.Model`, converts a `VARData` into arrays, and delegates to a new
@@ -24,6 +24,10 @@ model is active on entry. Several kinds of test live here:
   `latent_names`. `build_in_model` generates their paths non-centred, from
   standard-normal innovations, and returns them; the observed block's
   likelihood is conditional on those innovations.
+* `TestEmbeddedPathRejections` (issue 09d) checks that a symbolic `endog`
+  or latent series rejects string `lags`, non-`Constant` volatility and
+  (latent series only) non-Gaussian errors before registering anything,
+  and that the plain numpy path still supports all three.
 """
 
 import numpy as np
@@ -1658,7 +1662,6 @@ class TestEmbeddedPathRejections:
     into the model, so a raise leaves `model.named_vars` empty.
     """
 
-    @pytest.mark.xfail(strict=True, reason="issue 09d")
     def test_string_lags_with_symbolic_endog_raises(self, rng):
         import pymc as pm
         import pytensor
@@ -1668,7 +1671,6 @@ class TestEmbeddedPathRejections:
             _build(VAR(lags="bic"), pytensor.shared(data.endog), data, endog_scales=np.ones(2))
         assert len(model.named_vars) == 0
 
-    @pytest.mark.xfail(strict=True, reason="issue 09d")
     def test_string_lags_with_latent_series_raises(self, rng):
         import pymc as pm
 
@@ -1676,7 +1678,6 @@ class TestEmbeddedPathRejections:
             VAR(lags="bic").build_in_model(**_latent_setup(rng))
         assert len(model.named_vars) == 0
 
-    @pytest.mark.xfail(strict=True, reason="issue 09d")
     def test_non_constant_volatility_with_symbolic_endog_raises(self, rng):
         import pymc as pm
         import pytensor
@@ -1686,7 +1687,6 @@ class TestEmbeddedPathRejections:
             _build(VAR(lags=1, volatility="sv"), pytensor.shared(data.endog), data, endog_scales=np.ones(2))
         assert len(model.named_vars) == 0
 
-    @pytest.mark.xfail(strict=True, reason="issue 09d")
     def test_non_constant_volatility_with_latent_series_raises(self, rng):
         import pymc as pm
 
