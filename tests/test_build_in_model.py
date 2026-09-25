@@ -1642,3 +1642,78 @@ class TestLatentStationarity:
         point = model.initial_point(random_seed=0)
         assert np.isfinite(model.compile_logp(mode="JAX")(point))
         assert np.all(np.isfinite(model.compile_dlogp(mode="JAX")(point)))
+
+
+class TestEmbeddedPathRejections:
+    """`VAR.build_in_model` rejects options the embedded path cannot support (issue 09d).
+
+    The embedded path is a symbolic `endog` (issue 09a) or latent series
+    (issue 09b): both condition the observed likelihood on generated or
+    graph values instead of concrete numpy data, so neither can run OLS.
+    `lags` as a selection-criterion string and any non-`Constant`
+    `volatility` both need OLS on data, so they are rejected in both cases.
+    Latent series specifically also need Gaussian errors: the non-centred
+    conditional likelihood has no simple closed form for a multivariate
+    Student-t. Every rejection is checked before anything is registered
+    into the model, so a raise leaves `model.named_vars` empty.
+    """
+
+    @pytest.mark.xfail(strict=True, reason="issue 09d")
+    def test_string_lags_with_symbolic_endog_raises(self, rng):
+        import pymc as pm
+        import pytensor
+
+        data = _make_data(rng)
+        with pm.Model() as model, pytest.raises(ValueError, match="lag order"):
+            _build(VAR(lags="bic"), pytensor.shared(data.endog), data, endog_scales=np.ones(2))
+        assert len(model.named_vars) == 0
+
+    @pytest.mark.xfail(strict=True, reason="issue 09d")
+    def test_string_lags_with_latent_series_raises(self, rng):
+        import pymc as pm
+
+        with pm.Model() as model, pytest.raises(ValueError, match="lag order"):
+            VAR(lags="bic").build_in_model(**_latent_setup(rng))
+        assert len(model.named_vars) == 0
+
+    @pytest.mark.xfail(strict=True, reason="issue 09d")
+    def test_non_constant_volatility_with_symbolic_endog_raises(self, rng):
+        import pymc as pm
+        import pytensor
+
+        data = _make_data(rng)
+        with pm.Model() as model, pytest.raises(ValueError, match="OLS residuals"):
+            _build(VAR(lags=1, volatility="sv"), pytensor.shared(data.endog), data, endog_scales=np.ones(2))
+        assert len(model.named_vars) == 0
+
+    @pytest.mark.xfail(strict=True, reason="issue 09d")
+    def test_non_constant_volatility_with_latent_series_raises(self, rng):
+        import pymc as pm
+
+        with pm.Model() as model, pytest.raises(ValueError, match="OLS residuals"):
+            VAR(lags=2, volatility="sv").build_in_model(**_latent_setup(rng))
+        assert len(model.named_vars) == 0
+
+    def test_student_t_with_latent_series_registers_nothing(self, rng):
+        """Rejected since issue 09b; this pins that nothing leaks into the model first."""
+        import pymc as pm
+
+        with pm.Model() as model, pytest.raises(ValueError, match="Gaussian"):
+            VAR(lags=2, error_dist="student_t").build_in_model(**_latent_setup(rng))
+        assert len(model.named_vars) == 0
+
+    def test_string_lags_still_works_on_plain_numpy_path(self, rng):
+        data = _make_data(rng)
+        model, n_lags = VAR(lags="bic", max_lags=4)._build_pymc_model(data)
+        assert n_lags >= 1
+        assert np.isfinite(_model_logp(model))
+
+    def test_non_constant_volatility_still_works_on_plain_numpy_path(self, rng):
+        data = _make_data(rng)
+        model, _ = VAR(lags=1, volatility="sv")._build_pymc_model(data)
+        assert np.isfinite(_model_logp(model))
+
+    def test_student_t_still_works_on_plain_numpy_path(self, rng):
+        data = _make_data(rng)
+        model, _ = VAR(lags=1, error_dist="student_t")._build_pymc_model(data)
+        assert np.isfinite(_model_logp(model))
