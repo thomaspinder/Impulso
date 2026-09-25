@@ -442,6 +442,68 @@ class TestBuildInModel:
                 endog_scales=np.array([1.0, 0.0]),
             )
 
+    @pytest.mark.xfail(strict=True, reason="issue 08c: message still blames ar1_residual_sd")
+    def test_endog_scales_validation_error_names_endog_scales_not_ar1_residual_sd(self, rng):
+        """A bad caller-supplied `endog_scales` gets a message naming the actual
+        source; it must not blame `ar1_residual_sd`, which never ran (issue 08c)."""
+        import pymc as pm
+
+        data = _make_data(rng)
+        spec = VAR(lags=1)
+
+        with pm.Model(), pytest.raises(ValueError) as exc_info:
+            spec.build_in_model(
+                endog=data.endog,
+                exog=None,
+                n_lags=1,
+                endog_names=data.endog_names,
+                endog_scales=np.array([1.0, 0.0]),
+            )
+        message = str(exc_info.value)
+        assert "endog_scales" in message
+        assert "ar1_residual_sd" not in message
+
+    @pytest.mark.xfail(strict=True, reason="issue 08c: endog_scales not coerced with np.asarray yet")
+    def test_endog_scales_as_a_list_of_the_right_length_is_accepted(self, rng):
+        """A plain Python list, not just an ndarray, is coerced and accepted
+        when its length matches `n_vars` (issue 08c)."""
+        import pymc as pm
+
+        data = _make_data(rng)
+        spec = VAR(lags=1)
+
+        with pm.Model():
+            handles = spec.build_in_model(
+                endog=data.endog,
+                exog=None,
+                n_lags=1,
+                endog_names=data.endog_names,
+                endog_scales=[2.5, 7.0],
+            )
+        assert handles.B is not None
+
+    @pytest.mark.xfail(strict=True, reason="issue 08c: no explicit shape check on endog_scales yet")
+    def test_endog_scales_wrong_length_raises_a_clear_shape_error(self, rng):
+        """`endog_scales` longer than `n_vars` raises a `ValueError` naming
+        `endog_scales` and its shape, not an opaque `TypeError` from a raw
+        list hitting numpy comparisons downstream (issue 08c)."""
+        import pymc as pm
+
+        data = _make_data(rng)
+        spec = VAR(lags=1)
+
+        with pm.Model(), pytest.raises(ValueError) as exc_info:
+            spec.build_in_model(
+                endog=data.endog,
+                exog=None,
+                n_lags=1,
+                endog_names=data.endog_names,
+                endog_scales=[1.0, 2.0, 3.0],
+            )
+        message = str(exc_info.value)
+        assert "endog_scales" in message
+        assert "shape" in message
+
 
 class TestInterceptEquations:
     """`build_in_model(..., intercept_equations=...)` (issue 08b).
