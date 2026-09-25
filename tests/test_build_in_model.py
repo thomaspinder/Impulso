@@ -1,4 +1,4 @@
-"""Tests for `VAR.build_in_model` (issues 08a, 08b, 09a).
+"""Tests for `VAR.build_in_model` (issues 08a, 08b, 09a, 09b).
 
 `VAR._build_pymc_model` becomes a thin wrapper: it opens a fresh
 `pymc.Model`, converts a `VARData` into arrays, and delegates to a new
@@ -20,6 +20,10 @@ model is active on entry. Several kinds of test live here:
   symbolic tensor (`pytensor.shared` or `pm.Data`). The likelihood becomes a
   `pm.Potential` over `ErrorDistribution.logp`, and `endog_scales` is
   required because `ar1_residual_sd` needs concrete data.
+* `TestLatentSeries` (issue 09b) declares latent endogenous series via
+  `latent_names`. `build_in_model` generates their paths non-centred, from
+  standard-normal innovations, and returns them; the observed block's
+  likelihood is conditional on those innovations.
 """
 
 import numpy as np
@@ -959,3 +963,271 @@ class TestSymbolicEndog:
                 endog_names=data.endog_names[:2],
                 endog_scales=np.ones(2),
             )
+
+
+_LATENT_XFAIL = pytest.mark.xfail(strict=True, reason="issue 09b")
+
+
+def _latent_setup(rng: np.random.Generator, n_lags: int = 2, T: int = 40, with_exog: bool = True):
+    """Observed block, exog and names for a VAR with one latent series `b` first."""
+    obs = rng.standard_normal((T, 2))
+    exog = rng.standard_normal((T, 1)) if with_exog else None
+    return {
+        "endog": obs,
+        "exog": exog,
+        "n_lags": n_lags,
+        "endog_names": ["b", "y1", "y2"],
+        "exog_names": ["x"] if with_exog else None,
+        "endog_scales": np.array([0.5, 1.0, 2.0]),
+        "latent_names": ["b"],
+    }
+
+
+def _perturbed_point(model, rng: np.random.Generator) -> dict:
+    """`model`'s initial point with every value variable moved off its default.
+
+    The initial point puts every innovation and initial value at zero, which
+    would make the path trivially zero; a random perturbation exercises every
+    term of the recursion.
+    """
+    point = model.initial_point(random_seed=0)
+    return {name: value + 0.3 * rng.standard_normal(np.shape(value)) for name, value in point.items()}
+
+
+def _evaluate(model, point: dict, names: list[str]) -> dict[str, np.ndarray]:
+    fn = model.compile_fn([model[name] for name in names], inputs=model.value_vars, on_unused_input="ignore")
+    return dict(zip(names, (np.asarray(v) for v in fn(point)), strict=True))
+
+
+def _intercept_vector(values: dict, intercept_mask: np.ndarray) -> np.ndarray:
+    full = np.zeros(intercept_mask.size)
+    if "intercept" in values:
+        full[intercept_mask] = values["intercept"]
+    return full
+
+
+def _numpy_latent_path(values: dict, obs: np.ndarray, exog: np.ndarray | None, n_lags: int, intercept: np.ndarray):
+    """Hand-rolled VAR recursion for the latent block (index 0).
+
+    The latent equation is `b_t = c_b + sum_l A_l[b, :] full_{t-l} + B_exog[b] x_t + L[b, b] z_t`,
+    with `full = [b, y1, y2]` and `B` lag-major over `full`.
+    """
+    B, L, z, init = values["B"], values["L"], values["latent_innovations"], values["latent_init"]
+    T, n_vars = obs.shape[0], obs.shape[1] + 1
+    full = np.zeros((T, n_vars))
+    full[:, 1:] = obs
+    full[:n_lags, 0] = init[:, 0]
+    for t in range(n_lags, T):
+        x_lag = np.concatenate([full[t - lag] for lag in range(1, n_lags + 1)])
+        value = intercept[0] + B[0] @ x_lag + L[0, 0] * z[t - n_lags, 0]
+        if exog is not None:
+            value += values["B_exog"][0] @ exog[t]
+        full[t, 0] = value
+    return full
+
+
+class TestLatentSeries:
+    """`build_in_model(latent_names=...)`: non-centred latent series (issue 09b)."""
+
+    @_LATENT_XFAIL
+    @pytest.mark.parametrize("symbolic", [False, True])
+    def test_returned_path_matches_numpy_recursion(self, rng, symbolic):
+        import pymc as pm
+        import pytensor
+
+        kwargs = _latent_setup(rng)
+        obs = kwargs["endog"]
+        if symbolic:
+            kwargs["endog"] = pytensor.shared(obs)
+        with pm.Model() as model:
+            handles = VAR(lags=2).build_in_model(**kwargs)
+
+        assert handles.latent.name == "latent"
+        point = _perturbed_point(model, rng)
+        values = _evaluate(
+            model, point, ["latent", "B", "B_exog", "L", "intercept", "latent_init", "latent_innovations"]
+        )
+        assert values["latent"].shape == (obs.shape[0], 1)
+        expected = _numpy_latent_path(values, obs, kwargs["exog"], 2, values["intercept"])
+        np.testing.assert_allclose(values["latent"][:, 0], expected[:, 0], rtol=1e-10, atol=1e-10)
+
+    @_LATENT_XFAIL
+    @pytest.mark.parametrize("with_exog", [False, True])
+    def test_conditional_logp_plus_innovations_equals_joint_var_logp(self, rng, with_exog):
+        """Change of variables z -> latent residual `e_b = L[b, b] z`: the
+        conditional observed-block density plus the standard-normal density of
+        z, minus the Jacobian `sum_t log L[b, b]`, is the joint MvN density of
+        the full stacked VAR residuals."""
+        import pymc as pm
+        from scipy import stats
+
+        kwargs = _latent_setup(rng, with_exog=with_exog)
+        obs, exog, n_lags = kwargs["endog"], kwargs["exog"], kwargs["n_lags"]
+        with pm.Model() as model:
+            VAR(lags=n_lags).build_in_model(**kwargs)
+
+        point = _perturbed_point(model, rng)
+        names = ["latent", "B", "L", "intercept", "latent_innovations", "obs"]
+        if with_exog:
+            names.append("B_exog")
+        values = _evaluate(model, point, names)
+
+        full = np.column_stack([values["latent"], obs])
+        B, L, z = values["B"], values["L"], values["latent_innovations"]
+        rows = range(n_lags, full.shape[0])
+        x_lag = np.array([np.concatenate([full[t - lag] for lag in range(1, n_lags + 1)]) for t in rows])
+        mu = values["intercept"] + x_lag @ B.T
+        if with_exog:
+            mu += exog[n_lags:] @ values["B_exog"].T
+        resid = full[n_lags:] - mu
+        joint = stats.multivariate_normal(mean=np.zeros(3), cov=L @ L.T).logpdf(resid).sum()
+
+        n_rows = len(rows)
+        conditional = float(values["obs"])
+        innovations = stats.norm.logpdf(z).sum()
+        jacobian = -n_rows * np.log(L[0, 0])
+        assert conditional + innovations + jacobian == pytest.approx(joint, rel=1e-10)
+
+    @_LATENT_XFAIL
+    def test_latent_series_can_be_excluded_from_intercept_equations(self, rng):
+        import pymc as pm
+
+        kwargs = _latent_setup(rng)
+        with pm.Model() as model:
+            handles = VAR(lags=2).build_in_model(**kwargs, intercept_equations=["y1", "y2"])
+
+        assert list(model.coords["var_intercept"]) == ["y1", "y2"]
+        assert handles.intercept is not None
+        point = _perturbed_point(model, rng)
+        values = _evaluate(
+            model, point, ["latent", "B", "B_exog", "L", "intercept", "latent_init", "latent_innovations"]
+        )
+        intercept = _intercept_vector(values, np.array([False, True, True]))
+        expected = _numpy_latent_path(values, kwargs["endog"], kwargs["exog"], 2, intercept)
+        np.testing.assert_allclose(values["latent"][:, 0], expected[:, 0], rtol=1e-10, atol=1e-10)
+
+    @_LATENT_XFAIL
+    def test_handles_carry_latent_names(self, rng):
+        import pymc as pm
+
+        with pm.Model():
+            handles = VAR(lags=2).build_in_model(**_latent_setup(rng))
+
+        assert handles.latent_names == ("b",)
+
+    @_LATENT_XFAIL
+    def test_nested_named_model_prefixes_latent_variables(self, rng):
+        import pymc as pm
+
+        with pm.Model() as root, pm.Model(name="brand"):
+            handles = VAR(lags=2).build_in_model(**_latent_setup(rng))
+
+        names = set(root.named_vars)
+        for name in ["latent", "latent_init", "latent_innovations", "obs", "B", "L", "intercept"]:
+            assert f"brand::{name}" in names
+            assert name not in names
+        assert handles.latent.name == "brand::latent"
+
+    @_LATENT_XFAIL
+    def test_latent_path_is_finite_at_the_initial_point(self, rng):
+        import pymc as pm
+
+        with pm.Model() as model:
+            VAR(lags=2).build_in_model(**_latent_setup(rng))
+
+        assert np.isfinite(_model_logp(model))
+
+    @_LATENT_XFAIL
+    def test_missing_endog_scales_raises(self, rng):
+        import pymc as pm
+
+        kwargs = _latent_setup(rng)
+        kwargs["endog_scales"] = None
+        with pm.Model(), pytest.raises(ValueError, match="endog_scales"):
+            VAR(lags=2).build_in_model(**kwargs)
+
+    @_LATENT_XFAIL
+    def test_endog_scales_without_a_latent_entry_raises(self, rng):
+        import pymc as pm
+
+        kwargs = _latent_setup(rng)
+        kwargs["endog_scales"] = np.array([1.0, 2.0])  # observed columns only
+        with pm.Model(), pytest.raises(ValueError, match=r"endog_scales.*latent"):
+            VAR(lags=2).build_in_model(**kwargs)
+
+    @_LATENT_XFAIL
+    def test_latent_name_not_at_start_of_endog_names_raises(self, rng):
+        import pymc as pm
+
+        kwargs = _latent_setup(rng)
+        kwargs["endog_names"] = ["y1", "b", "y2"]
+        with pm.Model(), pytest.raises(ValueError, match="first"):
+            VAR(lags=2).build_in_model(**kwargs)
+
+    @_LATENT_XFAIL
+    def test_observed_column_count_mismatch_raises(self, rng):
+        import pymc as pm
+
+        kwargs = _latent_setup(rng)
+        kwargs["endog"] = np.column_stack([rng.standard_normal(40), kwargs["endog"]])  # latent column passed too
+        with pm.Model(), pytest.raises(ValueError, match="observed"):
+            VAR(lags=2).build_in_model(**kwargs)
+
+    @_LATENT_XFAIL
+    def test_non_gaussian_errors_raise(self, rng):
+        import pymc as pm
+
+        with pm.Model(), pytest.raises(ValueError, match="Gaussian"):
+            VAR(lags=2, error_dist="student_t").build_in_model(**_latent_setup(rng))
+
+    @_LATENT_XFAIL
+    def test_latent_init_sigma_sets_the_initial_value_prior(self, rng):
+        import pymc as pm
+        from scipy import stats
+
+        with pm.Model() as model:
+            VAR(lags=2).build_in_model(**_latent_setup(rng), latent_init_sigma=3.0)  # ty: ignore[unknown-argument]
+
+        point = {"latent_init": np.array([[0.4], [-1.2]])}
+        (logp,) = model.compile_logp(vars=[model["latent_init"]], sum=False)({
+            **model.initial_point(random_seed=0),
+            **point,
+        })
+        np.testing.assert_allclose(np.ravel(logp), stats.norm(0, 3.0).logpdf([0.4, -1.2]))
+
+    @_LATENT_XFAIL
+    @pytest.mark.slow
+    def test_small_latent_var_samples(self):
+        """One latent and one observed series, simulated from a stationary VAR(1)."""
+        import pymc as pm
+
+        rng = np.random.default_rng(7)
+        T = 120
+        A = np.array([[0.5, 0.3], [0.4, 0.3]])
+        full = np.zeros((T, 2))
+        for t in range(1, T):
+            full[t] = A @ full[t - 1] + np.array([0.5, 0.3]) * rng.standard_normal(2)
+
+        with pm.Model():
+            VAR(lags=1).build_in_model(
+                endog=full[:, 1:],
+                exog=None,
+                n_lags=1,
+                endog_names=["b", "y"],
+                endog_scales=[0.5, 0.3],
+                latent_names=["b"],  # ty: ignore[unknown-argument]
+                intercept_equations=["y"],
+            )
+            idata = pm.sample(
+                draws=200,
+                tune=300,
+                chains=2,
+                cores=1,
+                random_seed=1,
+                progressbar=False,
+                initvals={"B": np.array([[0.5, 0.0], [0.0, 0.5]])},
+            )
+
+        divergences = int(np.asarray(idata.sample_stats["diverging"]).sum())
+        assert divergences < 20
+        assert np.all(np.isfinite(np.asarray(idata.posterior["latent"])))
